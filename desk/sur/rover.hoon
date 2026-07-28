@@ -76,10 +76,15 @@
   ==
 +$  action
   $%  [%init-db ~]
+      [%pricing-report ~]
+      [%seed-pricing ~]
       [%seed-spike ~]
       [%verify-schema ~]
       [%vehicle-history ~]
       [%current-odometer ~]
+      [%preview-us entered-cents=@ud]
+      [%preview-eur entered-mills=@ud]
+      [%derive-fill-total input=fill-total-input]
   ==
 +$  result
   $%  [%ok msg=@t]

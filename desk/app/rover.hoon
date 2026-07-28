@@ -6,15 +6,22 @@
 |%
 +$  versioned-state
   $%  [%0 state-0]
+      [%1 state-1]
   ==
 +$  state-0
   $:  pending=(map wire @t)
       last=(unit (each (list cmd-result:ast) tang))
   ==
++$  state-1
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+  ==
 +$  card  card:agent:gall
 --
 %-  agent:dbug
-=|  state-0
+=|  state-1
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -25,14 +32,15 @@
   ^-  (quip card _this)
   `this
 ::
-++  on-save  !>([%0 state])
+++  on-save  !>([%1 state])
 ::
 ++  on-load
   |=  old=vase
   ^-  (quip card _this)
   =/  s  !<(versioned-state old)
   ?-  -.s
-    %0  `this(state +.s)
+    %0  `this(state [pending.+.s last.+.s ~ ~])
+    %1  `this(state +.s)
   ==
 ::
 ++  on-poke
@@ -47,6 +55,31 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover schema-m0:act])
         :_  this(pending (~(put by pending) wir 'init-db'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %pricing-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover pricing-report:act])
+        :_  this(pending (~(put by pending) wir 'pricing-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %seed-pricing
+        =/  base=@ux  (cut 7 [0 1] eny.bowl)
+        =/  ids=pricing-ids:act
+          :*  (fixture-id:act base 21)
+              (fixture-id:act base 22)
+              (fixture-id:act base 23)
+              (fixture-id:act base 24)
+              (fixture-id:act base 25)
+              (fixture-id:act base 26)
+              (fixture-id:act base 27)
+              (fixture-id:act base 28)
+          ==
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (seed-pricing:act ids now.bowl)])
+        :_  this(pending (~(put by pending) wir 'seed-pricing'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -100,6 +133,12 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %preview-us
+        `this(preview `(preview-us:act entered-cents.a))
+      %preview-eur
+        `this(preview `(preview-eur:act entered-mills.a))
+      %derive-fill-total
+        `this(total `(derive-fill-total:act input.a))
     ==
   ==
 ::
@@ -139,6 +178,12 @@
   ?+  path  (on-peek:def path)
       [%x %last ~]
     ``noun+!>(last)
+  ::
+      [%x %preview ~]
+    ``noun+!>(preview)
+  ::
+      [%x %total ~]
+    ``noun+!>(total)
   ==
 ::
 ++  on-watch  on-watch:def

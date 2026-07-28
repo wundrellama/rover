@@ -10,8 +10,26 @@
       acquisition=@ux
       odometer-at-fill=@ux
   ==
++$  pricing-ids
+  $:  usd-definition=@ux
+      eur-definition=@ux
+      vehicle=@ux
+      signature=@ux
+      standard=@ux
+      cash=@ux
+      snapshot=@ux
+      eur=@ux
+  ==
 ::
 ++  rover-db  %rover
+::
+++  fixture-id
+  |=  [seed=@ux ordinal=@ud]
+  ^-  @ux
+  =/  candidate=@ux  (mix seed ordinal)
+  ?:  =(0 candidate)
+    `@ux`(add ordinal 1)
+  candidate
 ::
 ++  pow-ten
   |=  exponent=@ud
@@ -144,8 +162,46 @@
     "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {res-id}); "
     "INSERT INTO odometer-observations VALUES ({odo-a}, {veh-id}, 100000, 1, %mi, ~2026.7.27..12.00.00, ~2026.7.27..12.00.01, %second, 'America/Chicago', {rec}); "
     "INSERT INTO energy-acquisitions VALUES ({acq-id}, {veh-id}, {res-id}, ~2026.7.28..12.00.00, ~2026.7.28..12.00.01, %second, 'America/Chicago', {rec}); "
-    "INSERT INTO fuel-fills VALUES ({acq-id}, 12345, %gal, %full); "
+    "INSERT INTO fuel-fills VALUES ({acq-id}, 12345, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
     "INSERT INTO odometer-observations VALUES ({odo-b}, {veh-id}, 100125, 1, %mi, ~2026.7.28..12.00.00, ~2026.7.28..12.00.01, %second, 'America/Chicago', {rec});"
+  ==
+::
+++  seed-pricing
+  |=  [ids=pricing-ids now=@da]
+  ^-  tape
+  =/  usd-id  (scow %ux usd-definition.ids)
+  =/  eur-id  (scow %ux eur-definition.ids)
+  =/  veh-id  (scow %ux vehicle.ids)
+  =/  sig-id  (scow %ux signature.ids)
+  =/  std-id  (scow %ux standard.ids)
+  =/  csh-id  (scow %ux cash.ids)
+  =/  snp-id  (scow %ux snapshot.ids)
+  =/  eur-acq  (scow %ux eur.ids)
+  =/  rec      (scow %da now)
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ({usd-id}, 'Pricing US gallon', %reservoir, %gal, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({eur-id}, 'Pricing EUR litre', %reservoir, %litre, N, {rec}); "
+    "INSERT INTO vehicles VALUES ({veh-id}, 'Pricing Fixture Vehicle', N, {rec}); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {usd-id}, N); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {eur-id}, N); "
+    "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {usd-id}); "
+    "INSERT INTO energy-acquisitions VALUES ({sig-id}, {veh-id}, {usd-id}, ~2026.7.28..13.00.00, ~2026.7.28..13.00.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({sig-id}, 12345, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO energy-acquisitions VALUES ({std-id}, {veh-id}, {usd-id}, ~2026.7.28..13.01.00, ~2026.7.28..13.01.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({std-id}, 12344, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO energy-acquisitions VALUES ({csh-id}, {veh-id}, {usd-id}, ~2026.7.28..13.02.00, ~2026.7.28..13.02.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({csh-id}, 12344, %gal, %full, 3499, %usd, %cash, %us-usd-gal, 2, 50); "
+    "INSERT INTO energy-acquisitions VALUES ({snp-id}, {veh-id}, {usd-id}, ~2026.7.28..13.03.00, ~2026.7.28..13.03.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({snp-id}, 12344, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 3, 0); "
+    "INSERT INTO energy-acquisitions VALUES ({eur-acq}, {veh-id}, {eur-id}, ~2026.7.28..13.04.00, ~2026.7.28..13.04.01, %second, 'Europe/Paris', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({eur-acq}, 1000, %litre, %full, 1749, %eur, %standard, %eu-eur-litre, 2, 0);"
+  ==
+::
+++  pricing-report
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Pricing Fixture Vehicle' SELECT V.label AS vehicle, E.label AS energy, F.quantity-milli, F.quantity-unit, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start; "
+    "FROM sys.columns WHERE namespace = %dbo AND name = %fuel-fills SELECT col-name;"
   ==
 ::
 ++  verify-schema
@@ -162,7 +218,7 @@
     "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, V.archived AS vehicle-archived, E.label AS energy, E.physical-kind, E.archived AS energy-archived, L.archived AS link-archived; "
     "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN vehicle-energy-definitions L ON D.vehicle-id = L.vehicle-id AND D.energy-definition-id = L.energy-definition-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS default-energy, L.archived AS link-archived; "
     "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.recorded-at; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, A.observed-start, A.observed-end;"
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end;"
   ==
 ::
 ++  current-odometer
