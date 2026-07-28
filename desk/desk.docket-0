@@ -1,0 +1,9 @@
+:~  title+'Rover'
+    info+'Private vehicle lifecycle log with exact human-unit rendering.'
+    color+0xd8.b843
+    image+'/apps/rover/assets/tile.png'
+    site+/apps/rover
+    version+[0 1 0]
+    website+'https://github.com/wundrellama/rover'
+    license+'proprietary'
+==

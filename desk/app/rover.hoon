@@ -4,6 +4,11 @@
 /-  ast=obelisk-ast, rover
 /+  act=rover-act, default-agent, dbug
 /*  shell-html  %html  /app/rover/shell/html
+/*  tile-png    %png   /app/rover/assets/tile/png
+/*  font-regular       %woff2x  /app/rover/assets/fonts/berkeleymono-regular/woff2x
+/*  font-bold          %woff2x  /app/rover/assets/fonts/berkeleymono-bold/woff2x
+/*  font-oblique       %woff2x  /app/rover/assets/fonts/berkeleymono-oblique/woff2x
+/*  font-bold-oblique  %woff2x  /app/rover/assets/fonts/berkeleymono-bold-oblique/woff2x
 |%
 +$  versioned-state
   $%  [%0 state-0]
@@ -58,6 +63,26 @@
   ^-  octs
   (as-octs:mimes:html shell-html)
 ::
+++  tile-octs
+  ^-  octs
+  (as-octs:mimes:html tile-png)
+::
+++  font-regular-octs
+  ^-  octs
+  font-regular
+::
+++  font-bold-octs
+  ^-  octs
+  font-bold
+::
+++  font-oblique-octs
+  ^-  octs
+  font-oblique
+::
+++  font-bold-oblique-octs
+  ^-  octs
+  font-bold-oblique
+::
 ++  handle-http
   |=  [=bowl:gall eyre-id=@ta req=inbound-request:eyre]
   ^-  (list card)
@@ -67,6 +92,16 @@
   ?>  =(our.bowl src.bowl)
   ?.  =(%'GET' method.request.req)
     (http-give eyre-id 405 ~ ~)
+  ?:  =('/apps/rover/assets/tile.png' url.request.req)
+    (http-give eyre-id 200 ['content-type' 'image/png']~ `tile-octs)
+  ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Regular.woff2' url.request.req)
+    (http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-regular-octs)
+  ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Bold.woff2' url.request.req)
+    (http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-octs)
+  ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Oblique.woff2' url.request.req)
+    (http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-oblique-octs)
+  ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Bold-Oblique.woff2' url.request.req)
+    (http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-oblique-octs)
   (http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page)
 --
 =|  state-3
