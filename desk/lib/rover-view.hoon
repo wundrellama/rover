@@ -61,6 +61,16 @@
   |=  row=vector:ast
   =(vehicle-id (cell-atom %vehicle-id row))
 ::
+++  rows-by
+  |=  [key=@tas value=@ rows=(list vector:ast)]
+  ^-  (list vector:ast)
+  %+  skim  rows
+  |=  row=vector:ast
+  =/  found  (vector-key:act key row)
+  ?^  found
+    =(value u.found)
+  %.n
+::
 ++  vehicle-label
   |=  [vehicle-id=@ rows=(list vector:ast)]
   ^-  @t
@@ -147,8 +157,41 @@
     "<div class=\"form-actions\"><button type=\"submit\">Save fill</button><button type=\"button\" data-close-screen>Cancel</button></div>"
     "<output id=\"fill-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
     "</form></section>"
-    "<section id=\"add-charge\" class=\"entry-screen\" hidden><header><p class=\"eyebrow\">NEW ACQUISITION</p><h2>Add charge</h2></header><p>Energy delivered entry is the next enabled action.</p><button type=\"button\" data-close-screen>Close</button></section>"
-    "<section id=\"add-odometer\" class=\"entry-screen\" hidden><header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header><p>Source-native digits and precision are retained.</p><button type=\"button\" data-close-screen>Close</button></section>"
+    "<section id=\"add-charge\" class=\"entry-screen\" hidden>"
+    "<header><p class=\"eyebrow\">NEW ACQUISITION</p><h2>Add charge</h2></header>"
+    "<form id=\"charge-form\">"
+    "<label>Vehicle<select name=\"vehicle\" required>"
+    vehicle-html
+    "</select></label>"
+    "<label>Electricity definition<select name=\"definition\" required>"
+    definition-html
+    "</select></label>"
+    "<div class=\"form-grid\"><label>Started<input name=\"start\" type=\"datetime-local\" required></label><label>Ended<input name=\"end\" type=\"datetime-local\" required></label></div>"
+    "<input name=\"zone\" type=\"hidden\">"
+    "<label>Energy delivered <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"energyDelivered\" inputmode=\"decimal\" placeholder=\"42.75\"><output>kWh</output></div></label>"
+    "<label>Energy source<select name=\"energySource\"><option value=\"charger-reported\">Charger reported</option><option value=\"wall-measured\">Wall measured</option><option value=\"vehicle-reported\">Vehicle reported</option><option value=\"estimate\">Estimate</option></select></label>"
+    "<div class=\"form-grid\"><label>Start battery <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"startBattery\" inputmode=\"decimal\" placeholder=\"20\"><output>%</output></div></label><label>End battery <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"endBattery\" inputmode=\"decimal\" placeholder=\"80\"><output>%</output></div></label></div>"
+    "<label>Mileage <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" placeholder=\"10020.0\"></label>"
+    "<label>Mileage unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label>"
+    "<label>Cost state<select name=\"costState\"><option value=\"unknown\">Unknown</option><option value=\"free\">Free</option></select></label>"
+    "<label>Currency<select name=\"currency\"><option value=\"usd\">USD</option><option value=\"eur\">EUR</option></select></label>"
+    "<div class=\"form-actions\"><button type=\"submit\">Save charge</button><button type=\"button\" data-close-screen>Cancel</button></div>"
+    "<output id=\"charge-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
+    "</form></section>"
+    "<section id=\"add-odometer\" class=\"entry-screen\" hidden>"
+    "<header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header>"
+    "<form id=\"odometer-form\">"
+    "<label>Vehicle<select name=\"vehicle\" required>"
+    vehicle-html
+    "</select></label>"
+    "<label>Reading<input name=\"reading\" inputmode=\"decimal\" placeholder=\"10020.125\" required></label>"
+    "<label>Source unit<select name=\"unit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label>"
+    "<label>Observed at<input name=\"observed\" type=\"datetime-local\" required></label>"
+    "<input name=\"zone\" type=\"hidden\">"
+    "<p class=\"field-note\">Source-native digits and precision are retained exactly.</p>"
+    "<div class=\"form-actions\"><button type=\"submit\">Save odometer</button><button type=\"button\" data-close-screen>Cancel</button></div>"
+    "<output id=\"odometer-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
+    "</form></section>"
   ==
 ::
 ++  current-odometer
@@ -271,19 +314,108 @@
     "<p class=\"empty\">No fill history.</p>"
   (fill-cards ordered)
 ::
+++  battery-at
+  |=  [endpoint=@tas rows=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    "Not recorded"
+  ?:  =(endpoint (cell-term %endpoint i.rows))
+    ;:  weld
+      (trip (format-scaled:render (cell-atom %value-digits i.rows) (cell-atom %value-decimals i.rows) %.n))
+      "%"
+    ==
+  $(rows t.rows)
+::
+++  charge-card
+  |=  [row=vector:ast measurements=(list vector:ast) batteries=(list vector:ast)]
+  ^-  tape
+  =/  acquisition-id  (cell-atom %acquisition-id row)
+  =/  energy-rows  (rows-by %acquisition-id acquisition-id measurements)
+  =/  battery-rows  (rows-by %acquisition-id acquisition-id batteries)
+  =/  delivered=tape
+    ?~  energy-rows
+      "Not recorded"
+    ;:  weld
+      (trip (format-scaled:render (cell-atom %quantity i.energy-rows) (cell-atom %decimals i.energy-rows) %.n))
+      " kWh - "
+      (escape (scot %tas (cell-term %point i.energy-rows)))
+      " / "
+      (escape (scot %tas (cell-term %evidence i.energy-rows)))
+    ==
+  =/  observed=tape
+    ;:  weld
+      (trip (format-da:render `@da`(cell-atom %observed-start row)))
+      " - "
+      (trip (format-da:render `@da`(cell-atom %observed-end row)))
+      " ("
+      (escape (cell-text %source-zone row))
+      ")"
+    ==
+  ;:  weld
+    "<article class=\"history-card charge\"><header><span>CHARGE</span><time>"
+    observed
+    "</time></header><dl>"
+    "<div><dt>ENERGY</dt><dd>"
+    (escape (cell-text %energy row))
+    "</dd></div><div><dt>ENERGY DELIVERED</dt><dd>"
+    delivered
+    "</dd></div><div><dt>START BATTERY</dt><dd>"
+    (battery-at %start battery-rows)
+    "</dd></div><div><dt>END BATTERY</dt><dd>"
+    (battery-at %end battery-rows)
+    "</dd></div><div><dt>COST STATE</dt><dd>"
+    (escape (scot %tas (cell-term %cost-state row)))
+    " / "
+    (escape (scot %tas (cell-term %currency row)))
+    "</dd></div></dl></article>"
+  ==
+::
+++  history-cards
+  |=  [rows=(list vector:ast) measurements=(list vector:ast) batteries=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  is-fill  (vector-key:act %quantity-milli i.rows)
+  =/  card=tape
+    ?^  is-fill
+      (fill-card i.rows)
+    (charge-card i.rows measurements batteries)
+  (weld card $(rows t.rows))
+::
+++  ordered-history
+  |=  $:  fills=(list vector:ast)
+          charges=(list vector:ast)
+          measurements=(list vector:ast)
+          batteries=(list vector:ast)
+      ==
+  ^-  tape
+  =/  ordered  (order-vectors:act %observed-start %.n (weld fills charges))
+  ?:  ?=(~ ordered)
+    "<p class=\"empty\">No acquisition history.</p>"
+  (history-cards ordered measurements batteries)
+::
 ++  vehicle-card
   |=  $:  row=vector:ast
           odometers=(list vector:ast)
           definition-rows=(list vector:ast)
           default-rows=(list vector:ast)
           fills=(list vector:ast)
+          charges=(list vector:ast)
+          measurements=(list vector:ast)
+          batteries=(list vector:ast)
       ==
   ^-  tape
   =/  id  (cell-atom %vehicle-id row)
   =/  archived  =(0 (cell-atom %archived row))
   =/  odometer  (current-odometer (rows-for id odometers))
   =/  defs  (definitions (rows-for id definition-rows) (rows-for id default-rows))
-  =/  history  (fill-history (rows-for id fills))
+  =/  history
+    %:  ordered-history
+        (rows-for id fills)
+        (rows-for id charges)
+        measurements
+        batteries
+    ==
   ;:  weld
     "<article class=\"vehicle-card\"><header><div><p class=\"eyebrow\">VEHICLE</p><h2>"
     (escape (cell-text %label row))
@@ -306,12 +438,15 @@
   =/  definition-rows  (rows-at commands 2)
   =/  default-rows  (rows-at commands 3)
   =/  fills  (rows-at commands 4)
+  =/  charges  (rows-at commands 5)
+  =/  measurements  (rows-at commands 6)
+  =/  batteries  (rows-at commands 7)
   =/  cards=tape
     |-
     ?~  vehicles
       ~
     =/  card
-      (vehicle-card i.vehicles odometers definition-rows default-rows fills)
+      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries)
     =/  rest=tape  $(vehicles t.vehicles)
     (weld card rest)
   =/  html=tape

@@ -17,6 +17,7 @@
       [%3 state-3]
       [%4 state-4]
       [%5 state-5]
+      [%6 state-6]
   ==
 +$  state-0
   $:  pending=(map wire @t)
@@ -61,6 +62,18 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry:rover)
+  ==
++$  state-6
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
   ==
 +$  card  card:agent:gall
 --
@@ -115,13 +128,72 @@
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
 ++  handle-http
-  |=  [sat=state-5 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-5]
+  |=  [sat=state-6 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-6]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?:  =(%'POST' method.request.req)
+    ?:  =('/apps/rover/add-charge' url.request.req)
+      ?~  body.request.req
+        :_  sat
+        %:  http-give
+            eyre-id
+            400
+            ['content-type' 'text/plain']~
+            `(text-octs '%bad-shape: charge')
+        ==
+      =/  decoded  (decode-charge:entry `@t`q.u.body.request.req)
+      ?:  ?=(%| -.decoded)
+        :_  sat
+        %:  http-give
+            eyre-id
+            400
+            ['content-type' 'text/plain']~
+            `(text-octs (entry-refusal p.decoded))
+        ==
+      =/  wir=wire  /rover-charge-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%tape %rover (fill-lookup:act vehicle-label.p.decoded definition-label.p.decoded)])
+      =/  new-sat
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          charge-pending  (~(put by charge-pending.sat) wir p.decoded)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ?:  =('/apps/rover/add-odometer' url.request.req)
+      ?~  body.request.req
+        :_  sat
+        %:  http-give
+            eyre-id
+            400
+            ['content-type' 'text/plain']~
+            `(text-octs '%bad-shape: odometer')
+        ==
+      =/  decoded  (decode-odometer:entry `@t`q.u.body.request.req)
+      ?:  ?=(%| -.decoded)
+        :_  sat
+        %:  http-give
+            eyre-id
+            400
+            ['content-type' 'text/plain']~
+            `(text-octs (entry-refusal p.decoded))
+        ==
+      =/  wir=wire  /rover-odometer-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%tape %rover (vehicle-lookup:act vehicle-label.p.decoded)])
+      =/  new-sat
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          odometer-pending  (~(put by odometer-pending.sat) wir p.decoded)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?.  =('/apps/rover/add-fill' url.request.req)
       [(http-give eyre-id 405 ~ ~) sat]
     ?~  body.request.req
@@ -176,7 +248,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-5
+=|  state-6
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -188,7 +260,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%5 state])
+++  on-save  !>([%6 state])
 ::
 ++  on-load
   |=  old=vase
@@ -196,12 +268,13 @@
   =/  s  !<(versioned-state old)
   =/  loaded=_this
     ?-  -.s
-      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~])
-      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~])
-      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~])
-      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~])
-      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~])
-      %5  this(state +.s)
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~])
+      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~])
+      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~])
+      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ ~])
+      %6  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -475,6 +548,221 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-odometer-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  input  (~(get by odometer-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ input)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-odometer-lookup-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: odometer.vehicle')
+        ==
+      ?~  p.res
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: odometer.vehicle')
+        ==
+      =/  rows  (result-rows:view i.p.res)
+      ?.  =(1 (lent rows))
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%ambiguous: odometer.vehicle')
+        ==
+      =/  row  (snag 0 rows)
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  write-wire=path  /rover-odometer-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script
+        %:  insert-odometer:act
+            (fixture-id:act base 201)
+            `@ux`(cell-atom:view %vehicle-id row)
+            u.input
+            now.bowl
+        ==
+      =/  jon  !>([%tape %rover script])
+      :_  this(http-pending (~(put by http-pending) write-wire u.eyre-id), odometer-pending (~(put by odometer-pending) write-wire u.input))
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), odometer-pending (~(del by odometer-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-odometer-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  input  (~(get by odometer-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ input)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-odometer-write-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: odometer')
+        ==
+      =/  reading
+        (format-distance:render digits.reading.u.input places.reading.u.input odo-unit.reading.u.input %.n)
+      =/  message  (cat 3 'Saved odometer - ' reading)
+      :_  this
+      %:  http-give
+          u.eyre-id
+          201
+          ['content-type' 'text/plain']~
+          `(text-octs message)
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), odometer-pending (~(del by odometer-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-charge-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  input  (~(get by charge-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ input)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-charge-lookup-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: charge.definition')
+        ==
+      ?~  p.res
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: charge.definition')
+        ==
+      =/  rows  (result-rows:view i.p.res)
+      ?.  =(1 (lent rows))
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%ambiguous: charge.definition')
+        ==
+      =/  row  (snag 0 rows)
+      ?.  =(%electricity (cell-term:view %physical-kind row))
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%wrong-kind: charge.definition')
+        ==
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  ids=charge-ids:act
+        :*  (fixture-id:act base 301)
+            (fixture-id:act base 302)
+            (fixture-id:act base 303)
+            (fixture-id:act base 304)
+            (fixture-id:act base 305)
+        ==
+      =/  write-wire=path  /rover-charge-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script
+        %:  insert-charge:act
+            ids
+            `@ux`(cell-atom:view %vehicle-id row)
+            `@ux`(cell-atom:view %energy-definition-id row)
+            u.input
+            now.bowl
+        ==
+      =/  jon  !>([%tape %rover script])
+      :_  this(http-pending (~(put by http-pending) write-wire u.eyre-id), charge-pending (~(put by charge-pending) write-wire u.input))
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), charge-pending (~(del by charge-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-charge-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  input  (~(get by charge-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ input)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-charge-write-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: charge')
+        ==
+      =/  delivered-text=@t
+        ?~  delivered.u.input
+          'Energy delivered not recorded'
+        %-  crip
+        ;:  weld
+          "Energy delivered "
+          (trip (format-scaled:render digits.u.delivered.u.input places.u.delivered.u.input %.n))
+          " kWh"
+        ==
+      =/  message  (cat 3 'Saved charge - ' delivered-text)
+      :_  this
+      %:  http-give
+          u.eyre-id
+          201
+          ['content-type' 'text/plain']~
+          `(text-octs message)
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), charge-pending (~(del by charge-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-fill-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact

@@ -66,6 +66,32 @@
       source-zone=@t
       mileage=(unit odo-reading)
   ==
++$  delivered-energy
+  $:  digits=@ud
+      places=@ud
+      point=measurement-point
+      evidence=measurement-evidence
+  ==
++$  battery-reading  [digits=@ud places=@ud]
++$  charge-entry
+  $:  vehicle-label=@t
+      definition-label=@t
+      observed-start=@da
+      observed-end=@da
+      source-zone=@t
+      delivered=(unit delivered-energy)
+      start-battery=(unit battery-reading)
+      end-battery=(unit battery-reading)
+      mileage=(unit odo-reading)
+      cost-state=cost-state
+      currency=currency
+  ==
++$  odometer-entry
+  $:  vehicle-label=@t
+      reading=odo-reading
+      observed-start=@da
+      source-zone=@t
+  ==
 +$  price-preview
   $:  currency=currency
       profile=price-profile

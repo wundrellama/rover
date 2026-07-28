@@ -24,4 +24,26 @@
 ?>  ?=(%| -.bad)
 ?>  =(%bad-shape class.p.bad)
 ?>  =('fill.quantity' field.p.bad)
+::
+=/  charge
+  %-  decode-charge:entry
+  '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T20:00","end":"2026-07-28T21:00","zone":"America/Chicago","energyDelivered":"42.75","energySource":"charger-reported","startBattery":"20.5","endBattery":"80","mileage":"10020.0","mileageUnit":"mi","costState":"free","currency":"usd"}'
+?>  ?=(%& -.charge)
+?>  ?=(^ delivered.p.charge)
+?>  =(4.275 digits.u.delivered.p.charge)
+?>  =(2 places.u.delivered.p.charge)
+?>  =(%charger point.u.delivered.p.charge)
+?>  =(%reported evidence.u.delivered.p.charge)
+?>  ?=(^ start-battery.p.charge)
+?>  =(205 digits.u.start-battery.p.charge)
+?>  =(1 places.u.start-battery.p.charge)
+?>  =(%free cost-state.p.charge)
+::
+=/  odometer
+  %-  decode-odometer:entry
+  '{"vehicle":"Phase A Vehicle","reading":"10,020.125","unit":"mi","observed":"2026-07-28T21:00","zone":"America/Chicago"}'
+?>  ?=(%& -.odometer)
+?>  =(10.020.125 digits.reading.p.odometer)
+?>  =(3 places.reading.p.odometer)
+?>  =(%mi odo-unit.reading.p.odometer)
 %entry-tests-pass

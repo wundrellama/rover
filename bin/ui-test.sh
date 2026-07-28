@@ -76,7 +76,8 @@ note "UA 571-C palette, fonts, glow control, and mobile rules served"
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
 grep -q 'Phase A Vehicle' <<<"$view" || fail "vehicle view has no seeded vehicle"
-grep -q '10,012.5 mi' <<<"$view" || fail "current odometer is not human-formatted"
+grep -Eq '[0-9]{1,3}(,[0-9]{3})+\.[0-9]+ (mi|km)' <<<"$view" \
+  || fail "current odometer is not human-formatted"
 grep -q '12.345 gal' <<<"$view" || fail "fill quantity is not human-formatted"
 grep -q '\$3\.499' <<<"$view" || fail "unit price is not human-formatted"
 grep -q '\$43\.20' <<<"$view" || fail "derived fill total is not rendered"
@@ -94,6 +95,19 @@ if grep -Eq '<input[^>]+name="(total|unitPriceMills|quantityMilli)"' <<<"$view";
   fail "add-fill form asks for a derived total or machine representation"
 fi
 grep -q 'Energy delivered' <<<"$view" || fail "add-charge surface lacks Energy delivered wording"
+grep -q 'id="charge-form"' <<<"$view" || fail "add-charge form is missing"
+grep -q 'name="energyDelivered"' <<<"$view" \
+  || fail "add-charge form lacks optional delivered energy"
+grep -q 'name="energySource"' <<<"$view" \
+  || fail "add-charge form lacks delivered-energy source"
+grep -q 'name="costState"' <<<"$view" || fail "add-charge form lacks cost state"
+charge_html="${view#*id=\"add-charge\"}"
+charge_html="${charge_html%%</section>*}"
+if grep -Eqi 'full|partial|battery filled' <<<"$charge_html"; then
+  fail "add-charge screen contains a fuel tank-state concept"
+fi
+grep -q 'id="odometer-form"' <<<"$view" || fail "standalone odometer form is missing"
+grep -q 'name="reading"' <<<"$view" || fail "odometer form lacks source-native reading"
 
 bad_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
@@ -128,18 +142,19 @@ const fs = require('fs');
     path: '/'
   }]);
   await page.goto(`${process.env.URL}/apps/rover`);
-  await page.locator('#fill-form').waitFor({state: 'attached'});
+  const fillForm = page.locator('#fill-form');
+  await fillForm.waitFor({state: 'attached'});
   await page.locator('[data-open-screen="add-fill"]').click();
-  await page.locator('[name="vehicle"]').selectOption({label: 'Phase A Vehicle'});
-  await page.locator('[name="definition"]').selectOption({label: 'Regular 87'});
-  await page.locator('[name="quantity"]').fill('12.344');
-  await page.locator('[name="price"]').fill('$3.49');
+  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Phase A Vehicle'});
+  await fillForm.locator('[name="definition"]').selectOption({label: 'Regular 87'});
+  await fillForm.locator('[name="quantity"]').fill('12.344');
+  await fillForm.locator('[name="price"]').fill('$3.49');
   const read = selector => page.locator(selector).evaluate(element => element.value);
   const price = await read('#fill-price-completed');
   const standard = await read('#fill-derived-total');
-  await page.locator('[name="tank"]').selectOption('partial');
+  await fillForm.locator('[name="tank"]').selectOption('partial');
   const afterTank = await read('#fill-derived-total');
-  await page.locator('[name="settlement"]').selectOption('cash');
+  await fillForm.locator('[name="settlement"]').selectOption('cash');
   const cash = await read('#fill-derived-total');
   const shape = await page.locator('#fill-derived-total').evaluate(element => ({
     tag: element.tagName,
@@ -184,6 +199,45 @@ view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -q '6.543 gal' <<<"$view" || fail "saved fill quantity did not render back to a human"
 grep -q '\$22\.89' <<<"$view" || fail "saved fill derived total did not render"
 note "valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived \$22.89"
+
+bad_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T22:00","end":"2026-07-28T21:00","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"unknown","currency":"usd"}' \
+  "$URL/apps/rover/add-charge")"
+[ "$bad_charge" = $'%bad-range: charge.end\n400' ] \
+  || fail "malformed charge did not name its end field: $bad_charge"
+
+saved_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T22:00","end":"2026-07-28T23:00","zone":"America/Chicago","energyDelivered":"41.25","energySource":"charger-reported","startBattery":"21","endBattery":"79.5","mileage":"10022.0","mileageUnit":"mi","costState":"free","currency":"usd"}' \
+  "$URL/apps/rover/add-charge")"
+[ "$saved_charge" = $'Saved charge - Energy delivered 41.25 kWh\n201' ] \
+  || fail "valid charge was not saved: $saved_charge"
+
+bad_odometer="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","reading":"ten thousand","unit":"mi","observed":"2026-07-28T23:05","zone":"America/Chicago"}' \
+  "$URL/apps/rover/add-odometer")"
+[ "$bad_odometer" = $'%bad-shape: odometer.reading\n400' ] \
+  || fail "malformed odometer did not name its reading field: $bad_odometer"
+
+saved_odometer="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","reading":"10023.125","unit":"mi","observed":"2026-07-28T23:05","zone":"America/Chicago"}' \
+  "$URL/apps/rover/add-odometer")"
+[ "$saved_odometer" = $'Saved odometer - 10,023.125 mi\n201' ] \
+  || fail "valid odometer was not saved: $saved_odometer"
+
+view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q '41.25 kWh' <<<"$view" || fail "saved delivered energy did not render"
+grep -q '21%' <<<"$view" || fail "saved start battery did not render"
+grep -q '79.5%' <<<"$view" || fail "saved end battery did not render"
+grep -q 'charger / reported' <<<"$view" || fail "charging measurement source did not render"
+grep -q '10,023.125 mi' <<<"$view" || fail "standalone odometer did not become current"
+if grep -Eq '(^|[^0-9,.])(4125|10023125)([^0-9,.]|$)|0x[0-9a-fA-F]+' <<<"$view"; then
+  fail "charge/odometer view leaked a raw machine value or ID"
+fi
+note "charge and standalone odometer save through Obelisk and render source-native evidence"
 
 asset_check() {
   local path="$1" content_type="$2" source="$3"

@@ -331,3 +331,77 @@ screen (options abbreviated here only to keep this evidence readable):
   </form>
 </section>
 ```
+
+## Slice 6b — charge and standalone odometer
+
+The browser fixture was extended before replacing the placeholder
+charge text. RED, exact output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: FAIL - add-charge form is missing
+```
+
+The completed charge write uses one atomic mutation-only script for the
+acquisition, charging subtype, cost state, optional delivered-energy
+measurement, optional endpoint battery observations, and optional
+charge-time odometer observation. The standalone odometer action keeps
+the entered digits, precision, unit, local time, and zone.
+
+First rich live writes, exact responses:
+
+```console
+$ curl ... --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T20:00","end":"2026-07-28T21:00","zone":"America/Chicago","energyDelivered":"42.75","energySource":"charger-reported","startBattery":"20.5","endBattery":"80","mileage":"10020.0","mileageUnit":"mi","costState":"free","currency":"usd"}' \
+>   http://localhost:8082/apps/rover/add-charge
+charge HTTP 201
+body: Saved charge - Energy delivered 42.75 kWh
+
+$ curl ... --data-raw '{"vehicle":"Phase A Vehicle","reading":"10021.125","unit":"mi","observed":"2026-07-28T21:05","zone":"America/Chicago"}' \
+>   http://localhost:8082/apps/rover/add-odometer
+odometer HTTP 201
+body: Saved odometer - 10,021.125 mi
+```
+
+The read projection then returned human values only:
+
+```console
+$ curl -sS -b /tmp/rover-debug-jar \
+>   http://localhost:8082/apps/rover/view > /tmp/rover-charge-view.html
+$ rg -o '42\\.75 kWh|charger / reported|20\\.5%|80%|10,021\\.125 mi' \
+>   /tmp/rover-charge-view.html
+10,021.125 mi
+42.75 kWh
+charger / reported
+20.5%
+80%
+```
+
+Final GREEN, exact browser output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS**.
+
+The charge screen contains no `full`, `partial`, or `Battery filled`
+concept. Malformed bounds refuse as `%bad-range: charge.end`, malformed
+odometer text refuses as `%bad-shape: odometer.reading`, and the served
+read projection rejects raw identifiers and the submitted
+`4125`/`10023125` machine integers.

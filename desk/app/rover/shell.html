@@ -660,6 +660,75 @@
           verdict.value = `%unavailable: fill · ${error.message}`;
         }
       });
+
+      const chargeForm = app.querySelector('#charge-form');
+      if (chargeForm) {
+        const chargeVehicle = chargeForm.elements.vehicle;
+        const chargeDefinition = chargeForm.elements.definition;
+        const syncChargeDefinitions = () => {
+          const options = [...chargeDefinition.options];
+          options.forEach((option) => {
+            option.hidden =
+              option.dataset.vehicle !== chargeVehicle.value ||
+              option.dataset.kind !== 'electricity';
+          });
+          if (chargeDefinition.selectedOptions[0]?.hidden) {
+            chargeDefinition.value =
+              options.find((option) => !option.hidden)?.value || '';
+          }
+        };
+        chargeVehicle.addEventListener('change', syncChargeDefinitions);
+        syncChargeDefinitions();
+        chargeForm.elements.start.value = local.toISOString().slice(0, 16);
+        chargeForm.elements.end.value = local.toISOString().slice(0, 16);
+        chargeForm.elements.zone.value =
+          Intl.DateTimeFormat().resolvedOptions().timeZone;
+        chargeForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = app.querySelector('#charge-verdict');
+          verdict.value = 'Saving…';
+          try {
+            const response = await fetch('/apps/rover/add-charge', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {'content-type': 'application/json'},
+              body: JSON.stringify(
+                Object.fromEntries(new FormData(chargeForm).entries())
+              )
+            });
+            verdict.value = await response.text();
+            if (response.ok) await loadView();
+          } catch (error) {
+            verdict.value = `%unavailable: charge · ${error.message}`;
+          }
+        });
+      }
+
+      const odometerForm = app.querySelector('#odometer-form');
+      if (odometerForm) {
+        odometerForm.elements.observed.value = local.toISOString().slice(0, 16);
+        odometerForm.elements.zone.value =
+          Intl.DateTimeFormat().resolvedOptions().timeZone;
+        odometerForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = app.querySelector('#odometer-verdict');
+          verdict.value = 'Saving…';
+          try {
+            const response = await fetch('/apps/rover/add-odometer', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {'content-type': 'application/json'},
+              body: JSON.stringify(
+                Object.fromEntries(new FormData(odometerForm).entries())
+              )
+            });
+            verdict.value = await response.text();
+            if (response.ok) await loadView();
+          } catch (error) {
+            verdict.value = `%unavailable: odometer · ${error.message}`;
+          }
+        });
+      }
     }
 
     async function loadView() {

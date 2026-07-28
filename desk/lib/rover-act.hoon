@@ -84,6 +84,13 @@
   $:  acquisition=@ux
       odometer=@ux
   ==
++$  charge-ids
+  $:  acquisition=@ux
+      measurement=@ux
+      start-battery=@ux
+      end-battery=@ux
+      odometer=@ux
+  ==
 ::
 ++  rover-db  %rover
 ::
@@ -685,6 +692,9 @@
     "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS energy, E.physical-kind, E.quantity-unit, E.archived AS energy-archived, L.archived AS link-archived; "
     "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS default-energy; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end, A.source-zone, A.recorded-at;"
+    " FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id JOIN charging-costs K ON C.acquisition-id = K.acquisition-id SELECT V.vehicle-id, C.acquisition-id, E.label AS energy, A.observed-start, A.observed-end, A.source-zone, A.recorded-at, K.cost-state, K.currency;"
+    " FROM charging-energy-measurements M SELECT M.acquisition-id, M.quantity, M.decimals, M.measure-unit, M.point, M.evidence;"
+    " FROM charging-session-batteries L JOIN battery-observation-percent P ON L.battery-observation-id = P.battery-observation-id SELECT L.acquisition-id, L.endpoint, P.value-digits, P.value-decimals;"
   ==
 ::
 ++  sql-quote
@@ -721,6 +731,15 @@
     "' AND E.label = '"
     (sql-quote definition-label)
     "' SELECT V.vehicle-id, E.energy-definition-id, E.quantity-unit, E.physical-kind;"
+  ==
+::
+++  vehicle-lookup
+  |=  vehicle-label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT V.vehicle-id;"
   ==
 ::
 ++  insert-fill
@@ -811,6 +830,169 @@
       ");"
     ==
   ;:(weld acquisition-row fill-row mileage-rows)
+::
+++  insert-odometer
+  |=  $:  odometer-id=@ux
+          vehicle-id=@ux
+          input=odometer-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  observed-start  (scow %da observed-start.input)
+  =/  observed-end  (scow %da (add observed-start.input (bex 64)))
+  ;:  weld
+    "INSERT INTO odometer-observations VALUES ("
+    (scow %ux odometer-id)
+    ", "
+    (scow %ux vehicle-id)
+    ", "
+    (sql-ud digits.reading.input)
+    ", "
+    (sql-ud places.reading.input)
+    ", "
+    (sql-term odo-unit.reading.input)
+    ", "
+    observed-start
+    ", "
+    observed-end
+    ", %second, '"
+    (sql-quote source-zone.input)
+    "', "
+    (scow %da recorded-at)
+    ");"
+  ==
+::
+++  insert-charge-battery
+  |=  $:  battery-id=@ux
+          acquisition-id=@ux
+          vehicle-id=@ux
+          endpoint=session-endpoint:rover
+          reading=battery-reading:rover
+          observed-at=@da
+          source-zone=@t
+          recorded-at=@da
+      ==
+  ^-  tape
+  ;:  weld
+    " INSERT INTO battery-observations VALUES ("
+    (scow %ux battery-id)
+    ", "
+    (scow %ux vehicle-id)
+    ", %charge-level, "
+    (scow %da observed-at)
+    ", "
+    (scow %da (add observed-at (bex 64)))
+    ", %second, '"
+    (sql-quote source-zone)
+    "', "
+    (scow %da recorded-at)
+    "); INSERT INTO battery-observation-percent VALUES ("
+    (scow %ux battery-id)
+    ", "
+    (sql-ud digits.reading)
+    ", "
+    (sql-ud places.reading)
+    "); INSERT INTO charging-session-batteries VALUES ("
+    (scow %ux acquisition-id)
+    ", "
+    (sql-term endpoint)
+    ", "
+    (scow %ux battery-id)
+    ");"
+  ==
+::
+++  insert-charge
+  |=  $:  ids=charge-ids
+          vehicle-id=@ux
+          definition-id=@ux
+          input=charge-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  acquisition  (scow %ux acquisition.ids)
+  =/  vehicle  (scow %ux vehicle-id)
+  =/  recorded  (scow %da recorded-at)
+  =/  base=tape
+    ;:  weld
+      "INSERT INTO energy-acquisitions VALUES ("
+      acquisition
+      ", "
+      vehicle
+      ", "
+      (scow %ux definition-id)
+      ", "
+      (scow %da observed-start.input)
+      ", "
+      (scow %da observed-end.input)
+      ", %second, '"
+      (sql-quote source-zone.input)
+      "', "
+      recorded
+      "); INSERT INTO charging-sessions VALUES ("
+      acquisition
+      "); INSERT INTO charging-costs VALUES ("
+      acquisition
+      ", "
+      (sql-term cost-state.input)
+      ", "
+      (sql-term currency.input)
+      ", "
+      recorded
+      ");"
+    ==
+  =/  delivered-row=tape
+    ?~  delivered.input
+      ~
+    ;:  weld
+      " INSERT INTO charging-energy-measurements VALUES ("
+      (scow %ux measurement.ids)
+      ", "
+      acquisition
+      ", "
+      (sql-ud digits.u.delivered.input)
+      ", "
+      (sql-ud places.u.delivered.input)
+      ", %kwh, "
+      (sql-term point.u.delivered.input)
+      ", "
+      (sql-term evidence.u.delivered.input)
+      ", "
+      recorded
+      ");"
+    ==
+  =/  start-row=tape
+    ?~  start-battery.input
+      ~
+    %:  insert-charge-battery
+        start-battery.ids
+        acquisition.ids
+        vehicle-id
+        %start
+        u.start-battery.input
+        observed-start.input
+        source-zone.input
+        recorded-at
+    ==
+  =/  end-row=tape
+    ?~  end-battery.input
+      ~
+    %:  insert-charge-battery
+        end-battery.ids
+        acquisition.ids
+        vehicle-id
+        %end
+        u.end-battery.input
+        observed-end.input
+        source-zone.input
+        recorded-at
+    ==
+  =/  mileage-row=tape
+    ?~  mileage.input
+      ~
+    =/  odo-input=odometer-entry:rover
+      [vehicle-label.input u.mileage.input observed-end.input source-zone.input]
+    (insert-odometer odometer.ids vehicle-id odo-input recorded-at)
+  ;:(weld base delivered-row start-row end-row mileage-row)
 ::
 ++  vector-key
   |=  [key=@tas row=vector:ast]
