@@ -74,18 +74,28 @@
       cash-increment-mills=@ud
       settlement-mode=settlement-mode
   ==
++$  charging-component-amount
+  [component=cost-component amount-mills=@ud]
++$  charging-total-proof
+  $:  positive-mills=@ud
+      discount-mills=@ud
+      total-mills=@ud
+  ==
 +$  action
   $%  [%init-db ~]
+      [%charging-cost-report ~]
       [%charging-evidence-report ~]
       [%fuel-evidence-report ~]
       [%pricing-report ~]
       [%seed-fuel-evidence ~]
       [%seed-charging-evidence ~]
+      [%seed-charging-cost ~]
       [%seed-pricing ~]
       [%seed-spike ~]
       [%verify-schema ~]
       [%vehicle-history ~]
       [%current-odometer ~]
+      [%derive-charging-total components=(list charging-component-amount)]
       [%preview-us entered-cents=@ud]
       [%preview-eur entered-mills=@ud]
       [%derive-fill-total input=fill-total-input]

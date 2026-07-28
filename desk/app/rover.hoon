@@ -7,6 +7,7 @@
 +$  versioned-state
   $%  [%0 state-0]
       [%1 state-1]
+      [%2 state-2]
   ==
 +$  state-0
   $:  pending=(map wire @t)
@@ -18,10 +19,17 @@
       preview=(unit price-preview:rover)
       total=(unit total-proof:rover)
   ==
++$  state-2
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+  ==
 +$  card  card:agent:gall
 --
 %-  agent:dbug
-=|  state-1
+=|  state-2
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -32,15 +40,16 @@
   ^-  (quip card _this)
   `this
 ::
-++  on-save  !>([%1 state])
+++  on-save  !>([%2 state])
 ::
 ++  on-load
   |=  old=vase
   ^-  (quip card _this)
   =/  s  !<(versioned-state old)
   ?-  -.s
-    %0  `this(state [pending.+.s last.+.s ~ ~])
-    %1  `this(state +.s)
+    %0  `this(state [pending.+.s last.+.s ~ ~ ~])
+    %1  `this(state [pending.+.s last.+.s preview.+.s total.+.s ~])
+    %2  `this(state +.s)
   ==
 ::
 ++  on-poke
@@ -55,6 +64,13 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover schema-m0:act])
         :_  this(pending (~(put by pending) wir 'init-db'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %charging-cost-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover charging-cost-report:act])
+        :_  this(pending (~(put by pending) wir 'charging-cost-report'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -134,6 +150,28 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %seed-charging-cost
+        =/  base=@ux  (cut 7 [0 1] eny.bowl)
+        =/  ids=charging-cost-ids:act
+          :*  (fixture-id:act base 51)
+              (fixture-id:act base 52)
+              (fixture-id:act base 53)
+              (fixture-id:act base 54)
+              (fixture-id:act base 55)
+              (fixture-id:act base 56)
+              (fixture-id:act base 57)
+              (fixture-id:act base 58)
+              (fixture-id:act base 59)
+              (fixture-id:act base 60)
+              (fixture-id:act base 61)
+              (fixture-id:act base 62)
+          ==
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (seed-charging-cost:act ids now.bowl)])
+        :_  this(pending (~(put by pending) wir 'seed-charging-cost'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %seed-spike
         =/  seed  eny.bowl
         =/  base=@ux  (cut 7 [0 1] seed)
@@ -190,6 +228,8 @@
         `this(preview `(preview-eur:act entered-mills.a))
       %derive-fill-total
         `this(total `(derive-fill-total:act input.a))
+      %derive-charging-total
+        `this(charging-total `(derive-charging-total:act components.a))
     ==
   ==
 ::
@@ -235,6 +275,9 @@
   ::
       [%x %total ~]
     ``noun+!>(total)
+  ::
+      [%x %charging-total ~]
+    ``noun+!>(charging-total)
   ==
 ::
 ++  on-watch  on-watch:def

@@ -41,6 +41,20 @@
       segments-observation=@ux
       health-observation=@ux
   ==
++$  charging-cost-ids
+  $:  definition=@ux
+      vehicle=@ux
+      free-acquisition=@ux
+      unknown-acquisition=@ux
+      itemized-acquisition=@ux
+      receipt-acquisition=@ux
+      energy-component=@ux
+      time-component=@ux
+      session-component=@ux
+      idle-component=@ux
+      tax-component=@ux
+      discount-component=@ux
+  ==
 ::
 ++  rover-db  %rover
 ::
@@ -122,6 +136,20 @@
       standard-total-mills
       total-mills
   ==
+::
+++  derive-charging-total
+  |=  components=(list charging-component-amount:rover)
+  ^-  charging-total-proof:rover
+  =/  positive=@ud  0
+  =/  discounts=@ud  0
+  |-
+  ?~  components
+    ?>  (gte positive discounts)
+    [positive discounts (sub positive discounts)]
+  =/  item  i.components
+  ?:  =(%discount component.item)
+    $(components t.components, discounts (add discounts amount-mills.item))
+  $(components t.components, positive (add positive amount-mills.item))
 ::
 ++  schema-m0
   ^-  tape
@@ -315,6 +343,56 @@
     "FROM vehicles V JOIN battery-observations B ON V.vehicle-id = B.vehicle-id JOIN battery-observation-segments S ON B.battery-observation-id = S.battery-observation-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.measure, S.filled, S.total; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-session-batteries L ON A.acquisition-id = L.acquisition-id JOIN battery-observations B ON L.battery-observation-id = B.battery-observation-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, L.endpoint, B.measure, B.observed-start; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-efficiency-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.reason;"
+  ==
+::
+++  seed-charging-cost
+  |=  [ids=charging-cost-ids now=@da]
+  ^-  tape
+  =/  def-id   (scow %ux definition.ids)
+  =/  veh-id   (scow %ux vehicle.ids)
+  =/  free-id  (scow %ux free-acquisition.ids)
+  =/  unk-id   (scow %ux unknown-acquisition.ids)
+  =/  itm-id   (scow %ux itemized-acquisition.ids)
+  =/  rcp-id   (scow %ux receipt-acquisition.ids)
+  =/  nrg-id   (scow %ux energy-component.ids)
+  =/  tim-id   (scow %ux time-component.ids)
+  =/  ses-id   (scow %ux session-component.ids)
+  =/  idl-id   (scow %ux idle-component.ids)
+  =/  tax-id   (scow %ux tax-component.ids)
+  =/  dsc-id   (scow %ux discount-component.ids)
+  =/  rec      (scow %da now)
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Cost Fixture Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO vehicles VALUES ({veh-id}, 'Charging Cost Vehicle', N, {rec}); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
+    "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id}); "
+    "INSERT INTO energy-acquisitions VALUES ({free-id}, {veh-id}, {def-id}, ~2026.7.28..16.00.00, ~2026.7.28..16.00.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO charging-sessions VALUES ({free-id}); "
+    "INSERT INTO charging-costs VALUES ({free-id}, %free, %usd, {rec}); "
+    "INSERT INTO energy-acquisitions VALUES ({unk-id}, {veh-id}, {def-id}, ~2026.7.28..16.01.00, ~2026.7.28..16.01.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO charging-sessions VALUES ({unk-id}); "
+    "INSERT INTO charging-costs VALUES ({unk-id}, %unknown, %usd, {rec}); "
+    "INSERT INTO energy-acquisitions VALUES ({itm-id}, {veh-id}, {def-id}, ~2026.7.28..16.02.00, ~2026.7.28..16.02.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO charging-sessions VALUES ({itm-id}); "
+    "INSERT INTO charging-costs VALUES ({itm-id}, %itemized, %usd, {rec}); "
+    "INSERT INTO charging-cost-components VALUES ({nrg-id}, {itm-id}, %energy, 45678, 3, %kwh, 250, 11420); "
+    "INSERT INTO charging-cost-components VALUES ({tim-id}, {itm-id}, %time, 30, 0, %minute, 100, 3000); "
+    "INSERT INTO charging-cost-components VALUES ({ses-id}, {itm-id}, %session, 1, 0, %session, 1500, 1500); "
+    "INSERT INTO charging-cost-components VALUES ({idl-id}, {itm-id}, %idle, 5, 0, %minute, 500, 2500); "
+    "INSERT INTO charging-cost-components VALUES ({tax-id}, {itm-id}, %tax, 1, 0, %session, 1000, 1000); "
+    "INSERT INTO charging-cost-components VALUES ({dsc-id}, {itm-id}, %discount, 1, 0, %session, 2000, 2000); "
+    "INSERT INTO energy-acquisitions VALUES ({rcp-id}, {veh-id}, {def-id}, ~2026.7.28..16.03.00, ~2026.7.28..16.03.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO charging-sessions VALUES ({rcp-id}); "
+    "INSERT INTO charging-costs VALUES ({rcp-id}, %receipt-total-only, %usd, {rec}); "
+    "INSERT INTO charging-cost-source-totals VALUES ({rcp-id}, 22340);"
+  ==
+::
+++  charging-cost-report
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-costs C ON A.acquisition-id = C.acquisition-id WHERE V.label = 'Charging Cost Vehicle' SELECT V.label AS vehicle, A.observed-start, C.cost-state, C.currency; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-cost-components C ON A.acquisition-id = C.acquisition-id WHERE V.label = 'Charging Cost Vehicle' SELECT V.label AS vehicle, C.component, C.quantity, C.quantity-decimals, C.quantity-unit, C.rate-mills, C.amount-mills; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-cost-source-totals T ON A.acquisition-id = T.acquisition-id WHERE V.label = 'Charging Cost Vehicle' SELECT V.label AS vehicle, A.observed-start, T.total-mills;"
   ==
 ::
 ++  verify-schema
