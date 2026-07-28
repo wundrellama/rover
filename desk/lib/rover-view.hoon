@@ -71,6 +71,32 @@
     =(value u.found)
   %.n
 ::
+++  row-by-text
+  |=  [key=@tas value=@t rows=(list vector:ast)]
+  ^-  (unit vector:ast)
+  ?~  rows
+    ~
+  ?:  =(value (cell-text key i.rows))
+    `i.rows
+  $(rows t.rows)
+::
+++  ids-for-labels
+  |=  $:  labels=(list @t)
+          rows=(list vector:ast)
+          label-key=@tas
+          id-key=@tas
+      ==
+  ^-  (each (list @ux) @t)
+  ?~  labels
+    [%& ~]
+  =/  found  (row-by-text label-key i.labels rows)
+  ?~  found
+    [%| i.labels]
+  =/  rest  $(labels t.labels)
+  ?:  ?=(%| -.rest)
+    rest
+  [%& [`@ux`(cell-atom id-key u.found) p.rest]]
+::
 ++  vehicle-label
   |=  [vehicle-id=@ rows=(list vector:ast)]
   ^-  @t
@@ -123,11 +149,62 @@
     ==
   (weld option $(rows t.rows))
 ::
+++  station-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  =/  rest  (station-options t.rows)
+  ?:  archived
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  =/  place  (escape (cell-text %place i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\" data-search=\""
+    label
+    " "
+    place
+    "\">"
+    label
+    " - "
+    place
+    "</option>"
+    rest
+  ==
+::
+++  additive-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  =/  rest  (additive-options t.rows)
+  ?:  archived
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<label class=\"check-option\"><input type=\"checkbox\" name=\"additives\" value=\""
+    label
+    "\"><span>"
+    label
+    "</span></label>"
+    rest
+  ==
+::
 ++  entry-screens
-  |=  [vehicles=(list vector:ast) definitions=(list vector:ast)]
+  |=  $:  vehicles=(list vector:ast)
+          definitions=(list vector:ast)
+          stations=(list vector:ast)
+          additives=(list vector:ast)
+      ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
   =/  definition-html  (definition-options definitions vehicles)
+  =/  station-html  (station-options stations)
+  =/  additive-html  (additive-options additives)
   ;:  weld
     "<nav class=\"action-bar\" aria-label=\"Record actions\">"
     "<button type=\"button\" data-open-screen=\"add-fill\">Add fill</button>"
@@ -153,6 +230,16 @@
     "<input name=\"zone\" type=\"hidden\">"
     "<label>Optional mileage<input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"10012.5\"></label>"
     "<label>Mileage unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label>"
+    "<fieldset class=\"station-field\"><legend>Station <span class=\"optional\">optional</span></legend>"
+    "<label>Search saved stations<input id=\"fill-station-search\" type=\"search\" autocomplete=\"off\" placeholder=\"Search recent or saved\"></label>"
+    "<select id=\"fill-station\" name=\"station\"><option value=\"none\">No station recorded</option>"
+    station-html
+    "<option value=\"new\">Add new station&hellip;</option></select>"
+    "<div id=\"fill-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\" placeholder=\"Home charger\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\" placeholder=\"Home\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div>"
+    "</fieldset>"
+    "<fieldset id=\"fill-additives\"><legend>Additives <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
+    additive-html
+    "</div></fieldset>"
     "<div class=\"preview-row derived-preview\"><span>Derived total</span><output id=\"fill-derived-total\" aria-live=\"polite\">&mdash;</output><small>Calculated from quantity and completed unit price</small></div>"
     "<div class=\"form-actions\"><button type=\"submit\">Save fill</button><button type=\"button\" data-close-screen>Cancel</button></div>"
     "<output id=\"fill-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
@@ -248,9 +335,24 @@
     "</ul></div>"
   ==
 ::
-++  fill-card
-  |=  row=vector:ast
+++  additive-chips
+  |=  rows=(list vector:ast)
   ^-  tape
+  ?~  rows
+    ~
+  ;:  weld
+    "<span class=\"chip\">"
+    (escape (cell-text %additive i.rows))
+    "</span>"
+    $(rows t.rows)
+  ==
+::
+++  fill-card
+  |=  [row=vector:ast station-links=(list vector:ast) additive-links=(list vector:ast)]
+  ^-  tape
+  =/  acquisition-id  (cell-atom %acquisition-id row)
+  =/  stations  (rows-by %acquisition-id acquisition-id station-links)
+  =/  additives  (rows-by %acquisition-id acquisition-id additive-links)
   =/  quantity
     %+  format-quantity:render
       (cell-atom %quantity-milli row)
@@ -294,6 +396,10 @@
     (escape (scot %tas (cell-term %tank-state row)))
     "</dd></div><div class=\"derived\"><dt>DERIVED TOTAL</dt><dd>"
     (escape total)
+    "</dd></div><div><dt>STATION</dt><dd>"
+    ?:(?=(~ stations) "No station recorded" (escape (cell-text %station i.stations)))
+    "</dd></div><div><dt>ADDITIVES</dt><dd class=\"chips\">"
+    ?:(?=(~ additives) "No additives recorded" (additive-chips additives))
     "</dd></div></dl></article>"
   ==
 ::
@@ -302,7 +408,7 @@
   ^-  tape
   ?~  rows
     ~
-  =/  card=tape  (fill-card i.rows)
+  =/  card=tape  (fill-card i.rows ~ ~)
   =/  rest=tape  (fill-cards t.rows)
   (weld card rest)
 ::
@@ -371,14 +477,19 @@
   ==
 ::
 ++  history-cards
-  |=  [rows=(list vector:ast) measurements=(list vector:ast) batteries=(list vector:ast)]
+  |=  $:  rows=(list vector:ast)
+          measurements=(list vector:ast)
+          batteries=(list vector:ast)
+          station-links=(list vector:ast)
+          additive-links=(list vector:ast)
+      ==
   ^-  tape
   ?~  rows
     ~
   =/  is-fill  (vector-key:act %quantity-milli i.rows)
   =/  card=tape
     ?^  is-fill
-      (fill-card i.rows)
+      (fill-card i.rows station-links additive-links)
     (charge-card i.rows measurements batteries)
   (weld card $(rows t.rows))
 ::
@@ -387,12 +498,14 @@
           charges=(list vector:ast)
           measurements=(list vector:ast)
           batteries=(list vector:ast)
+          station-links=(list vector:ast)
+          additive-links=(list vector:ast)
       ==
   ^-  tape
   =/  ordered  (order-vectors:act %observed-start %.n (weld fills charges))
   ?:  ?=(~ ordered)
     "<p class=\"empty\">No acquisition history.</p>"
-  (history-cards ordered measurements batteries)
+  (history-cards ordered measurements batteries station-links additive-links)
 ::
 ++  vehicle-card
   |=  $:  row=vector:ast
@@ -403,6 +516,8 @@
           charges=(list vector:ast)
           measurements=(list vector:ast)
           batteries=(list vector:ast)
+          station-links=(list vector:ast)
+          additive-links=(list vector:ast)
       ==
   ^-  tape
   =/  id  (cell-atom %vehicle-id row)
@@ -415,6 +530,8 @@
         (rows-for id charges)
         measurements
         batteries
+        station-links
+        additive-links
     ==
   ;:  weld
     "<article class=\"vehicle-card\"><header><div><p class=\"eyebrow\">VEHICLE</p><h2>"
@@ -441,17 +558,21 @@
   =/  charges  (rows-at commands 5)
   =/  measurements  (rows-at commands 6)
   =/  batteries  (rows-at commands 7)
+  =/  stations  (rows-at commands 8)
+  =/  additives  (rows-at commands 9)
+  =/  station-links  (rows-at commands 10)
+  =/  additive-links  (rows-at commands 11)
   =/  cards=tape
     |-
     ?~  vehicles
       ~
     =/  card
-      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries)
+      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries station-links additive-links)
     =/  rest=tape  $(vehicles t.vehicles)
     (weld card rest)
   =/  html=tape
     ;:  weld
-      (entry-screens vehicles definition-rows)
+      (entry-screens vehicles definition-rows stations additives)
       "<section id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
       "</section>"

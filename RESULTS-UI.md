@@ -405,3 +405,64 @@ concept. Malformed bounds refuse as `%bad-range: charge.end`, malformed
 odometer text refuses as `%bad-shape: odometer.reading`, and the served
 read projection rejects raw identifiers and the submitted
 `4125`/`10023125` machine integers.
+
+## Slice 7 — stations and additives
+
+RED was captured before the selectors existed:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: FAIL - fill station selector is missing
+```
+
+The form now offers a searchable saved-station selector, an explicit
+`No station recorded`, and `Add new station…`. Creating a new station
+atomically inserts the place, station, acquisition, fill, optional
+station link, and additive links. A private station requires only its
+place/station labels and kind; no address or coordinate placeholder is
+created.
+
+First live saved/new writes, exact responses:
+
+```console
+$ curl ... --data-raw '{"quantity":"5.111",...,"station":"Home Charger","additives":["Injector cleaner"]}' \
+>   http://localhost:8082/apps/rover/add-fill
+saved-station HTTP 201
+body: Saved fill - $3.499 - derived $17.88
+
+$ curl ... --data-raw '{"quantity":"5.222",...,"station":"new","newStationLabel":"UI Home Pump","newPlaceLabel":"UI Home","newStationKind":"private","additives":["Injector cleaner","Fuel stabilizer"]}' \
+>   http://localhost:8082/apps/rover/add-fill
+new-station HTTP 201
+body: Saved fill - $3.499 - derived $18.27
+```
+
+GREEN, exact full browser output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS**.
+
+Changing station or additive selections leaves the exact derived total
+unchanged in Chromium. History renders `No station recorded` and
+`No additives recorded` for absent link rows; one or several additives
+render only their real labels as chips. The harness rejects a synthetic
+`None` chip and any `0x` identifier.

@@ -18,6 +18,23 @@
       [%4 state-4]
       [%5 state-5]
       [%6 state-6]
+      [%7 state-7]
+  ==
++$  fill-entry-5
+  $:  vehicle-label=@t
+      definition-label=@t
+      quantity-milli=@ud
+      unit-price-mills=@ud
+      price-display=@t
+      currency=currency:rover
+      price-profile=price-profile:rover
+      minor-unit-decimals=@ud
+      cash-increment-mills=@ud
+      tank-state=tank-state:rover
+      settlement-mode=settlement-mode:rover
+      observed-start=@da
+      source-zone=@t
+      mileage=(unit odo-reading:rover)
   ==
 +$  state-0
   $:  pending=(map wire @t)
@@ -64,6 +81,18 @@
       fill-pending=(map wire fill-entry:rover)
   ==
 +$  state-6
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry-5)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+  ==
++$  state-7
   $:  pending=(map wire @t)
       last=(unit (each (list cmd-result:ast) tang))
       preview=(unit price-preview:rover)
@@ -128,8 +157,8 @@
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
 ++  handle-http
-  |=  [sat=state-6 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-6]
+  |=  [sat=state-7 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-7]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -248,7 +277,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-6
+=|  state-7
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -260,7 +289,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%6 state])
+++  on-save  !>([%7 state])
 ::
 ++  on-load
   |=  old=vase
@@ -274,7 +303,8 @@
       %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~])
       %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~])
       %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ ~])
-      %6  this(state +.s)
+      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s])
+      %7  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -823,9 +853,50 @@
             ['content-type' 'text/plain']~
             `(text-octs '%unit-mismatch: fill.profile')
         ==
+      ?.  (gte (lent p.res) 3)
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: fill.evidence')
+        ==
+      =/  station-rows  (rows-at:view p.res 1)
+      =/  additive-rows  (rows-at:view p.res 2)
+      =/  station-id=(unit @ux)
+        ?~  station-label.u.input
+          ~
+        =/  found  (row-by-text:view %label u.station-label.u.input station-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %station-id u.found)
+      ?:  ?&  ?=(^ station-label.u.input)
+              ?=(~ station-id)
+          ==
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: fill.station')
+        ==
+      =/  additive-proof
+        (ids-for-labels:view additive-labels.u.input additive-rows %label %additive-id)
+      ?:  ?=(%| -.additive-proof)
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: fill.additives')
+        ==
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  ids=entry-ids:act
-        [(fixture-id:act base 101) (fixture-id:act base 102)]
+        :*  (fixture-id:act base 101)
+            (fixture-id:act base 102)
+            (fixture-id:act base 103)
+            (fixture-id:act base 104)
+        ==
       =/  write-wire=path
         /rover-fill-write/(scot %da now.bowl)/[u.eyre-id]
       =/  script
@@ -834,6 +905,8 @@
             `@ux`(cell-atom:view %vehicle-id row)
             `@ux`(cell-atom:view %energy-definition-id row)
             quantity-unit
+            station-id
+            p.additive-proof
             u.input
             now.bowl
         ==

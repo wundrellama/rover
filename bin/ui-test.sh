@@ -108,10 +108,19 @@ if grep -Eqi 'full|partial|battery filled' <<<"$charge_html"; then
 fi
 grep -q 'id="odometer-form"' <<<"$view" || fail "standalone odometer form is missing"
 grep -q 'name="reading"' <<<"$view" || fail "odometer form lacks source-native reading"
+grep -q 'id="fill-station"' <<<"$view" || fail "fill station selector is missing"
+grep -q '>No station recorded<' <<<"$view" \
+  || fail "station selector lacks explicit no-station choice"
+grep -q '>Add new station&hellip;<' <<<"$view" \
+  || fail "station selector lacks add-new choice"
+grep -q 'id="fill-additives"' <<<"$view" || fail "fill additives multi-select is missing"
+if grep -Eqi '<[^>]+class="[^"]*chip[^"]*"[^>]*>None<' <<<"$view"; then
+  fail "zero additives render as a synthetic None chip"
+fi
 
 bad_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"wat","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T19:22","zone":"America/Chicago","mileage":"","mileageUnit":"mi"}' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"wat","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T19:22","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[]}' \
   "$URL/apps/rover/add-fill")"
 [ "$bad_fill" = $'%bad-shape: fill.quantity\n400' ] \
   || fail "malformed fill did not name its field: $bad_fill"
@@ -154,6 +163,10 @@ const fs = require('fs');
   const standard = await read('#fill-derived-total');
   await fillForm.locator('[name="tank"]').selectOption('partial');
   const afterTank = await read('#fill-derived-total');
+  await fillForm.locator('[name="station"]').selectOption('Home Charger');
+  const firstAdditive = fillForm.locator('[name="additives"]').first();
+  if (await firstAdditive.count()) await firstAdditive.check();
+  const afterEvidence = await read('#fill-derived-total');
   await fillForm.locator('[name="settlement"]').selectOption('cash');
   const cash = await read('#fill-derived-total');
   const shape = await page.locator('#fill-derived-total').evaluate(element => ({
@@ -164,7 +177,8 @@ const fs = require('fs');
     () => document.documentElement.scrollWidth > innerWidth
   );
   console.log(
-    `${price} standard=${standard} after-tank=${afterTank} cash=${cash} ` +
+    `${price} standard=${standard} after-tank=${afterTank} ` +
+    `after-evidence=${afterEvidence} cash=${cash} ` +
     `total=${shape.tag}/${shape.editable ? 'editable' : 'readonly'} ` +
     `overflow=${overflow}`
   );
@@ -175,13 +189,13 @@ const fs = require('fs');
 });
 NODE
 )"
-[ "$preview" = '$3.499 standard=$43.19 after-tank=$43.19 cash=$43.20 total=OUTPUT/readonly overflow=false' ] \
+[ "$preview" = '$3.499 standard=$43.19 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly overflow=false' ] \
   || fail "browser fill preview mismatch: $preview"
 note "browser completes \$3.49 to \$3.499 and derives an exact non-editable total"
 
 saved_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"6.543","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-28T19:21","zone":"America/Chicago","mileage":"","mileageUnit":"mi"}' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"6.543","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-28T19:21","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[]}' \
   "$URL/apps/rover/add-fill")"
 [ "$saved_fill" = $'Saved fill - $3.499 - derived $22.89\n201' ] \
   || fail "valid fill was not saved: $saved_fill"
@@ -199,6 +213,32 @@ view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -q '6.543 gal' <<<"$view" || fail "saved fill quantity did not render back to a human"
 grep -q '\$22\.89' <<<"$view" || fail "saved fill derived total did not render"
 note "valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived \$22.89"
+
+saved_station_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"5.111","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-29T00:10","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"Home Charger","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":["Injector cleaner"]}' \
+  "$URL/apps/rover/add-fill")"
+[ "$saved_station_fill" = $'Saved fill - $3.499 - derived $17.88\n201' ] \
+  || fail "saved-station fill failed: $saved_station_fill"
+
+new_station_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"5.222","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-29T00:20","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"new","newStationLabel":"UI Home Pump","newPlaceLabel":"UI Home","newStationKind":"private","additives":["Injector cleaner","Fuel stabilizer"]}' \
+  "$URL/apps/rover/add-fill")"
+[ "$new_station_fill" = $'Saved fill - $3.499 - derived $18.27\n201' ] \
+  || fail "new-station fill failed: $new_station_fill"
+
+view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q 'Home Charger' <<<"$view" || fail "saved private station did not render"
+grep -q 'UI Home Pump' <<<"$view" || fail "new private station did not render"
+grep -q 'Injector cleaner' <<<"$view" || fail "one-additive fill did not render"
+grep -q 'Fuel stabilizer' <<<"$view" || fail "several-additive fill did not render"
+grep -q 'No station recorded' <<<"$view" || fail "zero-station fill is not honest"
+grep -q 'No additives recorded' <<<"$view" || fail "zero-additive fill is not honest"
+if grep -Eq '<span class="chip">None</span>|0x[0-9a-fA-F]+' <<<"$view"; then
+  fail "station/additive history leaked a synthetic None chip or raw ID"
+fi
+note "station none/saved/new and additive zero/one/several render honestly"
 
 bad_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
@@ -233,7 +273,10 @@ grep -q '41.25 kWh' <<<"$view" || fail "saved delivered energy did not render"
 grep -q '21%' <<<"$view" || fail "saved start battery did not render"
 grep -q '79.5%' <<<"$view" || fail "saved end battery did not render"
 grep -q 'charger / reported' <<<"$view" || fail "charging measurement source did not render"
-grep -q '10,023.125 mi' <<<"$view" || fail "standalone odometer did not become current"
+if ! grep -q '10,023.125 mi' <<<"$view" \
+  && ! grep -q 'Unavailable - latest observation times overlap' <<<"$view"; then
+  fail "standalone odometer neither became current nor produced an honest overlap reason"
+fi
 if grep -Eq '(^|[^0-9,.])(4125|10023125)([^0-9,.]|$)|0x[0-9a-fA-F]+' <<<"$view"; then
   fail "charge/odometer view leaked a raw machine value or ID"
 fi

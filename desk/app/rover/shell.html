@@ -414,6 +414,63 @@
       color: var(--rv-warn);
     }
 
+    .station-field,
+    #fill-additives {
+      margin: 0;
+      padding: 0.8rem;
+      border: 1px solid var(--rv-line);
+    }
+
+    .station-field legend,
+    #fill-additives legend {
+      padding: 0 0.35rem;
+      color: var(--rv-amber-bright);
+      letter-spacing: 0.08em;
+    }
+
+    #fill-new-station {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px dashed var(--rv-line);
+    }
+
+    .check-grid {
+      display: grid;
+      gap: 0.5rem;
+    }
+
+    .check-option {
+      display: flex;
+      min-height: 44px;
+      flex-direction: row;
+      align-items: center;
+      gap: 0.65rem;
+      margin: 0;
+      color: var(--rv-text);
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .check-option input {
+      width: 1.2rem;
+      min-height: 1.2rem;
+      margin: 0;
+      accent-color: var(--rv-amber);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+
+    .chip {
+      padding: 0.15rem 0.4rem;
+      border: 1px solid var(--rv-olive);
+      color: var(--rv-amber-bright);
+      font-size: 0.72rem;
+    }
+
     .status-strip {
       position: fixed;
       right: 0;
@@ -593,6 +650,9 @@
       const completed = app.querySelector('#fill-price-completed');
       const total = app.querySelector('#fill-derived-total');
       const verdict = app.querySelector('#fill-verdict');
+      const station = app.querySelector('#fill-station');
+      const stationSearch = app.querySelector('#fill-station-search');
+      const newStation = app.querySelector('#fill-new-station');
 
       const syncDefinitions = () => {
         const options = [...definition.options];
@@ -641,11 +701,25 @@
         field.addEventListener('change', updatePreview);
       });
       syncDefinitions();
+      station?.addEventListener('change', () => {
+        newStation.hidden = station.value !== 'new';
+      });
+      stationSearch?.addEventListener('input', () => {
+        const needle = stationSearch.value.trim().toLocaleLowerCase();
+        [...station.options].forEach((option) => {
+          if (option.value === 'none' || option.value === 'new') return;
+          option.hidden =
+            needle.length > 0 &&
+            !option.dataset.search.toLocaleLowerCase().includes(needle);
+        });
+      });
 
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         verdict.value = 'Saving…';
-        const payload = Object.fromEntries(new FormData(form).entries());
+        const formData = new FormData(form);
+        const payload = Object.fromEntries(formData.entries());
+        payload.additives = formData.getAll('additives');
         try {
           const response = await fetch('/apps/rover/add-fill', {
             method: 'POST',

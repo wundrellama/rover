@@ -50,6 +50,8 @@
   ==
 +$  odo-reading  [digits=@ud places=@ud odo-unit=distance-unit]
 +$  entry-verdict  [class=@tas field=@t]
++$  new-station-entry
+  [place-label=@t station-label=@t station-kind=station-kind]
 +$  fill-entry
   $:  vehicle-label=@t
       definition-label=@t
@@ -65,6 +67,9 @@
       observed-start=@da
       source-zone=@t
       mileage=(unit odo-reading)
+      station-label=(unit @t)
+      new-station=(unit new-station-entry)
+      additive-labels=(list @t)
   ==
 +$  delivered-energy
   $:  digits=@ud

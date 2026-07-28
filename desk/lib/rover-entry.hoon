@@ -25,6 +25,23 @@
     ~
   `+.u.value
 ::
+++  json-strings
+  |=  [key=@t object=(map @t json)]
+  ^-  (unit (list @t))
+  =/  value  (~(get by object) key)
+  ?~  value
+    ~
+  ?.  ?=(%a -.u.value)
+    ~
+  =/  values=(list json)  +.u.value
+  =/  texts=(list @t)  ~
+  |-
+  ?~  values
+    `(flop texts)
+  ?.  ?=(%s -.i.values)
+    ~
+  $(values t.values, texts [+.i.values texts])
+::
 ++  local-da
   |=  txt=@t
   ^-  (unit @da)
@@ -186,6 +203,57 @@
           ?=(~ mileage)
       ==
     [%| %bad-shape 'fill.mileage']
+  =/  station  (json-string 'station' object)
+  ?~  station
+    [%| %missing-key 'fill.station']
+  =/  station-label=(unit @t)
+    ?:  =('none' u.station)
+      ~
+    ?:  =('new' u.station)
+      ~
+    ?.  (nonempty u.station)
+      ~
+    `u.station
+  =/  new-station=(unit new-station-entry:rover)
+    ?.  =('new' u.station)
+      ~
+    =/  station-name  (json-string 'newStationLabel' object)
+    ?~  station-name
+      ~
+    ?.  (nonempty u.station-name)
+      ~
+    =/  place-name  (json-string 'newPlaceLabel' object)
+    ?~  place-name
+      ~
+    ?.  (nonempty u.place-name)
+      ~
+    =/  kind  (json-string 'newStationKind' object)
+    ?~  kind
+      ~
+    =/  kind-term  (slaw %tas u.kind)
+    ?.  ?&  ?=(^ kind-term)
+            ?|  =(%private u.kind-term)
+                =(%fuel u.kind-term)
+                =(%charging u.kind-term)
+                =(%mixed u.kind-term)
+            ==
+        ==
+      ~
+    `[u.place-name u.station-name ;;(station-kind:rover u.kind-term)]
+  ?:  ?&  =('new' u.station)
+          ?=(~ new-station)
+      ==
+    [%| %bad-shape 'fill.station']
+  ?:  ?&  !=('none' u.station)
+          !=('new' u.station)
+          ?=(~ station-label)
+      ==
+    [%| %bad-shape 'fill.station']
+  =/  additive-labels  (json-strings 'additives' object)
+  ?~  additive-labels
+    [%| %missing-key 'fill.additives']
+  ?.  (levy u.additive-labels nonempty)
+    [%| %bad-shape 'fill.additives']
   :-  %&
   :*  u.vehicle
       u.definition
@@ -201,6 +269,9 @@
       u.observed-start
       u.zone
       mileage
+      station-label
+      new-station
+      u.additive-labels
   ==
 ::
 ++  decode-odometer

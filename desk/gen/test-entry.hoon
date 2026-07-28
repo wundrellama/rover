@@ -2,7 +2,7 @@
 /+  entry=rover-entry
 =/  good
   %-  decode-fill:entry
-  '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"12.345","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T21:30","zone":"America/Chicago","mileage":"10012.5","mileageUnit":"mi"}'
+  '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"12.345","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T21:30","zone":"America/Chicago","mileage":"10012.5","mileageUnit":"mi","station":"new","newStationLabel":"Home pump","newPlaceLabel":"Home","newStationKind":"private","additives":["Injector cleaner","Fuel stabilizer"]}'
 ?>  ?=(%& -.good)
 ?>  =(12.345 quantity-milli.p.good)
 ?>  =(3.499 unit-price-mills.p.good)
@@ -17,10 +17,14 @@
 ?>  =(100.125 digits.u.mileage.p.good)
 ?>  =(1 places.u.mileage.p.good)
 ?>  =(%mi odo-unit.u.mileage.p.good)
+?>  ?=(^ new-station.p.good)
+?>  =('Home pump' station-label.u.new-station.p.good)
+?>  =(%private station-kind.u.new-station.p.good)
+?>  =(2 (lent additive-labels.p.good))
 ::
 =/  bad
   %-  decode-fill:entry
-  '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"twelve","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T21:30","zone":"America/Chicago","mileage":"","mileageUnit":"mi"}'
+  '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"twelve","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T21:30","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[]}'
 ?>  ?=(%| -.bad)
 ?>  =(%bad-shape class.p.bad)
 ?>  =('fill.quantity' field.p.bad)

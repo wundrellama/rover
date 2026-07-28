@@ -83,6 +83,8 @@
 +$  entry-ids
   $:  acquisition=@ux
       odometer=@ux
+      place=@ux
+      station=@ux
   ==
 +$  charge-ids
   $:  acquisition=@ux
@@ -691,10 +693,14 @@
     "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id SELECT V.vehicle-id, O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.source-zone, O.recorded-at; "
     "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS energy, E.physical-kind, E.quantity-unit, E.archived AS energy-archived, L.archived AS link-archived; "
     "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS default-energy; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end, A.source-zone, A.recorded-at;"
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, A.acquisition-id, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end, A.source-zone, A.recorded-at;"
     " FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id JOIN charging-costs K ON C.acquisition-id = K.acquisition-id SELECT V.vehicle-id, C.acquisition-id, E.label AS energy, A.observed-start, A.observed-end, A.source-zone, A.recorded-at, K.cost-state, K.currency;"
     " FROM charging-energy-measurements M SELECT M.acquisition-id, M.quantity, M.decimals, M.measure-unit, M.point, M.evidence;"
     " FROM charging-session-batteries L JOIN battery-observation-percent P ON L.battery-observation-id = P.battery-observation-id SELECT L.acquisition-id, L.endpoint, P.value-digits, P.value-decimals;"
+    " FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.station-kind, S.archived, P.label AS place;"
+    " FROM additive-definitions D SELECT D.additive-id, D.label, D.archived;"
+    " FROM energy-acquisition-stations L JOIN stations S ON L.station-id = S.station-id JOIN places P ON S.place-id = P.place-id SELECT L.acquisition-id, S.label AS station, P.label AS place;"
+    " FROM fuel-fill-additives L JOIN additive-definitions D ON L.additive-id = D.additive-id SELECT L.acquisition-id, D.label AS additive;"
   ==
 ::
 ++  sql-quote
@@ -731,6 +737,8 @@
     "' AND E.label = '"
     (sql-quote definition-label)
     "' SELECT V.vehicle-id, E.energy-definition-id, E.quantity-unit, E.physical-kind;"
+    " FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.archived, P.label AS place;"
+    " FROM additive-definitions D SELECT D.additive-id, D.label, D.archived;"
   ==
 ::
 ++  vehicle-lookup
@@ -747,6 +755,8 @@
           vehicle-id=@ux
           definition-id=@ux
           quantity-unit=@tas
+          station-id=(unit @ux)
+          additive-ids=(list @ux)
           input=fill-entry:rover
           recorded-at=@da
       ==
@@ -759,6 +769,28 @@
   =/  observed-end  (scow %da (add observed-start.input (bex 64)))
   =/  recorded  (scow %da recorded-at)
   =/  zone  (sql-quote source-zone.input)
+  =/  new-station-rows=tape
+    ?~  new-station.input
+      ~
+    ;:  weld
+      "INSERT INTO places VALUES ("
+      (scow %ux place.ids)
+      ", '"
+      (sql-quote place-label.u.new-station.input)
+      "', N, "
+      recorded
+      "); INSERT INTO stations VALUES ("
+      (scow %ux station.ids)
+      ", "
+      (scow %ux place.ids)
+      ", '"
+      (sql-quote station-label.u.new-station.input)
+      "', "
+      (sql-term station-kind.u.new-station.input)
+      ", N, "
+      recorded
+      "); "
+    ==
   =/  acquisition-row
     ;:  weld
       "INSERT INTO energy-acquisitions VALUES ("
@@ -829,7 +861,39 @@
       odometer
       ");"
     ==
-  ;:(weld acquisition-row fill-row mileage-rows)
+  =/  effective-station=(unit @ux)
+    ?^  station-id
+      station-id
+    ?^  new-station.input
+      `station.ids
+    ~
+  =/  station-row=tape
+    ?~  effective-station
+      ~
+    ;:  weld
+      " INSERT INTO energy-acquisition-stations VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.effective-station)
+      ");"
+    ==
+  =/  additive-rows  (insert-fill-additives acquisition.ids additive-ids)
+  ;:(weld new-station-rows acquisition-row fill-row mileage-rows station-row additive-rows)
+::
+++  insert-fill-additives
+  |=  [acquisition-id=@ux additive-ids=(list @ux)]
+  ^-  tape
+  ?~  additive-ids
+    ~
+  =/  row
+    ;:  weld
+      " INSERT INTO fuel-fill-additives VALUES ("
+      (scow %ux acquisition-id)
+      ", "
+      (scow %ux i.additive-ids)
+      ");"
+    ==
+  (weld row $(additive-ids t.additive-ids))
 ::
 ++  insert-odometer
   |=  $:  odometer-id=@ux
