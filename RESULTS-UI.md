@@ -169,3 +169,44 @@ and renders `$43.20`. The harness rejects bare `12345`, bare `3499`, and
 any `0x` identifier in the served vehicle HTML. Vehicles without
 odometer observations render `Unavailable - no odometer readings`
 instead of zero or an estimate.
+
+## Slice 5 — UA 571-C theme and mobile layout
+
+RED, exact browser output before the theme existed:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: FAIL - UA 571-C background token missing
+```
+
+GREEN, exact command and output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS**.
+
+A headless Chromium render used the authenticated real-pier page at a
+390-by-844 viewport. Exact measured output:
+
+```json
+{"viewport":390,"scrollWidth":390,"horizontalOverflow":false,"minTouchHeight":45.96875,"fontLoaded":true,"vehicleColumns":"none"}
+```
+
+This proves the rendered page has no horizontal overflow at phone
+width, its interactive control exceeds 44 px, Berkeley Mono is loaded,
+and the wide two-column vehicle grid is not active. The served shell
+defines the ratified amber palette, all four local font faces, tabular
+numerals, a persisted glow toggle (off by default), stacked history
+cards, the compact phone designation, and the `48rem` wide breakpoint.

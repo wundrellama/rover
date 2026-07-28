@@ -63,6 +63,16 @@ grep -qi '^content-type: text/html' "$HDRS" || fail "shell content-type is not t
 grep -q 'ROVER' <<<"$body" || fail "served shell has no Rover designation"
 note "authenticated Rover shell served over real Eyre"
 
+grep -q -- '--rv-bg: #0b0a08' <<<"$body" || fail "UA 571-C background token missing"
+grep -q -- '--rv-amber: #d8b843' <<<"$body" || fail "UA 571-C amber token missing"
+[ "$(grep -c '@font-face' <<<"$body")" -eq 4 ] || fail "shell does not declare four Berkeley Mono faces"
+grep -q 'font-variant-numeric: tabular-nums' <<<"$body" || fail "tabular numerals are not active"
+grep -q 'id="glow-toggle"' <<<"$body" || fail "glow control is missing"
+grep -q 'min-height: 44px' <<<"$body" || fail "44px touch target rule is missing"
+grep -q '@media (min-width: 48rem)' <<<"$body" || fail "mobile-first wide breakpoint is missing"
+grep -q 'overflow-x: hidden' <<<"$body" || fail "narrow viewport overflow guard is missing"
+note "UA 571-C palette, fonts, glow control, and mobile rules served"
+
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
 grep -q 'Phase A Vehicle' <<<"$view" || fail "vehicle view has no seeded vehicle"

@@ -3,17 +3,406 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Rover</title>
+  <meta name="theme-color" content="#0b0a08">
+  <title>Rover · Vehicle Log</title>
+  <style>
+    @font-face {
+      font-family: "Berkeley Mono";
+      src: url("/apps/rover/assets/fonts/BerkeleyMono-Regular.woff2") format("woff2");
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Berkeley Mono";
+      src: url("/apps/rover/assets/fonts/BerkeleyMono-Bold.woff2") format("woff2");
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Berkeley Mono";
+      src: url("/apps/rover/assets/fonts/BerkeleyMono-Oblique.woff2") format("woff2");
+      font-style: oblique;
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Berkeley Mono";
+      src: url("/apps/rover/assets/fonts/BerkeleyMono-Bold-Oblique.woff2") format("woff2");
+      font-style: oblique;
+      font-weight: 700;
+      font-display: swap;
+    }
+
+    :root {
+      --rv-bg: #0b0a08;
+      --rv-bg-raised: #141210;
+      --rv-amber: #d8b843;
+      --rv-amber-bright: #f2d97a;
+      --rv-amber-dim: #9c8922;
+      --rv-olive: #4e451f;
+      --rv-warn: #e07b2c;
+      --rv-ok: #b8b95e;
+      color-scheme: dark;
+      font-family: "Berkeley Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+      font-variant-numeric: tabular-nums;
+      background: var(--rv-bg);
+      color: var(--rv-amber);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      overflow-x: hidden;
+      background: var(--rv-bg);
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      line-height: 1.45;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      min-height: 44px;
+      border: 1px solid var(--rv-olive);
+      border-radius: 0;
+      background: var(--rv-bg);
+      color: var(--rv-amber-bright);
+      font: inherit;
+    }
+
+    button {
+      padding: 0.65rem 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+      border-color: var(--rv-amber-bright);
+      outline: 2px solid var(--rv-amber-dim);
+      outline-offset: 2px;
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      min-height: 3.5rem;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--rv-olive);
+      background: var(--rv-bg-raised);
+    }
+
+    .designation {
+      min-width: 0;
+      margin: 0;
+      overflow: hidden;
+      color: var(--rv-amber-bright);
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .wide-designation {
+      display: none;
+    }
+
+    main {
+      width: min(100%, 72rem);
+      margin: 0 auto;
+      padding: 1rem 0.75rem 5rem;
+    }
+
+    #status {
+      margin: 0 0 1rem;
+      color: var(--rv-amber-dim);
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .view-header {
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--rv-olive);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      overflow-wrap: anywhere;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      color: var(--rv-amber-bright);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin-bottom: 0.75rem;
+      font-size: clamp(1.5rem, 8vw, 2.5rem);
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      text-transform: none;
+    }
+
+    h3 {
+      margin-bottom: 0.75rem;
+      font-size: 0.9rem;
+    }
+
+    .eyebrow,
+    .key,
+    dt {
+      color: var(--rv-amber-dim);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .vehicle-card {
+      position: relative;
+      margin: 0 0 1.25rem;
+      padding: 1rem;
+      border-left: 1px solid var(--rv-olive);
+      border-right: 1px solid var(--rv-olive);
+      background: var(--rv-bg-raised);
+    }
+
+    .vehicle-card::before,
+    .vehicle-card::after {
+      position: absolute;
+      color: var(--rv-amber-dim);
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+
+    .vehicle-card::before {
+      top: -0.15rem;
+      left: -0.2rem;
+      content: "⌜";
+    }
+
+    .vehicle-card::after {
+      right: -0.2rem;
+      bottom: -0.15rem;
+      content: "⌟";
+    }
+
+    .vehicle-card > header,
+    .history-card > header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .vehicle-card .eyebrow {
+      margin: 0 0 0.2rem;
+    }
+
+    .status {
+      flex: 0 0 auto;
+      color: var(--rv-ok);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+    }
+
+    .odometer {
+      display: grid;
+      gap: 0.2rem;
+      margin: 1rem 0;
+      padding: 0.8rem 0;
+      border-block: 1px solid var(--rv-olive);
+    }
+
+    .odometer strong {
+      color: var(--rv-amber-bright);
+      font-size: 1.35rem;
+      font-weight: 700;
+    }
+
+    .definitions ul {
+      margin: 0.5rem 0 1rem;
+      padding-left: 1.25rem;
+    }
+
+    .history-card {
+      margin: 0 0 0.75rem;
+      padding: 0.8rem;
+      border: 1px solid var(--rv-olive);
+      background: var(--rv-bg);
+    }
+
+    .history-card header {
+      margin-bottom: 0.75rem;
+      color: var(--rv-amber-dim);
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+    }
+
+    .history-card time {
+      text-align: right;
+    }
+
+    dl,
+    dd {
+      margin: 0;
+    }
+
+    .history-card dl {
+      display: grid;
+      gap: 0.65rem;
+    }
+
+    .history-card dl > div {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      min-width: 0;
+    }
+
+    dd {
+      color: var(--rv-amber-bright);
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+
+    .derived {
+      padding-top: 0.55rem;
+      border-top: 1px solid var(--rv-olive);
+    }
+
+    .derived dd {
+      color: var(--rv-ok);
+      font-weight: 700;
+    }
+
+    .empty {
+      color: var(--rv-warn);
+    }
+
+    .status-strip {
+      position: fixed;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 2;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.45rem 0.75rem;
+      border-top: 1px solid var(--rv-olive);
+      background: var(--rv-bg-raised);
+      color: var(--rv-amber-dim);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .glow body {
+      text-shadow: 0 0 0.32rem rgba(216, 184, 67, 0.32);
+    }
+
+    @media (min-width: 48rem) {
+      .wide-designation {
+        display: inline;
+      }
+
+      main {
+        padding-inline: 1.5rem;
+      }
+
+      #vehicle-view {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+
+      .view-header {
+        grid-column: 1 / -1;
+      }
+
+      .vehicle-card {
+        margin: 0;
+      }
+
+      .history-card dl {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
 </head>
 <body>
+  <header class="terminal-header">
+    <p class="designation">
+      ROVER · VEHICLE LOG<span class="wide-designation"> · UA 571-C · UNIT 01</span>
+    </p>
+    <button id="glow-toggle" type="button" aria-pressed="false">Glow off</button>
+  </header>
   <main>
-    <h1>ROVER</h1>
     <p id="status">Loading vehicle log…</p>
     <div id="app" aria-live="polite"></div>
   </main>
+  <footer class="status-strip">
+    <span>~bel · Rover</span>
+    <span id="refresh-time">Awaiting data</span>
+  </footer>
   <script>
     const app = document.getElementById('app');
     const status = document.getElementById('status');
+    const refreshTime = document.getElementById('refresh-time');
+    const glowToggle = document.getElementById('glow-toggle');
+
+    let glow = false;
+    try {
+      glow = localStorage.getItem('rover-glow') === 'on';
+    } catch (_) {
+      glow = false;
+    }
+
+    function showGlow() {
+      document.documentElement.classList.toggle('glow', glow);
+      glowToggle.setAttribute('aria-pressed', String(glow));
+      glowToggle.textContent = glow ? 'Glow on' : 'Glow off';
+    }
+
+    glowToggle.addEventListener('click', () => {
+      glow = !glow;
+      showGlow();
+      try {
+        localStorage.setItem('rover-glow', glow ? 'on' : 'off');
+      } catch (_) {
+        // The toggle still works when storage is unavailable.
+      }
+    });
+    showGlow();
 
     async function loadView() {
       status.textContent = 'Refreshing…';
@@ -25,8 +414,10 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         app.innerHTML = await response.text();
         status.textContent = 'Connected · current on navigation';
+        refreshTime.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       } catch (error) {
         status.textContent = `Unavailable · ${error.message}`;
+        refreshTime.textContent = 'Connection unavailable';
       }
     }
 
