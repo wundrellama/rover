@@ -49,6 +49,31 @@
       zone=@t
   ==
 +$  odo-reading  [digits=@ud places=@ud odo-unit=distance-unit]
++$  price-preview
+  $:  currency=currency
+      profile=price-profile
+      entered-digits=@ud
+      entered-decimals=@ud
+      unit-price-mills=@ud
+      display=@t
+  ==
++$  total-proof
+  $:  quantity-milli=@ud
+      unit-price-mills=@ud
+      minor-unit-decimals=@ud
+      cash-increment-mills=@ud
+      settlement-mode=settlement-mode
+      product=@ud
+      standard-total-mills=@ud
+      total-mills=@ud
+  ==
++$  fill-total-input
+  $:  quantity-milli=@ud
+      unit-price-mills=@ud
+      minor-unit-decimals=@ud
+      cash-increment-mills=@ud
+      settlement-mode=settlement-mode
+  ==
 +$  action
   $%  [%init-db ~]
       [%seed-spike ~]

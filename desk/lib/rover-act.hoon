@@ -13,6 +13,77 @@
 ::
 ++  rover-db  %rover
 ::
+++  pow-ten
+  |=  exponent=@ud
+  ^-  @ud
+  ?:  =(0 exponent)
+    1
+  (mul 10 $(exponent (dec exponent)))
+::
+++  round-div-half-up
+  |=  [numerator=@ud denominator=@ud]
+  ^-  @ud
+  ?>  (gth denominator 0)
+  (div (add numerator (div denominator 2)) denominator)
+::
+++  format-mills
+  |=  [prefix=@t mills=@ud]
+  ^-  @t
+  =/  major  (div mills 1.000)
+  =/  fraction  (mod mills 1.000)
+  =/  fraction-text=tape  (scow %ud fraction)
+  =/  padded=tape
+    ?:  (lth fraction 10)
+      (weld "00" fraction-text)
+    ?:  (lth fraction 100)
+      (weld "0" fraction-text)
+    fraction-text
+  (crip (weld (trip prefix) (weld (scow %ud major) (weld "." padded))))
+::
+++  preview-us
+  |=  entered-cents=@ud
+  ^-  price-preview:rover
+  =/  mills  (add (mul entered-cents 10) 9)
+  [%usd %us-usd-gal entered-cents 2 mills (format-mills '$' mills)]
+::
+++  preview-eur
+  |=  entered-mills=@ud
+  ^-  price-preview:rover
+  :*  %eur
+      %eu-eur-litre
+      entered-mills
+      3
+      entered-mills
+      (format-mills 'EUR ' entered-mills)
+  ==
+::
+++  derive-fill-total
+  |=  input=fill-total-input:rover
+  ^-  total-proof:rover
+  =/  minor-scale  (pow-ten minor-unit-decimals.input)
+  ?>  (lte minor-scale 1.000)
+  =/  product  (mul quantity-milli.input unit-price-mills.input)
+  =/  minor-units
+    (round-div-half-up (mul product minor-scale) 1.000.000)
+  =/  standard-total-mills
+    (mul minor-units (div 1.000 minor-scale))
+  =/  total-mills
+    ?:  ?&  =(%cash settlement-mode.input)
+            (gth cash-increment-mills.input 0)
+        ==
+      %+  mul  cash-increment-mills.input
+      (round-div-half-up standard-total-mills cash-increment-mills.input)
+    standard-total-mills
+  :*  quantity-milli.input
+      unit-price-mills.input
+      minor-unit-decimals.input
+      cash-increment-mills.input
+      settlement-mode.input
+      product
+      standard-total-mills
+      total-mills
+  ==
+::
 ++  schema-m0
   ^-  tape
   ;:  weld
