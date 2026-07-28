@@ -39,7 +39,19 @@ pin" below. Docs: `/tmp/rover-obelisk-master/desk/doc/usr/reference/*` and
 
 ## Non-negotiables
 
-- Eleven v1 relations **exactly** as specified in schema-v1.md. No more, no less.
+- **Schema scope (Gate 6, ratified 2026-07-28):** M0 is a **single schema pour** —
+  the vehicle/observation/energy/place/station backbone **plus** the evidence,
+  arithmetic, and provenance relations. Sharing (`vehicle-grants`,
+  `vehicle-grant-fields`) is a **separate second pour** and is the populated-data
+  migration rehearsal. The earlier eleven-relation v1 / v2 / v3 progression is
+  superseded — do not treat "eleven relations exactly" as current.
+- Because the M0 pour is fresh (pre-publish), relations take their **honest shape**:
+  mandatory fill facts — price per unit, currency, settlement mode — are **columns on
+  `fuel-fills`**, not a child table. The child/link shape was only ever a way to dodge
+  a migration constraint that does not apply to a fresh pour.
+- **Optional** data still uses **absent child/link rows**, never NULL/sentinel
+  (Obelisk has no nullable columns). Mileage on a fill is optional → stays a link row.
+  Mandatory data uses columns. Do not confuse the two.
 - IDs: nonzero random 128-bit `@ux`, Rover-generated. Never bunt/zero.
 - Write literal `N` for `archived @f` on insert — never `DEFAULT` (the `@f` bunt
   is `%.y` = archived).
@@ -79,12 +91,16 @@ pin" below. Docs: `/tmp/rover-obelisk-master/desk/doc/usr/reference/*` and
 - TDD: failing test first, watch it fail, minimal code to pass. See the
   `test-driven-development` skill in `.claude/skills/`.
 
-## Do-NOT-build fence (v1 scope)
+## Do-NOT-build fence (M0 scope)
 
-Do not build: v2 evidence/arithmetic relations (pricing components, battery,
-consumption, coordinates, additives links), v3 sharing (`vehicle-grants*`),
-Landscape UI, remote/poke sharing protocol, CSV import, attachments, derived
-economy arithmetic beyond current-odometer derivation. v1 is the backbone only.
+Do not build: sharing (`vehicle-grants`, `vehicle-grant-fields` — that is the second
+pour), Landscape UI, remote/poke sharing protocol, CSV import, attachments, permanent
+EVSE/connector inventory, or maintenance/service/insurance/modification records (M7).
+
+Everything else in the adopted M0 relation family — including fill pricing, fill↔odometer
+links, economy breaks, additives, charging measurements, battery and consumption
+observations, charging cost components, address/coordinate evidence, and station
+identifiers — is **in scope for the single M0 pour** per Gate 6.
 
 ## When a design question isn't answered by the specs
 
