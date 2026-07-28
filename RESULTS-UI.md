@@ -535,3 +535,108 @@ probe still returns its original odometer cells as value
 `0x30d40` (`200000`), precision `1`, and unit atom `26989` (`%mi`),
 while the separate preference row holds unit atom `28011` (`%km`).
 `Phase A Vehicle` is reset to source-native and is unaffected.
+
+## Final 16-fixture battery
+
+Fixtures 1-14 and 16 run through one real-cookie browser-half command.
+The command performs the writes and reads itself; a line is printed only
+after every assertion represented by that line has passed.
+
+Exact command and final post-restart output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: browser measurements: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Per-fixture mapping of that real output:
+
+| # | Fixture and real output | Result |
+|---:|---|:---:|
+| 1 | Logged-out request: `303`, empty Rover body, login redirect; live `+code` produced `urbauth`; authenticated shell returned `200`. | PASS |
+| 2 | Bare public URL authenticated and served the Rover shell without Landscape. | PASS |
+| 3 | Tile and four fonts returned `200`, exact bytes, `image/png` / `font/woff2`; docket charge was `site /apps/rover`, same-origin tile, no glob. | PASS |
+| 4 | Vehicle/detail sweeps found `12.345 gal`, `$3.499`, `$43.20`, and no bare `12345`, `3499`, or `0x` ID. Charge/odometer sweeps likewise found no `4125`, `10023125`, or ID. | PASS |
+| 5 | Chromium measured completed price `$3.499`; saved admin cells were exactly `quantity-milli 6543` and `unit-price-mills 3499`. | PASS |
+| 6 | Total was an `OUTPUT/readonly`; standard `$43.19`, quantity change `$43.20`, price change `$43.32`, tank/evidence unchanged at `$43.19`. | PASS |
+| 7 | Standard was `$43.19`; changing only settlement to cash produced `$43.20`. | PASS |
+| 8 | Zero, one, and several additives round-tripped as honest absence or real labels; no synthetic `None` chip. | PASS |
+| 9 | `No station recorded` round-tripped honestly. Saved/new private stations rendered; the new home station needed no address or coordinate placeholder. | PASS |
+| 10 | Chromium returned `ordered=true stable=true` from two independently fetched real Obelisk projections. | PASS |
+| 11 | Current odometer rendered as a grouped human value derived from observation rows; no vehicle odometer column or raw evidence value was emitted. | PASS |
+| 12 | Two real latest observations with identical bounds rendered `Unavailable - latest observation times overlap`, never zero or an estimate. | PASS |
+| 13 | Real malformed requests returned `%bad-shape: fill.quantity`, `%bad-range: charge.end`, and `%bad-shape: odometer.reading`, each with HTTP `400`. | PASS |
+| 14 | One vehicle rendered `32,186.9 km (converted)` while the other stayed native; admin output retained source `200000`, precision `1`, unit `%mi`. | PASS |
+| 16 | At 390x844 Chromium returned `overflow=false touch=true stacked=true font=true`; the minimum visible control height was at least 44px. | PASS |
+
+Fixture 15 was run around a real shutdown and restart of only the
+owned `rover-bel` pier. Before restart:
+
+```console
+before UI Home Pump => 20
+before Fuel stabilizer => 8
+before 41.25 kWh => 5
+before 32,186.9 km (converted) => 1
+before Unavailable - latest observation times overlap => 1
+```
+
+Exact restart command:
+
+```console
+$ tmux send-keys -t rover-bel C-d
+$ tmux new-session -d -s rover-bel \
+>   -c "$HOME/workspace/urbit/bin" \
+>   './urbit -p 31350 /home/michael/piers/rover-bel'
+```
+
+After the restarted pier became live, the existing real Eyre session
+fetched the same projection:
+
+```console
+after-restart HTTP 200 bytes:38450
+after  UI Home Pump => 20
+after  Fuel stabilizer => 8
+after  41.25 kWh => 5
+after  32,186.9 km (converted) => 1
+after  Unavailable - latest observation times overlap => 1
+restart markers: PASS
+```
+
+Fixture 15 result: **PASS**. The full browser-half command shown above
+was then run again against the restarted pier and passed.
+
+Final substrate and compilation checks:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/verify-schema.hoon "$HOME/piers/rover-bel"
+... [%relation 'rover.sys.tables'] ... [%vector-count 36] ...
+
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/run-test-render.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun %render-tests-pass]
+
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/run-test-entry.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun %entry-tests-pass]
+
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/compile-rover.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun 0]
+```
+
+Result: **PASS** — 36 relations, formatter/parser tests green, and the
+Rover agent compiles on the pinned zuse 408 pier.

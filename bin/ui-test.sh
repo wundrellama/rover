@@ -163,6 +163,12 @@ const fs = require('fs');
   const read = selector => page.locator(selector).evaluate(element => element.value);
   const price = await read('#fill-price-completed');
   const standard = await read('#fill-derived-total');
+  await fillForm.locator('[name="quantity"]').fill('12.345');
+  const afterQuantity = await read('#fill-derived-total');
+  await fillForm.locator('[name="quantity"]').fill('12.344');
+  await fillForm.locator('[name="price"]').fill('$3.50');
+  const afterPrice = await read('#fill-derived-total');
+  await fillForm.locator('[name="price"]').fill('$3.49');
   await fillForm.locator('[name="tank"]').selectOption('partial');
   const afterTank = await read('#fill-derived-total');
   await fillForm.locator('[name="station"]').selectOption('Home Charger');
@@ -178,11 +184,44 @@ const fs = require('fs');
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > innerWidth
   );
+  const mobile = await page.evaluate(async () => {
+    const visible = [...document.querySelectorAll(
+      'button, select, input:not([type="checkbox"]):not([type="hidden"])'
+    )]
+      .filter(element => element.offsetParent !== null);
+    const minTouch = Math.min(...visible.map(
+      element => element.getBoundingClientRect().height
+    ));
+    const project = html => {
+      const documentCopy = new DOMParser().parseFromString(html, 'text/html');
+      const vehicle = [...documentCopy.querySelectorAll('.vehicle-card')]
+        .find(card => card.querySelector('h2')?.textContent === 'Phase A Vehicle');
+      return [...vehicle.querySelectorAll('.history-card')].map(card => ({
+        time: card.querySelector('time').textContent.slice(0, 19),
+        text: card.textContent.replace(/\s+/g, ' ').trim()
+      }));
+    };
+    const first = project(await (await fetch('/apps/rover/view')).text());
+    const second = project(await (await fetch('/apps/rover/view')).text());
+    const ordered = first.every(
+      (event, index) => index === 0 || first[index - 1].time <= event.time
+    );
+    return {
+      touch: minTouch >= 44,
+      stacked: getComputedStyle(document.querySelector('#vehicle-view'))
+        .gridTemplateColumns === 'none',
+      font: document.fonts.check('12px "Berkeley Mono"'),
+      ordered,
+      stable: JSON.stringify(first) === JSON.stringify(second)
+    };
+  });
   console.log(
-    `${price} standard=${standard} after-tank=${afterTank} ` +
+    `${price} standard=${standard} quantity=${afterQuantity} price=${afterPrice} ` +
+    `after-tank=${afterTank} ` +
     `after-evidence=${afterEvidence} cash=${cash} ` +
     `total=${shape.tag}/${shape.editable ? 'editable' : 'readonly'} ` +
-    `overflow=${overflow}`
+    `overflow=${overflow} touch=${mobile.touch} stacked=${mobile.stacked} ` +
+    `font=${mobile.font} ordered=${mobile.ordered} stable=${mobile.stable}`
   );
   await browser.close();
 })().catch(error => {
@@ -191,8 +230,9 @@ const fs = require('fs');
 });
 NODE
 )"
-[ "$preview" = '$3.499 standard=$43.19 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly overflow=false' ] \
+[ "$preview" = '$3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly overflow=false touch=true stacked=true font=true ordered=true stable=true' ] \
   || fail "browser fill preview mismatch: $preview"
+note "browser measurements: $preview"
 note "browser completes \$3.49 to \$3.499 and derives an exact non-editable total"
 
 saved_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
@@ -305,15 +345,20 @@ saved_odometer="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 [ "$saved_odometer" = $'Saved odometer - 10,023.125 mi\n201' ] \
   || fail "valid odometer was not saved: $saved_odometer"
 
+overlap_odometer="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","reading":"10024.125","unit":"mi","observed":"2026-07-28T23:05","zone":"America/Chicago"}' \
+  "$URL/apps/rover/add-odometer")"
+[ "$overlap_odometer" = $'Saved odometer - 10,024.125 mi\n201' ] \
+  || fail "overlapping odometer fixture was not saved: $overlap_odometer"
+
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -q '41.25 kWh' <<<"$view" || fail "saved delivered energy did not render"
 grep -q '21%' <<<"$view" || fail "saved start battery did not render"
 grep -q '79.5%' <<<"$view" || fail "saved end battery did not render"
 grep -q 'charger / reported' <<<"$view" || fail "charging measurement source did not render"
-if ! grep -q '10,023.125 mi' <<<"$view" \
-  && ! grep -q 'Unavailable - latest observation times overlap' <<<"$view"; then
-  fail "standalone odometer neither became current nor produced an honest overlap reason"
-fi
+grep -q 'Unavailable - latest observation times overlap' <<<"$view" \
+  || fail "overlapping latest observations did not render unavailable with a reason"
 if grep -Eq '(^|[^0-9,.])(4125|10023125)([^0-9,.]|$)|0x[0-9a-fA-F]+' <<<"$view"; then
   fail "charge/odometer view leaked a raw machine value or ID"
 fi

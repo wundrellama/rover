@@ -1134,6 +1134,27 @@
   =/  b-key  (vector-key key b)
   ?:  ?=(~ a-key)  %.n
   ?:  ?=(~ b-key)  %.y
+  ?:  =(u.a-key u.b-key)
+    =/  a-recorded  (vector-key %recorded-at a)
+    =/  b-recorded  (vector-key %recorded-at b)
+    ?:  ?&  ?=(^ a-recorded)
+            ?=(^ b-recorded)
+            !=(u.a-recorded u.b-recorded)
+        ==
+      ?:(descending (gth u.a-recorded u.b-recorded) (lth u.a-recorded u.b-recorded))
+    =/  a-tie
+      =/  acquisition  (vector-key %acquisition-id a)
+      ?^  acquisition  u.acquisition
+      =/  odometer  (vector-key %odometer-id a)
+      ?^  odometer  u.odometer
+      (need (vector-key %vehicle-id a))
+    =/  b-tie
+      =/  acquisition  (vector-key %acquisition-id b)
+      ?^  acquisition  u.acquisition
+      =/  odometer  (vector-key %odometer-id b)
+      ?^  odometer  u.odometer
+      (need (vector-key %vehicle-id b))
+    ?:(descending (gth a-tie b-tie) (lth a-tie b-tie))
   ?:  descending
     (gth u.a-key u.b-key)
   (lth u.a-key u.b-key)
