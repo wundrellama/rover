@@ -3,6 +3,7 @@
 ::
 /-  ast=obelisk-ast, rover
 /+  act=rover-act, default-agent, dbug
+/*  shell-html  %html  /app/rover/shell/html
 |%
 +$  versioned-state
   $%  [%0 state-0]
@@ -37,9 +38,40 @@
   ==
 +$  card  card:agent:gall
 --
-%-  agent:dbug
+=>  |%
+++  bind-eyre
+  ^-  card
+  [%pass /eyre/connect %arvo %e %connect [~ /apps/rover] %rover]
+::
+++  http-give
+  |=  [eyre-id=@ta status=@ud hed=header-list:http bod=(unit octs)]
+  ^-  (list card)
+  =/  pax=path  /http-response/[eyre-id]
+  :~  :*  %give  %fact  ~[pax]  %http-response-header
+          !>(`response-header:http`[status hed])
+      ==
+      [%give %fact ~[pax] %http-response-data !>(bod)]
+      [%give %kick ~[pax] ~]
+  ==
+::
+++  shell-page
+  ^-  octs
+  (as-octs:mimes:html shell-html)
+::
+++  handle-http
+  |=  [=bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  (list card)
+  ?.  authenticated.req
+    =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
+    (http-give eyre-id 303 ['location' loc]~ ~)
+  ?>  =(our.bowl src.bowl)
+  ?.  =(%'GET' method.request.req)
+    (http-give eyre-id 405 ~ ~)
+  (http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page)
+--
 =|  state-3
 =*  state  -
+%-  agent:dbug
 ^-  agent:gall
 |_  =bowl:gall
 +*  this  .
@@ -47,7 +79,7 @@
 ::
 ++  on-init
   ^-  (quip card _this)
-  `this
+  [[bind-eyre]~ this]
 ::
 ++  on-save  !>([%3 state])
 ::
@@ -55,19 +87,25 @@
   |=  old=vase
   ^-  (quip card _this)
   =/  s  !<(versioned-state old)
-  ?-  -.s
-    %0  `this(state [pending.+.s last.+.s ~ ~ ~ ~])
-    %1  `this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~])
-    %2  `this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~])
-    %3  `this(state +.s)
-  ==
+  =/  loaded=_this
+    ?-  -.s
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~])
+      %3  this(state +.s)
+    ==
+  [[bind-eyre]~ loaded]
 ::
 ++  on-poke
   |=  [=mark =vase]
   ^-  (quip card _this)
-  ?>  =(our.bowl src.bowl)
   ?+  mark  (on-poke:def mark vase)
+      %handle-http-request
+    =+  !<([eyre-id=@ta req=inbound-request:eyre] vase)
+    [(handle-http bowl eyre-id req) this]
+  ::
       %rover-action
+    ?>  =(our.bowl src.bowl)
     =/  a  !<(action:rover vase)
     ?-  -.a
       %init-db
@@ -380,8 +418,24 @@
     ``noun+!>(integrity)
   ==
 ::
-++  on-watch  on-watch:def
-++  on-leave  on-leave:def
-++  on-arvo   on-arvo:def
+++  on-watch
+  |=  =path
+  ^-  (quip card _this)
+  ?>  ?=([%http-response @ ~] path)
+  `this
+::
+++  on-leave
+  |=  =path
+  ^-  (quip card _this)
+  ?>  ?=([%http-response @ ~] path)
+  `this
+::
+++  on-arvo
+  |=  [=wire =sign-arvo]
+  ^-  (quip card _this)
+  ?>  ?=([%eyre %connect ~] wire)
+  ?>  ?=([%eyre %bound *] sign-arvo)
+  ~?  !accepted.sign-arvo  [%rover %eyre-bind-refused]
+  `this
 ++  on-fail   on-fail:def
 --
