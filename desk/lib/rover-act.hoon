@@ -62,6 +62,17 @@
       kwh-100km=@ux
       mi-kwh=@ux
   ==
++$  location-ids
+  $:  reservoir-definition=@ux
+      electricity-definition=@ux
+      vehicle=@ux
+      fill-acquisition=@ux
+      charge-acquisition=@ux
+      private-place=@ux
+      private-station=@ux
+      public-place=@ux
+      mixed-station=@ux
+  ==
 ::
 ++  rover-db  %rover
 ::
@@ -424,6 +435,68 @@
 ++  consumption-report
   ^-  tape
   "FROM vehicles V JOIN consumption-observations C ON V.vehicle-id = C.vehicle-id WHERE V.label = 'Consumption Evidence Vehicle' SELECT V.label AS vehicle, C.value-digits, C.value-decimals, C.consumption-unit, C.scope, C.source, C.observed-start, C.observed-end, C.observed-precision, C.source-zone;"
+::
+++  seed-location
+  |=  [ids=location-ids now=@da]
+  ^-  tape
+  =/  res-id  (scow %ux reservoir-definition.ids)
+  =/  ele-id  (scow %ux electricity-definition.ids)
+  =/  veh-id  (scow %ux vehicle.ids)
+  =/  fil-id  (scow %ux fill-acquisition.ids)
+  =/  chg-id  (scow %ux charge-acquisition.ids)
+  =/  prv-plc  (scow %ux private-place.ids)
+  =/  prv-sta  (scow %ux private-station.ids)
+  =/  pub-plc  (scow %ux public-place.ids)
+  =/  mix-sta  (scow %ux mixed-station.ids)
+  =/  rec      (scow %da now)
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ({res-id}, 'Location Fixture Fuel', %reservoir, %gal, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({ele-id}, 'Location Fixture Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO energy-definition-grade-code VALUES ({res-id}, 'LOC-RES'); "
+    "INSERT INTO vehicles VALUES ({veh-id}, 'Location Evidence Vehicle', N, {rec}); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {res-id}, N); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {ele-id}, N); "
+    "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {res-id}); "
+    "INSERT INTO places VALUES ({prv-plc}, 'Private Home', N, {rec}); "
+    "INSERT INTO stations VALUES ({prv-sta}, {prv-plc}, 'Home Charger', %private, N, {rec}); "
+    "INSERT INTO places VALUES ({pub-plc}, 'Public Market', N, {rec}); "
+    "INSERT INTO stations VALUES ({mix-sta}, {pub-plc}, 'Market Mixed Station', %mixed, N, {rec}); "
+    "INSERT INTO place-addresses VALUES ({pub-plc}, '123 Market St, Chicago, IL 60601, USA', %owner, {rec}); "
+    "INSERT INTO place-address-parts VALUES ({pub-plc}, %country, 'US'); "
+    "INSERT INTO place-address-parts VALUES ({pub-plc}, %locality, 'Chicago'); "
+    "INSERT INTO place-address-parts VALUES ({pub-plc}, %region, 'IL'); "
+    "INSERT INTO place-address-parts VALUES ({pub-plc}, %postal-code, '60601'); "
+    "INSERT INTO place-address-parts VALUES ({pub-plc}, %line1, '123 Market St'); "
+    "INSERT INTO place-coordinates VALUES ({pub-plc}, -418.781.136, --876.297.982, 7, %gps, {rec}); "
+    "INSERT INTO place-coordinate-accuracy VALUES ({pub-plc}, 47, 1, %metre); "
+    "INSERT INTO station-brand-operator VALUES ({mix-sta}, %brand, 'Shell'); "
+    "INSERT INTO station-brand-operator VALUES ({mix-sta}, %operator, 'Acme Mobility'); "
+    "INSERT INTO station-identifiers VALUES ({mix-sta}, %chargepoint, 'CP-1234'); "
+    "INSERT INTO energy-acquisitions VALUES ({fil-id}, {veh-id}, {res-id}, ~2026.7.28..18.00.00, ~2026.7.28..18.00.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({fil-id}, 9000, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO energy-acquisition-stations VALUES ({fil-id}, {mix-sta}); "
+    "INSERT INTO acquisition-station-equipment VALUES ({fil-id}, 'Pump 7', 'PUMP 7'); "
+    "INSERT INTO energy-acquisitions VALUES ({chg-id}, {veh-id}, {ele-id}, ~2026.7.28..18.30.00, ~2026.7.28..18.30.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO charging-sessions VALUES ({chg-id}); "
+    "INSERT INTO energy-acquisition-stations VALUES ({chg-id}, {mix-sta});"
+  ==
+::
+++  location-report
+  ^-  tape
+  ;:  weld
+    "FROM places P JOIN stations S ON P.place-id = S.place-id WHERE P.label = 'Private Home' OR P.label = 'Public Market' SELECT P.label AS place, P.archived AS place-archived, S.label AS station, S.station-kind, S.archived AS station-archived; "
+    "FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.formatted, A.source; "
+    "FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-address; "
+    "FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.part, A.value; "
+    "FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source; "
+    "FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-coordinates; "
+    "FROM places P JOIN place-coordinate-accuracy A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.radius-digits, A.radius-decimals, A.radius-unit; "
+    "FROM stations S JOIN station-brand-operator B ON S.station-id = B.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, B.role, B.label; "
+    "FROM stations S JOIN station-identifiers I ON S.station-id = I.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, I.provider; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE V.label = 'Location Evidence Vehicle' SELECT V.label AS vehicle, E.physical-kind, S.label AS station, S.station-kind, A.observed-start; "
+    "FROM stations S JOIN energy-acquisition-stations L ON S.station-id = L.station-id JOIN acquisition-station-equipment E ON L.acquisition-id = E.acquisition-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, E.equipment-label, E.receipt-text; "
+    "FROM energy-definitions D JOIN energy-definition-grade-code G ON D.energy-definition-id = G.energy-definition-id WHERE D.label = 'Location Fixture Fuel' SELECT D.label AS energy, G.code;"
+  ==
 ::
 ++  verify-schema
   ^-  tape
