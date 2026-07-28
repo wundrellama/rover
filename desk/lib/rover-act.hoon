@@ -30,6 +30,17 @@
       additive-a=@ux
       additive-b=@ux
   ==
++$  charging-evidence-ids
+  $:  definition=@ux
+      vehicle=@ux
+      acquisition=@ux
+      energy-measurement=@ux
+      power-measurement=@ux
+      range-measurement=@ux
+      percent-observation=@ux
+      segments-observation=@ux
+      health-observation=@ux
+  ==
 ::
 ++  rover-db  %rover
 ::
@@ -259,6 +270,51 @@
     "FROM additive-definitions D WHERE D.label = 'Injector cleaner' OR D.label = 'Fuel stabilizer' SELECT D.label AS additive, D.archived; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, O.value-digits, O.decimal-places, O.unit; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, B.reason;"
+  ==
+::
+++  seed-charging-evidence
+  |=  [ids=charging-evidence-ids now=@da]
+  ^-  tape
+  =/  def-id   (scow %ux definition.ids)
+  =/  veh-id   (scow %ux vehicle.ids)
+  =/  acq-id   (scow %ux acquisition.ids)
+  =/  nrg-id   (scow %ux energy-measurement.ids)
+  =/  pwr-id   (scow %ux power-measurement.ids)
+  =/  rng-id   (scow %ux range-measurement.ids)
+  =/  pct-id   (scow %ux percent-observation.ids)
+  =/  seg-id   (scow %ux segments-observation.ids)
+  =/  hea-id   (scow %ux health-observation.ids)
+  =/  rec      (scow %da now)
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Fixture Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO vehicles VALUES ({veh-id}, 'Charging Evidence Vehicle', N, {rec}); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
+    "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id}); "
+    "INSERT INTO energy-acquisitions VALUES ({acq-id}, {veh-id}, {def-id}, ~2026.7.28..15.00.00, ~2026.7.28..15.30.00, %minute, 'America/Chicago', {rec}); "
+    "INSERT INTO charging-sessions VALUES ({acq-id}); "
+    "INSERT INTO charging-energy-measurements VALUES ({nrg-id}, {acq-id}, 45678, 3, %kwh, %charger, %reported, {rec}); "
+    "INSERT INTO charging-energy-measurements VALUES ({pwr-id}, {acq-id}, 72, 1, %kw, %charger, %measured, {rec}); "
+    "INSERT INTO charging-energy-measurements VALUES ({rng-id}, {acq-id}, 50, 0, %mi, %estimate, %estimated, {rec}); "
+    "INSERT INTO battery-observations VALUES ({pct-id}, {veh-id}, %charge-level, ~2026.7.28..15.00.00, ~2026.7.28..15.00.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO battery-observation-percent VALUES ({pct-id}, 805, 1); "
+    "INSERT INTO battery-observations VALUES ({seg-id}, {veh-id}, %charge-level, ~2026.7.28..15.30.00, ~2026.7.28..15.30.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO battery-observation-segments VALUES ({seg-id}, 9, 12); "
+    "INSERT INTO battery-observations VALUES ({hea-id}, {veh-id}, %health, ~2026.7.28..15.31.00, ~2026.7.28..15.31.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO battery-observation-percent VALUES ({hea-id}, 950, 1); "
+    "INSERT INTO charging-session-batteries VALUES ({acq-id}, %start, {pct-id}); "
+    "INSERT INTO charging-session-batteries VALUES ({acq-id}, %end, {seg-id}); "
+    "INSERT INTO charging-efficiency-breaks VALUES ({acq-id}, %owner-marked, {rec});"
+  ==
+::
+++  charging-evidence-report
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-energy-measurements M ON A.acquisition-id = M.acquisition-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, M.quantity, M.decimals, M.measure-unit, M.point, M.evidence; "
+    "FROM vehicles V JOIN battery-observations B ON V.vehicle-id = B.vehicle-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.measure, B.observed-start; "
+    "FROM vehicles V JOIN battery-observations B ON V.vehicle-id = B.vehicle-id JOIN battery-observation-percent P ON B.battery-observation-id = P.battery-observation-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.measure, P.value-digits, P.value-decimals; "
+    "FROM vehicles V JOIN battery-observations B ON V.vehicle-id = B.vehicle-id JOIN battery-observation-segments S ON B.battery-observation-id = S.battery-observation-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.measure, S.filled, S.total; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-session-batteries L ON A.acquisition-id = L.acquisition-id JOIN battery-observations B ON L.battery-observation-id = B.battery-observation-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, L.endpoint, B.measure, B.observed-start; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-efficiency-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.reason;"
   ==
 ::
 ++  verify-schema

@@ -58,6 +58,13 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %charging-evidence-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover charging-evidence-report:act])
+        :_  this(pending (~(put by pending) wir 'charging-evidence-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %fuel-evidence-report
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover fuel-evidence-report:act])
@@ -105,6 +112,25 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover (seed-fuel-evidence:act ids now.bowl)])
         :_  this(pending (~(put by pending) wir 'seed-fuel-evidence'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %seed-charging-evidence
+        =/  base=@ux  (cut 7 [0 1] eny.bowl)
+        =/  ids=charging-evidence-ids:act
+          :*  (fixture-id:act base 41)
+              (fixture-id:act base 42)
+              (fixture-id:act base 43)
+              (fixture-id:act base 44)
+              (fixture-id:act base 45)
+              (fixture-id:act base 46)
+              (fixture-id:act base 47)
+              (fixture-id:act base 48)
+              (fixture-id:act base 49)
+          ==
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (seed-charging-evidence:act ids now.bowl)])
+        :_  this(pending (~(put by pending) wir 'seed-charging-evidence'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
