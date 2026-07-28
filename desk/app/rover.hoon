@@ -58,6 +58,13 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %fuel-evidence-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover fuel-evidence-report:act])
+        :_  this(pending (~(put by pending) wir 'fuel-evidence-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %pricing-report
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover pricing-report:act])
@@ -80,6 +87,24 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover (seed-pricing:act ids now.bowl)])
         :_  this(pending (~(put by pending) wir 'seed-pricing'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %seed-fuel-evidence
+        =/  base=@ux  (cut 7 [0 1] eny.bowl)
+        =/  ids=fuel-evidence-ids:act
+          :*  (fixture-id:act base 31)
+              (fixture-id:act base 32)
+              (fixture-id:act base 33)
+              (fixture-id:act base 34)
+              (fixture-id:act base 35)
+              (fixture-id:act base 36)
+              (fixture-id:act base 37)
+              (fixture-id:act base 38)
+          ==
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (seed-fuel-evidence:act ids now.bowl)])
+        :_  this(pending (~(put by pending) wir 'seed-fuel-evidence'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==

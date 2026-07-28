@@ -76,7 +76,9 @@
   ==
 +$  action
   $%  [%init-db ~]
+      [%fuel-evidence-report ~]
       [%pricing-report ~]
+      [%seed-fuel-evidence ~]
       [%seed-pricing ~]
       [%seed-spike ~]
       [%verify-schema ~]

@@ -20,6 +20,16 @@
       snapshot=@ux
       eur=@ux
   ==
++$  fuel-evidence-ids
+  $:  definition=@ux
+      vehicle=@ux
+      zero-fill=@ux
+      one-fill=@ux
+      many-fill=@ux
+      odometer=@ux
+      additive-a=@ux
+      additive-b=@ux
+  ==
 ::
 ++  rover-db  %rover
 ::
@@ -202,6 +212,53 @@
   ;:  weld
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Pricing Fixture Vehicle' SELECT V.label AS vehicle, E.label AS energy, F.quantity-milli, F.quantity-unit, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start; "
     "FROM sys.columns WHERE namespace = %dbo AND name = %fuel-fills SELECT col-name;"
+  ==
+::
+++  seed-fuel-evidence
+  |=  [ids=fuel-evidence-ids now=@da]
+  ^-  tape
+  =/  def-id   (scow %ux definition.ids)
+  =/  veh-id   (scow %ux vehicle.ids)
+  =/  zero-id  (scow %ux zero-fill.ids)
+  =/  one-id   (scow %ux one-fill.ids)
+  =/  many-id  (scow %ux many-fill.ids)
+  =/  odo-id   (scow %ux odometer.ids)
+  =/  add-a    (scow %ux additive-a.ids)
+  =/  add-b    (scow %ux additive-b.ids)
+  =/  rec      (scow %da now)
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Regular 87 E10', %reservoir, %gal, N, {rec}); "
+    "INSERT INTO energy-definition-octane VALUES ({def-id}, 87, %aki); "
+    "INSERT INTO energy-definition-blend VALUES ({def-id}, %ethanol, 100, 1); "
+    "INSERT INTO vehicles VALUES ({veh-id}, 'Fuel Evidence Vehicle', N, {rec}); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
+    "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id}); "
+    "INSERT INTO additive-definitions VALUES ({add-a}, 'Injector cleaner', N, {rec}); "
+    "INSERT INTO additive-definitions VALUES ({add-b}, 'Fuel stabilizer', N, {rec}); "
+    "INSERT INTO energy-acquisitions VALUES ({zero-id}, {veh-id}, {def-id}, ~2026.7.28..14.00.00, ~2026.7.28..14.00.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({zero-id}, 1000, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO odometer-observations VALUES ({odo-id}, {veh-id}, 200000, 1, %mi, ~2026.7.28..14.00.00, ~2026.7.28..14.00.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fill-odometers VALUES ({zero-id}, {odo-id}); "
+    "INSERT INTO energy-acquisitions VALUES ({one-id}, {veh-id}, {def-id}, ~2026.7.28..14.01.00, ~2026.7.28..14.01.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({one-id}, 1000, %gal, %partial, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO fuel-fill-additives VALUES ({one-id}, {add-a}); "
+    "INSERT INTO energy-acquisitions VALUES ({many-id}, {veh-id}, {def-id}, ~2026.7.28..14.02.00, ~2026.7.28..14.02.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO fuel-fills VALUES ({many-id}, 1000, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO fuel-fill-additives VALUES ({many-id}, {add-a}); "
+    "INSERT INTO fuel-fill-additives VALUES ({many-id}, {add-b}); "
+    "INSERT INTO economy-breaks VALUES ({many-id}, %missed-fill, {rec});"
+  ==
+::
+++  fuel-evidence-report
+  ^-  tape
+  ;:  weld
+    "FROM energy-definitions E JOIN energy-definition-octane O ON E.energy-definition-id = O.energy-definition-id WHERE E.label = 'Regular 87 E10' SELECT E.label AS energy, O.rating, O.method; "
+    "FROM energy-definitions E JOIN energy-definition-blend B ON E.energy-definition-id = B.energy-definition-id WHERE E.label = 'Regular 87 E10' SELECT E.label AS energy, B.blend-kind, B.percent-digits, B.percent-decimals; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, F.quantity-milli, F.quantity-unit, F.unit-price-mills, F.currency, F.settlement-mode; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, D.label AS additive; "
+    "FROM additive-definitions D WHERE D.label = 'Injector cleaner' OR D.label = 'Fuel stabilizer' SELECT D.label AS additive, D.archived; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, O.value-digits, O.decimal-places, O.unit; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, B.reason;"
   ==
 ::
 ++  verify-schema
