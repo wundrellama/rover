@@ -1,5 +1,5 @@
--- Rover M0 schema — full pour, 33 relations.
--- Adopted 2026-07-28 (Gate 6 + open questions 1-7).
+-- Rover M0 schema — full pour, 35 relations.
+-- Adopted 2026-07-28 (Gate 6 + open questions 1-9).
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -174,14 +174,31 @@ CREATE TABLE rover..charging-energy-measurements
   FOREIGN KEY (acquisition-id) REFERENCES charging-sessions (acquisition-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
--- %segments preserves filled/total without inventing a percentage.
+-- Form-neutral parent; exactly one typed child carries the form-specific values (Q9).
+-- The form column is DROPPED: which child row exists IS the form.
+-- Rover's atomic write + reconciliation enforce exactly-one-child (Obelisk cannot
+-- express cross-table XOR), same as fuel-fills/charging-sessions.
 CREATE TABLE rover..battery-observations
-  (battery-observation-id @ux, vehicle-id @ux, measure @tas, form @tas,
-   value-digits @ud, value-decimals @ud, segments-total @ud,
+  (battery-observation-id @ux, vehicle-id @ux, measure @tas,
    observed-start @da, observed-end @da, observed-precision @tas,
    source-zone @t, recorded-at @da)
   PRIMARY KEY (battery-observation-id)
   FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..battery-observation-percent
+  (battery-observation-id @ux, value-digits @ud, value-decimals @ud)
+  PRIMARY KEY (battery-observation-id)
+  FOREIGN KEY (battery-observation-id)
+    REFERENCES battery-observations (battery-observation-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Filled/total preserved WITHOUT inventing a percentage.
+CREATE TABLE rover..battery-observation-segments
+  (battery-observation-id @ux, filled @ud, total @ud)
+  PRIMARY KEY (battery-observation-id)
+  FOREIGN KEY (battery-observation-id)
+    REFERENCES battery-observations (battery-observation-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 CREATE TABLE rover..charging-session-batteries
@@ -243,12 +260,13 @@ CREATE TABLE rover..consumption-observations
 -- ============================================================
 
 CREATE TABLE rover..place-addresses
-  (place-id @ux, formatted @t, country @tas, source @tas, recorded-at @da)
+  (place-id @ux, formatted @t, source @tas, recorded-at @da)
   PRIMARY KEY (place-id)
   FOREIGN KEY (place-id) REFERENCES places (place-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
--- Permissive open set, no part required (Q2). Formatted text stays authoritative.
+-- Permissive open set, no part required (Q2); %country is a part term (Q10).
+-- Formatted text stays authoritative.
 CREATE TABLE rover..place-address-parts
   (place-id @ux, part @tas, value @t)
   PRIMARY KEY (place-id, part)
