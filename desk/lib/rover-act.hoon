@@ -1,91 +1,23 @@
-::  lib/rover-act — synchronous Obelisk driver as a spider strand library.
-::  Implements the pinned integration contract: watch /server on a unique wire,
-::  poke %obelisk-action [%tape %rover urql], take one %noun fact, take the kick,
-::  decode (each (list cmd-result:ast) tang).
+::  lib/rover-act - Obelisk driver helpers for %rover.
 ::
-::  urQL pokes are the ONLY application read path (predicates/joins server-side).
-::  Scries are reserved for admin/diagnostics elsewhere.
 /-  ast=obelisk-ast
 |%
 ++  rover-db  %rover
-::  +run-urql: run one urQL script against the %rover database, returning the
-::  decoded command results. Caller is responsible for making mutation scripts
-::  mutation-only (no query before the last mutation in a script).
-++  run-urql
-  |=  [wire=path urql=tape]
-  =/  m  (strand ,vase)
-  ^-  form:m
-  ;<  our=@p  bind:m  get-our
-  ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-  ;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape rover-db urql]))
-  ;<  [mark=@tas =vase]  bind:m  (take-fact wire)
-  ;<  ~  bind:m  (take-kick wire)
-  (pure:m vase)
 ::
-::  +run-urql-each: typed variant returning the each directly.
-++  run-urql-each
-  |=  [wire=path urql=tape]
-  =/  m  (strand ,(each (list cmd-result:ast) tang))
-  ^-  form:m
-  ;<  =vase  bind:m  (run-urql wire urql)
-  =/  res  !<((each (list cmd-result:ast) tang) vase)
-  (pure:m res)
-::
-::  +vectors-of: flatten all %result-set rows out of a result list.
-++  vectors-of
-  |=  results=(list cmd-result:ast)
-  ^-  (list vector:ast)
-  %+  roll  results
-  |=  [r=cmd-result:ast acc=(list vector:ast)]
-  %+  weld  acc
-  %+  roll  +.r
-  |=  [x=result:ast a=(list vector:ast)]
-  ?+  -.x  a
-    %result-set  (weld a +.x)
+++  schema-v1
+  ^-  tape
+  ;:  weld
+    "CREATE DATABASE rover; "
+    "CREATE TABLE vehicles (vehicle-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (vehicle-id); "
+    "CREATE TABLE odometer-observations (odometer-id @ux, vehicle-id @ux, value-digits @ud, decimal-places @ud, unit @tas, observed-start @da, observed-end @da, observed-precision @tas, source-zone @t, recorded-at @da) PRIMARY KEY (odometer-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE energy-definitions (energy-definition-id @ux, label @t, physical-kind @tas, quantity-unit @tas, archived @f, recorded-at @da) PRIMARY KEY (energy-definition-id); "
+    "CREATE TABLE vehicle-energy-definitions (vehicle-id @ux, energy-definition-id @ux, archived @f) PRIMARY KEY (vehicle-id, energy-definition-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT FOREIGN KEY (energy-definition-id) REFERENCES energy-definitions (energy-definition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE vehicle-default-energy-definitions (vehicle-id @ux, energy-definition-id @ux) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id, energy-definition-id) REFERENCES vehicle-energy-definitions (vehicle-id, energy-definition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE energy-acquisitions (acquisition-id @ux, vehicle-id @ux, energy-definition-id @ux, observed-start @da, observed-end @da, observed-precision @tas, source-zone @t, recorded-at @da) PRIMARY KEY (acquisition-id) FOREIGN KEY (vehicle-id, energy-definition-id) REFERENCES vehicle-energy-definitions (vehicle-id, energy-definition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE fuel-fills (acquisition-id @ux, quantity-milli @ud, quantity-unit @tas, tank-state @tas) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE charging-sessions (acquisition-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE places (place-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (place-id); "
+    "CREATE TABLE stations (station-id @ux, place-id @ux, label @t, station-kind @tas, archived @f, recorded-at @da) PRIMARY KEY (station-id) FOREIGN KEY (place-id) REFERENCES places (place-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE energy-acquisition-stations (acquisition-id @ux, station-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT FOREIGN KEY (station-id) REFERENCES stations (station-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
   ==
-::
-::  +cell: get a typed atom from a result vector by column name.
-++  cell
-  |=  [name=@tas v=vector:ast]
-  ^-  dime
-  =/  cells  +.v
-  |-
-  ?~  cells  ~|([%missing-column name] !!)
-  ?:  =(name p.i.cells)  q.i.cells
-  $(cells t.cells)
-::
-++  cell-ud
-  |=  [name=@tas v=vector:ast]
-  ^-  @ud
-  =/  d  (cell name v)
-  ?>  =(%ud p.d)
-  `@ud`q.d
-::
-++  cell-tas
-  |=  [name=@tas v=vector:ast]
-  ^-  @tas
-  =/  d  (cell name v)
-  ?>  =(%tas p.d)
-  `@tas`q.d
-::
-++  cell-t
-  |=  [name=@tas v=vector:ast]
-  ^-  @t
-  =/  d  (cell name v)
-  ?>  =(%t p.d)
-  `@t`q.d
-::
-++  cell-ux
-  |=  [name=@tas v=vector:ast]
-  ^-  @ux
-  =/  d  (cell name v)
-  ?>  =(%ux p.d)
-  `@ux`q.d
-::
-++  cell-da
-  |=  [name=@tas v=vector:ast]
-  ^-  @da
-  =/  d  (cell name v)
-  ?>  =(%da p.d)
-  `@da`q.d
 --
