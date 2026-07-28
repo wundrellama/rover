@@ -282,7 +282,7 @@
   ==
 ::
 ++  current-odometer
-  |=  rows=(list vector:ast)
+  |=  [rows=(list vector:ast) preference=(unit @tas)]
   ^-  tape
   =/  ordered  (order-vectors:act %observed-start %.y rows)
   ?~  ordered
@@ -296,12 +296,43 @@
     (gth prior-end latest-start)
   ?:  ambiguous
     "Unavailable - latest observation times overlap"
+  =/  source  (cell-term %unit latest)
+  =/  target  ?~(preference source u.preference)
+  =/  converted
+    (convert-distance:render (cell-atom %value-digits latest) (cell-atom %decimal-places latest) source target)
   %-  trip
   %:  format-distance:render
-      (cell-atom %value-digits latest)
-      (cell-atom %decimal-places latest)
-      (cell-term %unit latest)
-      %.n
+      converted-digits.converted
+      converted-places.converted
+      converted-unit.converted
+      converted.converted
+  ==
+::
+++  preference-form
+  |=  [vehicle-label=@t preference-rows=(list vector:ast)]
+  ^-  tape
+  =/  distance=@tas
+    ?~  preference-rows
+      %native
+    (cell-term %distance-unit i.preference-rows)
+  =/  currency=@tas
+    ?~  preference-rows
+      %usd
+    (cell-term %currency i.preference-rows)
+  ;:  weld
+    "<form class=\"preference-form\"><input type=\"hidden\" name=\"vehicle\" value=\""
+    (escape vehicle-label)
+    "\"><label>Distance display<select name=\"distanceUnit\"><option value=\"native\""
+    ?:(=(%native distance) " selected" "")
+    ">Source-native</option><option value=\"mi\""
+    ?:(=(%mi distance) " selected" "")
+    ">mi</option><option value=\"km\""
+    ?:(=(%km distance) " selected" "")
+    ">km</option></select></label><label>Currency display<select name=\"currency\"><option value=\"usd\""
+    ?:(=(%usd currency) " selected" "")
+    ">USD</option><option value=\"eur\""
+    ?:(=(%eur currency) " selected" "")
+    ">EUR</option></select></label><button type=\"submit\">Save display preference</button><output class=\"preference-verdict\" aria-live=\"polite\"></output></form>"
   ==
 ::
 ++  definitions
@@ -518,12 +549,19 @@
           batteries=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
+          preferences=(list vector:ast)
       ==
   ^-  tape
   =/  id  (cell-atom %vehicle-id row)
   =/  archived  =(0 (cell-atom %archived row))
-  =/  odometer  (current-odometer (rows-for id odometers))
+  =/  preference-rows  (rows-for id preferences)
+  =/  preference=(unit @tas)
+    ?~  preference-rows
+      ~
+    `(cell-term %distance-unit i.preference-rows)
+  =/  odometer  (current-odometer (rows-for id odometers) preference)
   =/  defs  (definitions (rows-for id definition-rows) (rows-for id default-rows))
+  =/  preference-control  (preference-form (cell-text %label row) preference-rows)
   =/  history
     %:  ordered-history
         (rows-for id fills)
@@ -541,6 +579,7 @@
     "</span></header><section class=\"odometer\"><span class=\"key\">CURRENT ODOMETER - DERIVED</span><strong>"
     odometer
     "</strong></section>"
+    preference-control
     defs
     "<section class=\"history\"><h3>ORDERED HISTORY</h3>"
     history
@@ -562,12 +601,13 @@
   =/  additives  (rows-at commands 9)
   =/  station-links  (rows-at commands 10)
   =/  additive-links  (rows-at commands 11)
+  =/  preferences  (rows-at commands 12)
   =/  cards=tape
     |-
     ?~  vehicles
       ~
     =/  card
-      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries station-links additive-links)
+      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries station-links additive-links preferences)
     =/  rest=tape  $(vehicles t.vehicles)
     (weld card rest)
   =/  html=tape

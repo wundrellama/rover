@@ -50,4 +50,10 @@
 ?>  =(10.020.125 digits.reading.p.odometer)
 ?>  =(3 places.reading.p.odometer)
 ?>  =(%mi odo-unit.reading.p.odometer)
+::
+=/  preference
+  (decode-preference:entry '{"vehicle":"Phase A Vehicle","distanceUnit":"km","currency":"usd"}')
+?>  ?=(%& -.preference)
+?>  ?=(^ distance-unit.p.preference)
+?>  =(%km u.distance-unit.p.preference)
 %entry-tests-pass

@@ -19,6 +19,7 @@
       [%5 state-5]
       [%6 state-6]
       [%7 state-7]
+      [%8 state-8]
   ==
 +$  fill-entry-5
   $:  vehicle-label=@t
@@ -104,6 +105,19 @@
       charge-pending=(map wire charge-entry:rover)
       odometer-pending=(map wire odometer-entry:rover)
   ==
++$  state-8
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+  ==
 +$  card  card:agent:gall
 --
 =>  |%
@@ -157,13 +171,42 @@
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
 ++  handle-http
-  |=  [sat=state-7 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-7]
+  |=  [sat=state-8 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-8]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?:  =(%'POST' method.request.req)
+    ?:  =('/apps/rover/set-preference' url.request.req)
+      ?~  body.request.req
+        :_  sat
+        %:  http-give
+            eyre-id
+            400
+            ['content-type' 'text/plain']~
+            `(text-octs '%bad-shape: preference')
+        ==
+      =/  decoded  (decode-preference:entry `@t`q.u.body.request.req)
+      ?:  ?=(%| -.decoded)
+        :_  sat
+        %:  http-give
+            eyre-id
+            400
+            ['content-type' 'text/plain']~
+            `(text-octs (entry-refusal p.decoded))
+        ==
+      =/  wir=wire  /rover-preference-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%tape %rover (preference-lookup:act vehicle-label.p.decoded)])
+      =/  new-sat
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          preference-pending  (~(put by preference-pending.sat) wir p.decoded)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/add-charge' url.request.req)
       ?~  body.request.req
         :_  sat
@@ -277,7 +320,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-7
+=|  state-8
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -289,7 +332,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%7 state])
+++  on-save  !>([%8 state])
 ::
 ++  on-load
   |=  old=vase
@@ -297,14 +340,15 @@
   =/  s  !<(versioned-state old)
   =/  loaded=_this
     ?-  -.s
-      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~])
-      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~])
-      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~])
-      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~])
-      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~])
-      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ ~])
-      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s])
-      %7  this(state +.s)
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~])
+      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~])
+      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~])
+      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ ~ ~])
+      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~])
+      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s ~])
+      %8  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -325,6 +369,20 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover schema-m0:act])
         :_  this(pending (~(put by pending) wir 'init-db'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %ensure-ui-schema
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover display-preference-schema:act])
+        :_  this(pending (~(put by pending) wir 'ensure-ui-schema'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %display-preference-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover display-preference-report:act])
+        :_  this(pending (~(put by pending) wir 'display-preference-report'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -578,6 +636,105 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-preference-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  input  (~(get by preference-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ input)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-preference-lookup-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: preference.vehicle')
+        ==
+      ?~  p.res
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: preference.vehicle')
+        ==
+      =/  vehicles  (rows-at:view p.res 0)
+      ?.  =(1 (lent vehicles))
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%ambiguous: preference.vehicle')
+        ==
+      =/  vehicle-id=@ux  `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+      =/  preferences  (rows-at:view p.res 1)
+      =/  existing  (rows-by:view %vehicle-id vehicle-id preferences)
+      =/  write-wire=path  /rover-preference-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script
+        %:  write-preference:act
+            vehicle-id
+            ?=(^ existing)
+            u.input
+            now.bowl
+        ==
+      =/  jon  !>([%tape %rover script])
+      :_  this(http-pending (~(put by http-pending) write-wire u.eyre-id), preference-pending (~(put by preference-pending) write-wire u.input))
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), preference-pending (~(del by preference-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-preference-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  input  (~(get by preference-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ input)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-preference-write-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: preference')
+        ==
+      =/  mode=@t
+        ?~  distance-unit.u.input
+          'source-native'
+        (scot %tas u.distance-unit.u.input)
+      =/  message  (cat 3 'Saved display preference - ' mode)
+      :_  this
+      %:  http-give
+          u.eyre-id
+          201
+          ['content-type' 'text/plain']~
+          `(text-octs message)
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), preference-pending (~(del by preference-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-odometer-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact

@@ -121,6 +121,29 @@
     ?:(converted " (converted)" "")
   ==
 ::
+++  convert-distance
+  |=  [digits=@ud places=@ud source=@tas target=@tas]
+  ^-  [converted-digits=@ud converted-places=@ud converted-unit=@tas converted=?]
+  ?:  =(source target)
+    [digits places source %.n]
+  =/  numerator=@ud
+    ?:  ?&  =(%mi source)
+            =(%km target)
+        ==
+      (mul digits 1.609.344)
+    ?:  ?&  =(%km source)
+            =(%mi target)
+        ==
+      (mul digits 1.000.000)
+    !!
+  =/  denominator=@ud
+    ?:  =(%mi source)
+      1.000.000
+    1.609.344
+  =/  converted-digits
+    (div (add numerator (div denominator 2)) denominator)
+  [converted-digits places target %.y]
+::
 ++  format-coordinate
   |=  [scaled=@sd coord-scale=@ud]
   ^-  @t

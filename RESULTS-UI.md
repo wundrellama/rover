@@ -466,3 +466,72 @@ unchanged in Chromium. History renders `No station recorded` and
 `No additives recorded` for absent link rows; one or several additives
 render only their real labels as chips. The harness rejects a synthetic
 `None` chip and any `0x` identifier.
+
+## Slice 8 — per-vehicle display preference
+
+RED before the control existed:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: FAIL - per-vehicle display preference control is missing
+```
+
+The live substrate predated the ratified 36th relation even though the
+fresh-pour DDL already contained it. The targeted, real migration
+result was:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/ensure-ui-schema.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun 0 0 0 [%results [%action 'CREATE TABLE %vehicle-display-preferences'] [%server-time 0x8000000d3907372d3429000000000000] [%schema-time 0x8000000d3907372d3429000000000000] 0] 0]
+```
+
+Distance conversion uses the exact rational identity
+`1 mi = 1.609344 km`, performs integer half-up rounding only at final
+display precision, and appends `(converted)`. The preference mutation
+updates only `vehicle-display-preferences`; selecting source-native
+deletes that vehicle's optional preference row.
+
+Pure formatter and parser results:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/run-test-render.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun %render-tests-pass]
+
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/run-test-entry.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun %entry-tests-pass]
+```
+
+GREEN browser output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS**.
+
+`Fuel Evidence Vehicle` renders `32,186.9 km (converted)`. The admin
+probe still returns its original odometer cells as value
+`0x30d40` (`200000`), precision `1`, and unit atom `26989` (`%mi`),
+while the separate preference row holds unit atom `28011` (`%km`).
+`Phase A Vehicle` is reset to source-native and is unaffected.

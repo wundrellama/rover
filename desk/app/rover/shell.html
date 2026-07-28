@@ -803,6 +803,28 @@
           }
         });
       }
+
+      app.querySelectorAll('.preference-form').forEach((preferenceForm) => {
+        preferenceForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = preferenceForm.querySelector('.preference-verdict');
+          verdict.value = 'Saving…';
+          try {
+            const response = await fetch('/apps/rover/set-preference', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {'content-type': 'application/json'},
+              body: JSON.stringify(
+                Object.fromEntries(new FormData(preferenceForm).entries())
+              )
+            });
+            verdict.value = await response.text();
+            if (response.ok) await loadView();
+          } catch (error) {
+            verdict.value = `%unavailable: preference · ${error.message}`;
+          }
+        });
+      });
     }
 
     async function loadView() {

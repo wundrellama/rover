@@ -337,6 +337,17 @@
     "CREATE TABLE rover..acquisition-station-equipment (acquisition-id @ux, equipment-label @t, receipt-text @t) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisition-stations (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
 ::
+++  display-preference-schema
+  ^-  tape
+  "CREATE TABLE rover..vehicle-display-preferences (vehicle-id @ux, distance-unit @tas, currency @tas, recorded-at @da) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
+::
+++  display-preference-report
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit;"
+    " FROM vehicles V JOIN vehicle-display-preferences P ON V.vehicle-id = P.vehicle-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, P.distance-unit, P.currency;"
+  ==
+::
 ++  seed-spike
   |=  [ids=seed-ids now=@da]
   ^-  tape
@@ -701,6 +712,7 @@
     " FROM additive-definitions D SELECT D.additive-id, D.label, D.archived;"
     " FROM energy-acquisition-stations L JOIN stations S ON L.station-id = S.station-id JOIN places P ON S.place-id = P.place-id SELECT L.acquisition-id, S.label AS station, P.label AS place;"
     " FROM fuel-fill-additives L JOIN additive-definitions D ON L.additive-id = D.additive-id SELECT L.acquisition-id, D.label AS additive;"
+    " FROM vehicle-display-preferences P SELECT P.vehicle-id, P.distance-unit, P.currency;"
   ==
 ::
 ++  sql-quote
@@ -748,6 +760,51 @@
     "FROM vehicles V WHERE V.label = '"
     (sql-quote vehicle-label)
     "' SELECT V.vehicle-id;"
+  ==
+::
+++  preference-lookup
+  |=  vehicle-label=@t
+  ^-  tape
+  ;:  weld
+    (vehicle-lookup vehicle-label)
+    " FROM vehicle-display-preferences P SELECT P.vehicle-id, P.distance-unit, P.currency;"
+  ==
+::
+++  write-preference
+  |=  $:  vehicle-id=@ux
+          exists=?
+          input=preference-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  ?~  distance-unit.input
+    ;:  weld
+      "DELETE FROM vehicle-display-preferences WHERE vehicle-id = "
+      (scow %ux vehicle-id)
+      ";"
+    ==
+  ?:  exists
+    ;:  weld
+      "UPDATE vehicle-display-preferences SET distance-unit = "
+      (sql-term u.distance-unit.input)
+      ", currency = "
+      (sql-term currency.input)
+      ", recorded-at = "
+      (scow %da recorded-at)
+      " WHERE vehicle-id = "
+      (scow %ux vehicle-id)
+      ";"
+    ==
+  ;:  weld
+    "INSERT INTO vehicle-display-preferences VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (sql-term u.distance-unit.input)
+    ", "
+    (sql-term currency.input)
+    ", "
+    (scow %da recorded-at)
+    ");"
   ==
 ::
 ++  insert-fill

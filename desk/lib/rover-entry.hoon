@@ -473,4 +473,48 @@
       ;;(cost-state:rover u.cost-term)
       ;;(currency:rover u.currency-term)
   ==
+::
+++  decode-preference
+  |=  body=@t
+  ^-  (each preference-entry:rover entry-verdict:rover)
+  =/  parsed  (de:json:html body)
+  ?~  parsed
+    [%| %bad-shape 'preference']
+  ?.  ?=(%o -.u.parsed)
+    [%| %bad-shape 'preference']
+  =/  object=(map @t json)  +.u.parsed
+  =/  vehicle  (json-string 'vehicle' object)
+  ?~  vehicle
+    [%| %missing-key 'preference.vehicle']
+  ?.  (nonempty u.vehicle)
+    [%| %bad-shape 'preference.vehicle']
+  =/  distance  (json-string 'distanceUnit' object)
+  ?~  distance
+    [%| %missing-key 'preference.distance-unit']
+  =/  distance-unit=(unit distance-unit:rover)
+    ?:  =('native' u.distance)
+      ~
+    =/  distance-term  (slaw %tas u.distance)
+    ?.  ?&  ?=(^ distance-term)
+            ?|  =(%mi u.distance-term)
+                =(%km u.distance-term)
+            ==
+        ==
+      ~
+    `;;(distance-unit:rover u.distance-term)
+  ?:  ?&  !=('native' u.distance)
+          ?=(~ distance-unit)
+      ==
+    [%| %bad-shape 'preference.distance-unit']
+  =/  currency-text  (json-string 'currency' object)
+  ?~  currency-text
+    [%| %missing-key 'preference.currency']
+  =/  currency-term  (slaw %tas u.currency-text)
+  ?.  ?&  ?=(^ currency-term)
+          ?|  =(%usd u.currency-term)
+              =(%eur u.currency-term)
+          ==
+      ==
+    [%| %bad-shape 'preference.currency']
+  [%& u.vehicle distance-unit ;;(currency:rover u.currency-term)]
 --

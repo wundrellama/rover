@@ -97,6 +97,8 @@
       observed-start=@da
       source-zone=@t
   ==
++$  preference-entry
+  [vehicle-label=@t distance-unit=(unit distance-unit) currency=currency]
 +$  price-preview
   $:  currency=currency
       profile=price-profile
@@ -146,6 +148,8 @@
   ==
 +$  action
   $%  [%init-db ~]
+      [%ensure-ui-schema ~]
+      [%display-preference-report ~]
       [%charging-cost-report ~]
       [%charging-evidence-report ~]
       [%content-report ~]

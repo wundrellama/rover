@@ -117,6 +117,8 @@ grep -q 'id="fill-additives"' <<<"$view" || fail "fill additives multi-select is
 if grep -Eqi '<[^>]+class="[^"]*chip[^"]*"[^>]*>None<' <<<"$view"; then
   fail "zero additives render as a synthetic None chip"
 fi
+grep -q 'class="preference-form"' <<<"$view" \
+  || fail "per-vehicle display preference control is missing"
 
 bad_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
@@ -239,6 +241,41 @@ if grep -Eq '<span class="chip">None</span>|0x[0-9a-fA-F]+' <<<"$view"; then
   fail "station/additive history leaked a synthetic None chip or raw ID"
 fi
 note "station none/saved/new and additive zero/one/several render honestly"
+
+native_preference="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","distanceUnit":"native","currency":"usd"}' \
+  "$URL/apps/rover/set-preference")"
+[ "$native_preference" = $'Saved display preference - source-native\n201' ] \
+  || fail "source-native preference failed: $native_preference"
+
+km_preference="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Fuel Evidence Vehicle","distanceUnit":"km","currency":"usd"}' \
+  "$URL/apps/rover/set-preference")"
+[ "$km_preference" = $'Saved display preference - km\n201' ] \
+  || fail "per-vehicle km preference failed: $km_preference"
+
+view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -Fq '32,186.9 km (converted)' <<<"$view" \
+  || fail "Fuel Evidence Vehicle did not render converted and labelled"
+phase_card="${view#*<h2>Phase A Vehicle</h2>}"
+phase_card="${phase_card%%<h2>*}"
+grep -q 'value="native" selected' <<<"$phase_card" \
+  || fail "Phase A Vehicle preference was affected by the other vehicle"
+preference_report="$(click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%display-preference-report ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))')"
+grep -q '\[%value-digits 25717 0x30d40\].*\[%decimal-places 25717 1\].*\[%unit %tas 26989\]' <<<"$preference_report" \
+  || fail "display preference changed stored odometer evidence"
+grep -q '\[%distance-unit %tas 28011\]' <<<"$preference_report" \
+  || fail "per-vehicle km preference was not stored"
+note "per-vehicle km preference converts and labels one vehicle without rewriting evidence"
 
 bad_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
