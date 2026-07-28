@@ -37,6 +37,41 @@ pin" below. Docs: `/tmp/rover-obelisk-master/desk/doc/usr/reference/*` and
 - Piers run `%base`'s bundled-claim conflict away by starting the agent with an
   explicit desk: `|start %obelisk %obelisk`.
 
+### Returning to `dev` (do this when 409+ becomes acceptable)
+
+The dev pin is the preferred substrate — it is what the creator recommends and it
+carries a single-table-query fast path master lacks. Rover is deliberately built so
+the switch is cheap. When the runtime moves past 408:
+
+1. Boot a pier on a pill whose zuse matches dev's requirement (dev needs `strandio`,
+   absent from brass-408k).
+2. `git -C /tmp/rover-obelisk-master fetch origin dev` and check out the intended
+   commit into a fresh worktree; re-audit `desk/doc/usr/reference/*` for grammar or
+   capability changes at that commit.
+3. Re-copy `desk/sur/obelisk-ast.hoon` into `desk/sur/` and SHA-verify it against the
+   checked-out commit. **The installed agent and Rover's copied molds are one
+   compatibility unit** — never mix a master `sur` with a dev agent.
+4. Re-run the full fixture battery in `RESULTS.md` before trusting the pin. The
+   creator intends releases to be non-breaking; verify rather than assume.
+5. Re-check the multi-FK continuation grammar — Rover's DDL depends on
+   `FOREIGN KEY (a) REFERENCES t (a) ..., (b) REFERENCES u (b) ...` parsing, which was
+   discovered empirically against master's parser.
+
+Nothing in Rover embeds Obelisk, so no Rover logic changes: the switch is a desk swap
+plus a mold re-copy plus re-running fixtures.
+
+## Obelisk stays standalone
+
+`%obelisk` is installed as its **own unmodified desk** alongside `%rover`; it is never
+embedded, forked, or renamed. Rover reaches it only through Gall cards
+(`%pass ... %agent [our %obelisk] %watch /server` + `%poke %obelisk-action`).
+
+The **only** file Rover copies from Obelisk is `sur/obelisk-ast.hoon` — the developer
+API mold, exactly as the upstream developer docs prescribe. Rover must **not** vendor
+engine libraries (`main`, `parse`, `ddl`, `crud`, `predicate`, `scalars`, `selections`,
+`sys-views`, `migration`); those belong to the `%obelisk` desk. Vendoring one would
+fork the database engine and silently break the pin.
+
 ## Non-negotiables
 
 - **Schema scope (Gate 6, ratified 2026-07-28):** M0 is a **single schema pour** —
