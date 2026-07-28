@@ -63,6 +63,19 @@ grep -qi '^content-type: text/html' "$HDRS" || fail "shell content-type is not t
 grep -q 'ROVER' <<<"$body" || fail "served shell has no Rover designation"
 note "authenticated Rover shell served over real Eyre"
 
+view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
+grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
+grep -q 'Phase A Vehicle' <<<"$view" || fail "vehicle view has no seeded vehicle"
+grep -q '10,012.5 mi' <<<"$view" || fail "current odometer is not human-formatted"
+grep -q '12.345 gal' <<<"$view" || fail "fill quantity is not human-formatted"
+grep -q '\$3\.499' <<<"$view" || fail "unit price is not human-formatted"
+grep -q '\$43\.20' <<<"$view" || fail "derived fill total is not rendered"
+grep -q 'DERIVED' <<<"$view" || fail "fill total is not labelled derived"
+if grep -Eq '(^|[^0-9,.])(12345|3499)([^0-9,.]|$)|0x[0-9a-fA-F]+' <<<"$view"; then
+  fail "vehicle view leaked a raw machine value or ID"
+fi
+note "vehicle list/detail render real rows in human units with no raw IDs"
+
 asset_check() {
   local path="$1" content_type="$2" source="$3"
   : > "$HDRS"

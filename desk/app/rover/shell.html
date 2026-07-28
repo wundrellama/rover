@@ -8,7 +8,29 @@
 <body>
   <main>
     <h1>ROVER</h1>
-    <p>Vehicle log browser surface connected.</p>
+    <p id="status">Loading vehicle log…</p>
+    <div id="app" aria-live="polite"></div>
   </main>
+  <script>
+    const app = document.getElementById('app');
+    const status = document.getElementById('status');
+
+    async function loadView() {
+      status.textContent = 'Refreshing…';
+      try {
+        const response = await fetch('/apps/rover/view', {
+          credentials: 'same-origin',
+          headers: {'accept': 'text/html'}
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        app.innerHTML = await response.text();
+        status.textContent = 'Connected · current on navigation';
+      } catch (error) {
+        status.textContent = `Unavailable · ${error.message}`;
+      }
+    }
+
+    loadView();
+  </script>
 </body>
 </html>

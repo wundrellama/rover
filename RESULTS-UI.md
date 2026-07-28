@@ -121,3 +121,51 @@ $ PATH="$HOME/workspace/urbit/bin:$PATH" \
 
 In Urbit loobean encoding, the compile probe's final `0` is `%.y`
 (the build returned a vase).
+
+## Slice 4 — vehicle list and detail reads
+
+The browser fixture was extended before the read route existed. RED,
+exact command and output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: FAIL - vehicle view has no seeded vehicle
+```
+
+The implementation polls `/apps/rover/view`, submits one urQL read
+script to the real `%obelisk`, joins rows internally by machine ID, and
+emits only owner-facing labels and formatted values. Rover sorts fill
+history by `observed-start`; it does not rely on Obelisk row order.
+
+GREEN, exact formatter command and output:
+
+```console
+$ "$HOME/workspace/urbit/bin/click" -k \
+>   -i probes/run-test-render.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun %render-tests-pass]
+```
+
+GREEN, exact browser command and output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS**.
+
+The served response proves the Phase A vehicle renders with a derived
+current odometer of `10,012.5 mi`, the fill renders as `12.345 gal` at
+`$3.499`, and its non-editable display total is labelled `DERIVED TOTAL`
+and renders `$43.20`. The harness rejects bare `12345`, bare `3499`, and
+any `0x` identifier in the served vehicle HTML. Vehicles without
+odometer observations render `Unavailable - no odometer readings`
+instead of zero or an estimate.

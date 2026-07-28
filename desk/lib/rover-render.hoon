@@ -126,6 +126,41 @@
   ^-  @t
   (format-sscaled scaled coord-scale %.n)
 ::
+++  format-da
+  |=  value=@da
+  ^-  @t
+  =/  parts  (yore value)
+  ?.  ?&  a.parts
+          (lte y.parts 9.999)
+          =(~ f.t.parts)
+      ==
+    (scot %da value)
+  =/  n2
+    |=  number=@ud
+    ^-  tape
+    ?:  (lth number 10)
+      ['0' (a-co:co number)]
+    (a-co:co number)
+  =/  n4
+    |=  number=@ud
+    ^-  tape
+    =/  txt  (a-co:co number)
+    (weld (reap (sub 4 (min 4 (lent txt))) '0') txt)
+  %-  crip
+  ;:  weld
+    (n4 y.parts)
+    "-"
+    (n2 m.parts)
+    "-"
+    (n2 d.t.parts)
+    " "
+    (n2 h.t.parts)
+    ":"
+    (n2 m.t.parts)
+    ":"
+    (n2 s.t.parts)
+  ==
+::
 ++  parse-decimal
   |=  [txt=@t max-places=@ud]
   ^-  (each [digits=@ud places=@ud] ?(%bad-shape %excess-precision))

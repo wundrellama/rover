@@ -2,7 +2,7 @@
 ::  One path, proven. Other actions land as separate proven increments.
 ::
 /-  ast=obelisk-ast, rover
-/+  act=rover-act, default-agent, dbug
+/+  act=rover-act, default-agent, dbug, view=rover-view
 /*  shell-html  %html  /app/rover/shell/html
 /*  tile-png    %png   /app/rover/assets/tile/png
 /*  font-regular       %woff2x  /app/rover/assets/fonts/berkeleymono-regular/woff2x
@@ -15,6 +15,7 @@
       [%1 state-1]
       [%2 state-2]
       [%3 state-3]
+      [%4 state-4]
   ==
 +$  state-0
   $:  pending=(map wire @t)
@@ -40,6 +41,15 @@
       total=(unit total-proof:rover)
       charging-total=(unit charging-total-proof:rover)
       integrity=(unit integrity-proof:rover)
+  ==
++$  state-4
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
   ==
 +$  card  card:agent:gall
 --
@@ -84,27 +94,36 @@
   font-bold-oblique
 ::
 ++  handle-http
-  |=  [=bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  (list card)
+  |=  [sat=state-4 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-4]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
-    (http-give eyre-id 303 ['location' loc]~ ~)
+    [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?.  =(%'GET' method.request.req)
-    (http-give eyre-id 405 ~ ~)
+    [(http-give eyre-id 405 ~ ~) sat]
   ?:  =('/apps/rover/assets/tile.png' url.request.req)
-    (http-give eyre-id 200 ['content-type' 'image/png']~ `tile-octs)
+    [(http-give eyre-id 200 ['content-type' 'image/png']~ `tile-octs) sat]
   ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Regular.woff2' url.request.req)
-    (http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-regular-octs)
+    [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-regular-octs) sat]
   ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Bold.woff2' url.request.req)
-    (http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-octs)
+    [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-octs) sat]
   ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Oblique.woff2' url.request.req)
-    (http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-oblique-octs)
+    [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-oblique-octs) sat]
   ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Bold-Oblique.woff2' url.request.req)
-    (http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-oblique-octs)
-  (http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page)
+    [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-oblique-octs) sat]
+  ?:  =('/apps/rover/view' url.request.req)
+    =/  wir=wire  /rover-http/(scot %da now.bowl)/[eyre-id]
+    =/  jon  !>([%tape %rover ui-view:act])
+    =/  new-sat
+      sat(pending (~(put by pending.sat) wir 'ui-view'), http-pending (~(put by http-pending.sat) wir eyre-id))
+    :_  new-sat
+    :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+        [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+    ==
+  [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-3
+=|  state-4
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -116,7 +135,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%3 state])
+++  on-save  !>([%4 state])
 ::
 ++  on-load
   |=  old=vase
@@ -124,10 +143,11 @@
   =/  s  !<(versioned-state old)
   =/  loaded=_this
     ?-  -.s
-      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~])
-      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~])
-      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~])
-      %3  this(state +.s)
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~])
+      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~])
+      %4  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -137,7 +157,8 @@
   ?+  mark  (on-poke:def mark vase)
       %handle-http-request
     =+  !<([eyre-id=@ta req=inbound-request:eyre] vase)
-    [(handle-http bowl eyre-id req) this]
+    =^  cards  state  (handle-http state bowl eyre-id req)
+    [cards this]
   ::
       %rover-action
     ?>  =(our.bowl src.bowl)
@@ -400,6 +421,38 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-http *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res
+        ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-ui-view-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(as-octs:mimes:html 'Unavailable - database query refused')
+        ==
+      :_  this
+      %:  http-give
+          u.eyre-id
+          200
+          ['content-type' 'text/html']~
+          `(as-octs:mimes:html (page:view p.res))
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact

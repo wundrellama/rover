@@ -15,6 +15,8 @@
 ?>  =('37.7749295' north)
 =/  west  (format-coordinate:render (new:si %.n 876.297.982) 7)
 ?>  =('-87.6297982' west)
+=/  observed  (format-da:render ~2026.7.28..12.00.00)
+?>  =('2026-07-28 12:00:00' observed)
 ::
 =/  qty  (parse-decimal:render '12.345' 3)
 ?>  ?=(%& -.qty)
