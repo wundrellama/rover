@@ -1,4 +1,4 @@
-::  app/rover - lean tracer: accept %init-db, apply schema v1 to %obelisk.
+::  app/rover - lean tracer: accept %init-db, apply M0 schema to %obelisk.
 ::  One path, proven. Other actions land as separate proven increments.
 ::
 /-  ast=obelisk-ast, rover
@@ -45,7 +45,7 @@
     ?-  -.a
       %init-db
         =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%tape %rover schema-v1:act])
+        =/  jon  !>([%tape %rover schema-m0:act])
         :_  this(pending (~(put by pending) wir 'init-db'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
