@@ -91,6 +91,13 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %content-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover content-report:act])
+        :_  this(pending (~(put by pending) wir 'content-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %consumption-report
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover consumption-report:act])

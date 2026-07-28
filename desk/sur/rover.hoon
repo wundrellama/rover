@@ -100,6 +100,7 @@
   $%  [%init-db ~]
       [%charging-cost-report ~]
       [%charging-evidence-report ~]
+      [%content-report ~]
       [%consumption-report ~]
       [%fuel-evidence-report ~]
       [%location-report ~]
