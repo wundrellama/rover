@@ -18,3 +18,5 @@ piers/
 # (~/.hermes/profiles/urbot/skills/). They are committed as symlinks so a
 # fresh checkout on this machine resolves them; on any other machine they
 # dangle and the agent should fall back to the repo's own docs + Brain pages.
+.codex-brief.md
+PHASE-A-REPORT.md
