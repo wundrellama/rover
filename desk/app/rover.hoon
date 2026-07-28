@@ -1,8 +1,5 @@
-::  app/rover - lean Phase-A spike driver.
-::  Owns identity/validation/projections; canonical state lives in %obelisk.
-::  Drives Obelisk over /server wires: watch -> poke %obelisk-action [%tape
-::  %rover urql] -> one %noun fact -> kick. Decode (each (list cmd-result)
-::  tang). urQL pokes are the only application read path; no whole-table scry.
+::  app/rover - lean tracer: accept %init-db, apply schema v1 to %obelisk.
+::  One path, proven. Other actions land as separate proven increments.
 ::
 /-  ast=obelisk-ast, rover
 /+  act=rover-act, default-agent, dbug
@@ -10,10 +7,9 @@
 +$  versioned-state
   $%  [%0 state-0]
   ==
-::  pending: wire -> the urQL we sent (for diagnostics) and a tag.
 +$  state-0
-  $:  pending=(map wire @tas)
-      last-result=(unit @t)
+  $:  pending=(map wire @t)
+      last=(unit @t)
   ==
 +$  card  card:agent:gall
 --
@@ -39,26 +35,23 @@
     %0  `this(state +.s)
   ==
 ::
-::  +on-poke: accept %rover-action. Local same-ship callers only in v1.
 ++  on-poke
   |=  [=mark =vase]
   ^-  (quip card _this)
-  ?.  =(our.bowl src.bowl)
-    ~|(%rover-denied !!)
+  ?>  =(our.bowl src.bowl)
   ?+  mark  (on-poke:def mark vase)
       %rover-action
     =/  a  !<(action:rover vase)
     ?:  ?=(%init-db -.a)
-      ::  one mutation-only script: create db + eleven relations
       =/  wir=path  /rover/init-db
-      :_  this(pending (~(put by pending) wir %init-db))
+      =/  jon  !>([%tape %rover schema-v1:act])
+      :_  this(pending (~(put by pending) wir 'init-db'))
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action !>([%tape %rover schema-v1:act])]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
     (on-poke:def mark vase)
   ==
 ::
-::  +on-agent: receive the %noun fact, then the kick.
 ++  on-agent
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
@@ -66,17 +59,14 @@
       [%rover *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
-      ::  decode the result; store a human tag in last-result
       =/  res  !<((each (list cmd-result:ast) tang) q.cage.sign)
       =/  tag=@t
-        ?-  -.res
-          %.n  'schema-failed'
-          %.y  (crip "schema-applied results={(a-co:co (lent p.res))}")
-        ==
-      `this(last-result `tag)
+        ?:  ?=(%.y -.res)
+          'schema-applied'
+        'schema-failed'
+      `this(last `tag)
     ::
         %kick
-      ::  subscription closed after the single fact; clean up pending
       `this(pending (~(del by pending) wire))
     ::
         %watch-ack
@@ -84,12 +74,12 @@
     ==
   ==
 ::
-::  +on-peek: diagnostic scries only (not the application read path).
 ++  on-peek
   |=  =path
   ^-  (unit (unit cage))
   ?+  path  (on-peek:def path)
-      [%x %last ~]        ``noun+!>(last-result)
+      [%x %last ~]
+    ``noun+!>(last)
   ==
 ::
 ++  on-watch  on-watch:def
