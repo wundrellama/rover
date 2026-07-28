@@ -5,6 +5,43 @@
 +$  physical-kind  ?(%reservoir %electricity)
 +$  tank-state  ?(%full %partial)
 +$  station-kind  ?(%fuel %charging %mixed %private)
++$  currency  ?(%usd %eur %gbp %chf %jpy %krw %cny %brl %cad %aud)
++$  settlement-mode  ?(%standard %cash)
++$  octane-method  ?(%aki %ron)
++$  blend-kind  ?(%ethanol %biodiesel)
++$  energy-measure-unit  ?(%kwh %kw %mi %km)
++$  measurement-point  ?(%wall %charger %vehicle %estimate)
++$  measurement-evidence
+  ?(%measured %reported %vehicle-reported %imported %estimated)
++$  battery-measure  ?(%charge-level %health %range-estimate)
++$  battery-form  ?(%percent %segments)
++$  session-endpoint  ?(%start %end)
++$  cost-state  ?(%free %unknown %itemized %receipt-total-only)
++$  cost-component  ?(%energy %time %session %idle %tax %discount)
++$  consumption-unit
+  ?(%wh-mi %wh-km %mi-kwh %km-kwh %kwh-100mi %kwh-100km %mpge)
++$  consumption-scope
+  ?(%instant %trip %since-charge %since-reset %recent-window %lifetime %regulatory)
++$  consumption-source  ?(%dashboard %telematics %owner %imported)
++$  coordinate-source  ?(%owner %gps %receipt %directory %geocoder %imported)
++$  address-source  ?(%owner %receipt %directory %geocoder %imported)
++$  address-part  ?(%locality %region %postal-code %sublocality %line1 %line2)
++$  station-role  ?(%brand %operator)
++$  radius-unit  ?(%metre %foot)
++$  economy-break-reason  ?(%missed-fill %excluded %owner-marked)
++$  charging-break-reason  ?(%missed-session %excluded %owner-marked)
++$  price-profile
+  $?  %us-usd-gal
+      %eu-eur-litre
+      %ch-chf-litre
+      %jp-jpy-litre
+      %kr-krw-litre
+      %cn-cny-litre
+      %br-brl-litre
+      %uk-gbp-litre
+      %ca-cad-litre
+      %au-aud-litre
+  ==
 +$  observed
   $:  start=@da
       end=@da
