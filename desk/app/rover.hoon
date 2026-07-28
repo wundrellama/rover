@@ -9,7 +9,7 @@
   ==
 +$  state-0
   $:  pending=(map wire @t)
-      last=(unit @t)
+      last=(unit (each (list cmd-result:ast) tang))
   ==
 +$  card  card:agent:gall
 --
@@ -25,7 +25,7 @@
   ^-  (quip card _this)
   `this
 ::
-++  on-save  !>(state)
+++  on-save  !>([%0 state])
 ::
 ++  on-load
   |=  old=vase
@@ -42,14 +42,65 @@
   ?+  mark  (on-poke:def mark vase)
       %rover-action
     =/  a  !<(action:rover vase)
-    ?:  ?=(%init-db -.a)
-      =/  wir=path  /rover/init-db
-      =/  jon  !>([%tape %rover schema-v1:act])
-      :_  this(pending (~(put by pending) wir 'init-db'))
-      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-      ==
-    (on-poke:def mark vase)
+    ?-  -.a
+      %init-db
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover schema-v1:act])
+        :_  this(pending (~(put by pending) wir 'init-db'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %seed-spike
+        =/  seed  eny.bowl
+        =/  base=@ux  (cut 7 [0 1] seed)
+        =/  id-1=@ux  (mix base 1)
+        =/  id-2=@ux  (mix base 2)
+        =/  id-3=@ux  (mix base 3)
+        =/  id-4=@ux  (mix base 4)
+        =/  id-5=@ux  (mix base 5)
+        =/  id-6=@ux  (mix base 6)
+        =.  id-1  ?:  =(0 id-1)  `@ux`1  id-1
+        =.  id-2  ?:  =(0 id-2)  `@ux`2  id-2
+        =.  id-3  ?:  =(0 id-3)  `@ux`3  id-3
+        =.  id-4  ?:  =(0 id-4)  `@ux`4  id-4
+        =.  id-5  ?:  =(0 id-5)  `@ux`5  id-5
+        =.  id-6  ?:  =(0 id-6)  `@ux`6  id-6
+        =/  ids=seed-ids:act
+          :*  id-1
+              id-2
+              id-3
+              id-4
+              id-5
+              id-6
+          ==
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (seed-spike:act ids now.bowl)])
+        :_  this(pending (~(put by pending) wir 'seed-spike'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %verify-schema
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover verify-schema:act])
+        :_  this(pending (~(put by pending) wir 'verify-schema'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %vehicle-history
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover vehicle-history:act])
+        :_  this(pending (~(put by pending) wir 'vehicle-history'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %current-odometer
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover current-odometer:act])
+        :_  this(pending (~(put by pending) wir 'current-odometer'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+    ==
   ==
 ::
 ++  on-agent
@@ -59,12 +110,20 @@
       [%rover *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
-      =/  res  !<((each (list cmd-result:ast) tang) q.cage.sign)
-      =/  tag=@t
-        ?:  ?=(%.y -.res)
-          'schema-applied'
-        'schema-failed'
-      `this(last `tag)
+      =/  res
+        ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?.  ?=(%.n -.res)
+        =/  op  (~(get by pending) wire)
+        =/  cooked
+          ?~  op  res
+          ?:  =('vehicle-history' u.op)
+            [%.y (order-command-results:act %observed-start %.n p.res)]
+          ?:  =('current-odometer' u.op)
+            [%.y (latest-command-results:act p.res)]
+          res
+        `this(last `cooked)
+      ~&  "{<(slog p.res)>}"
+      `this(last `res)
     ::
         %kick
       `this(pending (~(del by pending) wire))

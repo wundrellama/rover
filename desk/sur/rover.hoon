@@ -14,13 +14,10 @@
 +$  odo-reading  [digits=@ud places=@ud odo-unit=distance-unit]
 +$  action
   $%  [%init-db ~]
-      [%add-definition label=@t kind=physical-kind quantity-unit=@tas ~]
-      [%create-vehicle label=@t links=(list id) default=id ~]
-      [%add-odometer vehicle=id digits=@ud places=@ud odo-unit=distance-unit observation=observed ~]
-      [%current-odometer vehicle=id ~]
-      [%add-fill vehicle=id def=id qty-milli=@ud qty-unit=@tas ts=tank-state observation=observed odo=(unit odo-reading) ~]
-      [%add-charge vehicle=id def=id observation=observed ~]
-      [%vehicle-history vehicle=id ~]
+      [%seed-spike ~]
+      [%verify-schema ~]
+      [%vehicle-history ~]
+      [%current-odometer ~]
   ==
 +$  result
   $%  [%ok msg=@t]
