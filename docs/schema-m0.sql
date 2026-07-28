@@ -1,5 +1,5 @@
--- Rover M0 schema — full pour, 35 relations.
--- Adopted 2026-07-28 (Gate 6 + open questions 1-9).
+-- Rover M0 schema — full pour, 36 relations.
+-- Adopted 2026-07-28 (Gate 6 + open questions 1-11).
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -25,6 +25,14 @@ CREATE DATABASE rover;
 CREATE TABLE rover..vehicles
   (vehicle-id @ux, label @t, archived @f, recorded-at @da)
   PRIMARY KEY (vehicle-id);
+
+-- Owner display preference, per vehicle (Q11). Absence of the row = render
+-- source-native; presentation only, never rewrites history.
+CREATE TABLE rover..vehicle-display-preferences
+  (vehicle-id @ux, distance-unit @tas, currency @tas, recorded-at @da)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 CREATE TABLE rover..odometer-observations
   (odometer-id @ux, vehicle-id @ux, value-digits @ud, decimal-places @ud,
