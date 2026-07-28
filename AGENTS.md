@@ -21,9 +21,21 @@ this order before writing or changing any code:
 4. `~/brain/projects/rover/architecture-and-access.md` — Rover/Obelisk/Hawk split
    and fail-closed reconciliation.
 
-Then the pinned substrate docs (audit these, never "the dev branch"):
-`/tmp/rover-obelisk-2b72856e/desk/doc/usr/reference/*` and
-`/tmp/rover-obelisk-2b72856e/desk/sur/obelisk-ast.hoon`.
+Then the substrate docs (audit the exact checked-out commit, never "the dev
+branch"): master is the working pin on zuse 408. The dev commit `2b72856e`
+needs 409+ stdlib and does not compile on the brass-408k pill — see "Substrate
+pin" below. Docs: `/tmp/rover-obelisk-master/desk/doc/usr/reference/*` and
+`/tmp/rover-obelisk-master/desk/sur/obelisk-ast.hoon`.
+
+## Substrate pin
+
+- **Working pin: Obelisk `master` @ `eecab1b8`** — the highest commit that
+  compiles on the brass-408k pill (zuse 408). Verified live on `~bel`.
+- The originally-targeted dev pin `2b72856e` imports `strandio` (409+) and
+  fails to compile on 408. Do **not** move to 409+ to chase it (user ruling).
+- Re-pin to a newer Obelisk only when the dev runtime itself moves past 408.
+- Piers run `%base`'s bundled-claim conflict away by starting the agent with an
+  explicit desk: `|start %obelisk %obelisk`.
 
 ## Non-negotiables
 

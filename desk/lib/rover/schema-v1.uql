@@ -1,5 +1,8 @@
 ::  Rover v1 schema — eleven relations, ratified 2026-07-27.
-::  Pinned Obelisk 2b72856e9fc0ca50391eb653540edf6574bffd04.
+::  Substrate: Obelisk master branch (runs on zuse 408). NOTE: the originally
+::  pinned dev commit 2b72856e requires 409+ stdlib (strandio) and does NOT
+::  compile on the brass-408k pill; master (eecab1b) is the highest commit that
+::  builds on 408. Re-pin to dev once the runtime moves past 408 (not before).
 ::  All FKs RESTRICT. @f archived flags written literal N (never DEFAULT).
 ::  Composite FKs reference the complete referenced PK in order.
 ::
