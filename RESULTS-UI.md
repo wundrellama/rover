@@ -64,3 +64,60 @@ browser URLs and committed source assets remain `.woff2`; the fixture
 compares every served face byte-for-byte with its corresponding
 `.woff2` source.
 
+## Slice 3 — formatter and entry parser
+
+RED was captured after committing the expanded fixture into the live
+desk but before adding `lib/rover-render.hoon`:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/run-test-render.hoon "$HOME/piers/rover-bel"
+[0 %avow 1 %thread-fail ...]
+```
+
+The real pier log identified the expected missing implementation:
+
+```text
+clay: %a build failed [...] /gen/test-render/hoon
+clay: no files match /lib/rover-render/hoon
+```
+
+GREEN, exact command and output:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/run-test-render.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun %render-tests-pass]
+```
+
+Result: **PASS**.
+
+The Hoon fixture asserts exact results for:
+
+- `12345` at scale 3 → `12.345`;
+- grouped `100125` at scale 1 → `10,012.5`;
+- `12345` quantity → `12.345 gal`;
+- `3499` unit-price mills → `$3.499`;
+- `43190` total mills with two USD minor decimals → `$43.19`;
+- source-native and converted distance labels;
+- positive and negative coordinates at scale 7;
+- parsing `12.345` and `10,012.5` back to exact digits/precision;
+- excess-precision refusal;
+- `$3.49` visible completion to `$3.499`;
+- exact `$3.499` override;
+- malformed `$3.x9` refusal as `%bad-shape`.
+
+Regression commands and real outputs:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/compile-rover.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun 0]
+
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/run-test-pricing.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun %pricing-tests-pass]
+```
+
+In Urbit loobean encoding, the compile probe's final `0` is `%.y`
+(the build returned a vase).
