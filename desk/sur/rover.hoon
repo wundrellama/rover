@@ -81,6 +81,21 @@
       discount-mills=@ud
       total-mills=@ud
   ==
++$  integrity-kind
+  $?  %missing-pair
+      %bad-default
+      %delete-vehicle
+      %delete-definition
+      %delete-place
+      %delete-station
+      %zero-subtype
+      %two-subtypes
+  ==
++$  integrity-proof
+  $:  scenario=integrity-kind
+      rejected=?
+      message=@t
+  ==
 +$  action
   $%  [%init-db ~]
       [%charging-cost-report ~]
@@ -89,6 +104,7 @@
       [%fuel-evidence-report ~]
       [%location-report ~]
       [%pricing-report ~]
+      [%run-integrity scenario=integrity-kind]
       [%seed-fuel-evidence ~]
       [%seed-charging-evidence ~]
       [%seed-charging-cost ~]

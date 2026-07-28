@@ -73,6 +73,13 @@
       public-place=@ux
       mixed-station=@ux
   ==
++$  integrity-ids
+  $:  definition=@ux
+      vehicle=@ux
+      acquisition=@ux
+      place=@ux
+      station=@ux
+  ==
 ::
 ++  rover-db  %rover
 ::
@@ -168,6 +175,112 @@
   ?:  =(%discount component.item)
     $(components t.components, discounts (add discounts amount-mills.item))
   $(components t.components, positive (add positive amount-mills.item))
+::
+++  validate-acquisition-subtypes
+  |=  [fuel=? charge=?]
+  ^-  result:rover
+  ?:  =(fuel charge)
+    [%err 'exactly one acquisition subtype is required']
+  [%ok 'exactly one acquisition subtype selected']
+::
+++  integrity-op
+  |=  scenario=integrity-kind:rover
+  ^-  @t
+  ?-  scenario
+    %missing-pair       'integrity-missing-pair'
+    %bad-default        'integrity-bad-default'
+    %delete-vehicle     'integrity-delete-vehicle'
+    %delete-definition  'integrity-delete-definition'
+    %delete-place       'integrity-delete-place'
+    %delete-station     'integrity-delete-station'
+    %zero-subtype       'integrity-zero-subtype'
+    %two-subtypes       'integrity-two-subtypes'
+  ==
+::
+++  integrity-scenario
+  |=  op=@t
+  ^-  (unit integrity-kind:rover)
+  ?:  =('integrity-missing-pair' op)       `%missing-pair
+  ?:  =('integrity-bad-default' op)        `%bad-default
+  ?:  =('integrity-delete-vehicle' op)     `%delete-vehicle
+  ?:  =('integrity-delete-definition' op)  `%delete-definition
+  ?:  =('integrity-delete-place' op)       `%delete-place
+  ?:  =('integrity-delete-station' op)     `%delete-station
+  ?:  =('integrity-zero-subtype' op)       `%zero-subtype
+  ?:  =('integrity-two-subtypes' op)       `%two-subtypes
+  ~
+::
+++  integrity-message
+  |=  scenario=integrity-kind:rover
+  ^-  @t
+  ?-  scenario
+    %missing-pair       'rejected acquisition: vehicle and energy definition are not allowed'
+    %bad-default        'rejected default: energy definition is not an allowed vehicle link'
+    %delete-vehicle     'rejected deletion: vehicle is referenced'
+    %delete-definition  'rejected deletion: energy definition is referenced'
+    %delete-place       'rejected deletion: place is referenced'
+    %delete-station     'rejected deletion: station is referenced'
+    %zero-subtype       'rejected acquisition before mutation: zero subtypes'
+    %two-subtypes       'rejected acquisition before mutation: two subtypes'
+  ==
+::
+++  integrity-script
+  |=  [scenario=integrity-kind:rover ids=integrity-ids now=@da]
+  ^-  tape
+  =/  def-id  (scow %ux definition.ids)
+  =/  veh-id  (scow %ux vehicle.ids)
+  =/  acq-id  (scow %ux acquisition.ids)
+  =/  plc-id  (scow %ux place.ids)
+  =/  sta-id  (scow %ux station.ids)
+  =/  rec     (scow %da now)
+  ?-  scenario
+    %missing-pair
+      ;:  weld
+        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Missing Pair Energy', %reservoir, %gal, N, {rec}); "
+        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Missing Pair Vehicle', N, {rec}); "
+        "INSERT INTO energy-acquisitions VALUES ({acq-id}, {veh-id}, {def-id}, ~2026.7.28..19.00.00, ~2026.7.28..19.00.01, %second, 'America/Chicago', {rec});"
+      ==
+    %bad-default
+      ;:  weld
+        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Bad Default Energy', %reservoir, %gal, N, {rec}); "
+        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Bad Default Vehicle', N, {rec}); "
+        "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id});"
+      ==
+    %delete-vehicle
+      ;:  weld
+        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Vehicle Energy', %reservoir, %gal, N, {rec}); "
+        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Referenced Vehicle', N, {rec}); "
+        "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
+        "DELETE FROM vehicles WHERE vehicle-id = {veh-id};"
+      ==
+    %delete-definition
+      ;:  weld
+        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Referenced Energy', %reservoir, %gal, N, {rec}); "
+        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Definition Vehicle', N, {rec}); "
+        "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
+        "DELETE FROM energy-definitions WHERE energy-definition-id = {def-id};"
+      ==
+    %delete-place
+      ;:  weld
+        "INSERT INTO places VALUES ({plc-id}, 'Integrity Referenced Place', N, {rec}); "
+        "INSERT INTO stations VALUES ({sta-id}, {plc-id}, 'Integrity Place Station', %mixed, N, {rec}); "
+        "DELETE FROM places WHERE place-id = {plc-id};"
+      ==
+    %delete-station
+      ;:  weld
+        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Station Energy', %reservoir, %gal, N, {rec}); "
+        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Station Vehicle', N, {rec}); "
+        "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
+        "INSERT INTO energy-acquisitions VALUES ({acq-id}, {veh-id}, {def-id}, ~2026.7.28..19.01.00, ~2026.7.28..19.01.01, %second, 'America/Chicago', {rec}); "
+        "INSERT INTO fuel-fills VALUES ({acq-id}, 1000, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+        "INSERT INTO places VALUES ({plc-id}, 'Integrity Station Place', N, {rec}); "
+        "INSERT INTO stations VALUES ({sta-id}, {plc-id}, 'Integrity Referenced Station', %mixed, N, {rec}); "
+        "INSERT INTO energy-acquisition-stations VALUES ({acq-id}, {sta-id}); "
+        "DELETE FROM stations WHERE station-id = {sta-id};"
+      ==
+    %zero-subtype  !!
+    %two-subtypes   !!
+  ==
 ::
 ++  schema-m0
   ^-  tape

@@ -8,6 +8,7 @@
   $%  [%0 state-0]
       [%1 state-1]
       [%2 state-2]
+      [%3 state-3]
   ==
 +$  state-0
   $:  pending=(map wire @t)
@@ -26,10 +27,18 @@
       total=(unit total-proof:rover)
       charging-total=(unit charging-total-proof:rover)
   ==
++$  state-3
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+  ==
 +$  card  card:agent:gall
 --
 %-  agent:dbug
-=|  state-2
+=|  state-3
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -40,16 +49,17 @@
   ^-  (quip card _this)
   `this
 ::
-++  on-save  !>([%2 state])
+++  on-save  !>([%3 state])
 ::
 ++  on-load
   |=  old=vase
   ^-  (quip card _this)
   =/  s  !<(versioned-state old)
   ?-  -.s
-    %0  `this(state [pending.+.s last.+.s ~ ~ ~])
-    %1  `this(state [pending.+.s last.+.s preview.+.s total.+.s ~])
-    %2  `this(state +.s)
+    %0  `this(state [pending.+.s last.+.s ~ ~ ~ ~])
+    %1  `this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~])
+    %2  `this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~])
+    %3  `this(state +.s)
   ==
 ::
 ++  on-poke
@@ -106,6 +116,31 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover pricing-report:act])
         :_  this(pending (~(put by pending) wir 'pricing-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %run-integrity
+        ?:  ?|  =(%zero-subtype scenario.a)
+                =(%two-subtypes scenario.a)
+            ==
+          =/  check=result:rover
+            ?:  =(%zero-subtype scenario.a)
+              (validate-acquisition-subtypes:act %.n %.n)
+            (validate-acquisition-subtypes:act %.y %.y)
+          ?>  ?=(%err -.check)
+          `this(integrity `[scenario.a %.y (integrity-message:act scenario.a)])
+        =/  base=@ux  (cut 7 [0 1] eny.bowl)
+        =/  ids=integrity-ids:act
+          :*  (fixture-id:act base 91)
+              (fixture-id:act base 92)
+              (fixture-id:act base 93)
+              (fixture-id:act base 94)
+              (fixture-id:act base 95)
+          ==
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon
+          !>([%tape %rover (integrity-script:act scenario.a ids now.bowl)])
+        :_  this(pending (~(put by pending) wir (integrity-op:act scenario.a)))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -290,8 +325,15 @@
         %fact
       =/  res
         ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  op  (~(get by pending) wire)
+      =/  scenario=(unit integrity-kind:rover)
+        ?~  op  ~
+        (integrity-scenario:act u.op)
+      ?^  scenario
+        ?:  ?=(%.n -.res)
+          `this(last ~, integrity `[u.scenario %.y (integrity-message:act u.scenario)])
+        `this(last ~, integrity `[u.scenario %.n 'unexpectedly accepted invalid mutation'])
       ?.  ?=(%.n -.res)
-        =/  op  (~(get by pending) wire)
         =/  cooked
           ?~  op  res
           ?:  =('vehicle-history' u.op)
@@ -326,6 +368,9 @@
   ::
       [%x %charging-total ~]
     ``noun+!>(charging-total)
+  ::
+      [%x %integrity ~]
+    ``noun+!>(integrity)
   ==
 ::
 ++  on-watch  on-watch:def
