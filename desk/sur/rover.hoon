@@ -25,7 +25,7 @@
 +$  consumption-source  ?(%dashboard %telematics %owner %imported)
 +$  coordinate-source  ?(%owner %gps %receipt %directory %geocoder %imported)
 +$  address-source  ?(%owner %receipt %directory %geocoder %imported)
-+$  address-part  ?(%locality %region %postal-code %sublocality %line1 %line2)
++$  address-part  ?(%country %locality %region %postal-code %sublocality %line1 %line2)
 +$  station-role  ?(%brand %operator)
 +$  radius-unit  ?(%metre %foot)
 +$  economy-break-reason  ?(%missed-fill %excluded %owner-marked)

@@ -52,7 +52,7 @@
   ^-  [(list coordinate-source:rover) (list address-source:rover) (list address-part:rover) (list station-role:rover) (list radius-unit:rover)]
   :*  ~[%owner %gps %receipt %directory %geocoder %imported]
       ~[%owner %receipt %directory %geocoder %imported]
-      ~[%locality %region %postal-code %sublocality %line1 %line2]
+      ~[%country %locality %region %postal-code %sublocality %line1 %line2]
       ~[%brand %operator]
       ~[%metre %foot]
   ==
