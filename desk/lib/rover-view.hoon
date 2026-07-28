@@ -61,6 +61,96 @@
   |=  row=vector:ast
   =(vehicle-id (cell-atom %vehicle-id row))
 ::
+++  vehicle-label
+  |=  [vehicle-id=@ rows=(list vector:ast)]
+  ^-  @t
+  ?~  rows
+    'Unavailable'
+  ?:  =(vehicle-id (cell-atom %vehicle-id i.rows))
+    (cell-text %label i.rows)
+  $(rows t.rows)
+::
+++  vehicle-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (escape (cell-text %label i.rows))
+  =/  option
+    ;:  weld
+      "<option value=\""
+      label
+      "\">"
+      label
+      "</option>"
+    ==
+  (weld option $(rows t.rows))
+::
+++  definition-options
+  |=  [rows=(list vector:ast) vehicles=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  row  i.rows
+  =/  owner
+    (escape (vehicle-label (cell-atom %vehicle-id row) vehicles))
+  =/  label  (escape (cell-text %energy row))
+  =/  unit  (escape (scot %tas (cell-term %quantity-unit row)))
+  =/  kind  (escape (scot %tas (cell-term %physical-kind row)))
+  =/  option
+    ;:  weld
+      "<option value=\""
+      label
+      "\" data-vehicle=\""
+      owner
+      "\" data-unit=\""
+      unit
+      "\" data-kind=\""
+      kind
+      "\">"
+      label
+      "</option>"
+    ==
+  (weld option $(rows t.rows))
+::
+++  entry-screens
+  |=  [vehicles=(list vector:ast) definitions=(list vector:ast)]
+  ^-  tape
+  =/  vehicle-html  (vehicle-options vehicles)
+  =/  definition-html  (definition-options definitions vehicles)
+  ;:  weld
+    "<nav class=\"action-bar\" aria-label=\"Record actions\">"
+    "<button type=\"button\" data-open-screen=\"add-fill\">Add fill</button>"
+    "<button type=\"button\" data-open-screen=\"add-charge\">Add charge</button>"
+    "<button type=\"button\" data-open-screen=\"add-odometer\">Add odometer</button>"
+    "</nav>"
+    "<section id=\"add-fill\" class=\"entry-screen\" hidden>"
+    "<header><p class=\"eyebrow\">NEW ACQUISITION</p><h2>Add fill</h2></header>"
+    "<form id=\"fill-form\">"
+    "<label>Vehicle<select name=\"vehicle\" required>"
+    vehicle-html
+    "</select></label>"
+    "<label>Definition<select name=\"definition\" required>"
+    definition-html
+    "</select></label>"
+    "<label>Quantity<div class=\"input-unit\"><input name=\"quantity\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"12.345\" required><output id=\"fill-unit\">unit</output></div></label>"
+    "<label>Price profile<select name=\"profile\"><option value=\"us-usd-gal\">US &middot; USD per gallon</option><option value=\"eu-eur-litre\">EU &middot; EUR per litre</option></select></label>"
+    "<label>Price per unit<input name=\"price\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$3.49\" required></label>"
+    "<div class=\"preview-row\"><span>Completed price</span><output id=\"fill-price-completed\">&mdash;</output></div>"
+    "<label>Tank state<select name=\"tank\"><option value=\"full\">Full</option><option value=\"partial\">Partial</option></select></label>"
+    "<label>Settlement<select name=\"settlement\"><option value=\"standard\">Standard</option><option value=\"cash\">Cash</option></select></label>"
+    "<label>Observed at<input name=\"observed\" type=\"datetime-local\" required></label>"
+    "<input name=\"zone\" type=\"hidden\">"
+    "<label>Optional mileage<input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"10012.5\"></label>"
+    "<label>Mileage unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label>"
+    "<div class=\"preview-row derived-preview\"><span>Derived total</span><output id=\"fill-derived-total\" aria-live=\"polite\">&mdash;</output><small>Calculated from quantity and completed unit price</small></div>"
+    "<div class=\"form-actions\"><button type=\"submit\">Save fill</button><button type=\"button\" data-close-screen>Cancel</button></div>"
+    "<output id=\"fill-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
+    "</form></section>"
+    "<section id=\"add-charge\" class=\"entry-screen\" hidden><header><p class=\"eyebrow\">NEW ACQUISITION</p><h2>Add charge</h2></header><p>Energy delivered entry is the next enabled action.</p><button type=\"button\" data-close-screen>Close</button></section>"
+    "<section id=\"add-odometer\" class=\"entry-screen\" hidden><header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header><p>Source-native digits and precision are retained.</p><button type=\"button\" data-close-screen>Close</button></section>"
+  ==
+::
 ++  current-odometer
   |=  rows=(list vector:ast)
   ^-  tape
@@ -226,6 +316,7 @@
     (weld card rest)
   =/  html=tape
     ;:  weld
+      (entry-screens vehicles definition-rows)
       "<section id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
       "</section>"

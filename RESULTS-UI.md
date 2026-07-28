@@ -210,3 +210,124 @@ and the wide two-column vehicle grid is not active. The served shell
 defines the ratified amber palette, all four local font faces, tabular
 numerals, a persisted glow toggle (off by default), stacked history
 cards, the compact phone designation, and the `48rem` wide breakpoint.
+
+## Slice 6a — add-fill entry
+
+The first real POST was the RED check for the mutation serializer. It
+failed closed with HTTP 422, and the real Obelisk trace identified
+grouped decimal output and missing term sigils:
+
+```console
+$ curl ... --data-raw '{"quantity":"7.654",...}' \
+>   http://localhost:8082/apps/rover/add-fill
+valid HTTP 422
+body: %database-refused: fill
+
+[ %rover-fill-write-refused
+  ~[
+    [%leaf p="syntax error"]
+    [%leaf p="\"error on numeric parser <|p a r t i a l|> \""]
+    [%leaf p="\"insert parse phase:  \\\" fuel-fills VALUES (..., 7.654, gal, partial, 3.499, usd, ...\\\" ...\""]
+  ]
+]
+```
+
+Rover now serializes application integers as flat base-10 digits and
+enum values as `%term` literals. The pure human-entry decoder test is
+green:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/run-test-entry.hoon "$HOME/piers/rover-bel"
+[0 %avow 0 %noun %entry-tests-pass]
+```
+
+The first successful real write, exact response:
+
+```console
+$ curl --max-time 20 -sS -b /tmp/rover-debug-jar \
+>   -H 'content-type: application/json' \
+>   --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"7.654","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-28T19:20","zone":"America/Chicago","mileage":"","mileageUnit":"mi"}' \
+>   http://localhost:8082/apps/rover/add-fill
+Saved fill - $3.499 - derived $26.78
+```
+
+The browser-half harness then exercised the parser, live BigInt
+preview, cash rounding, atomic Obelisk write, stored integer values,
+and read-back:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS**.
+
+The raw admin probe returned the newly inserted row as
+`[%quantity-milli 25717 6543]` and
+`[%unit-price-mills 25717 3499]`; those representations are asserted
+only behind the admin test boundary. The served page renders
+`6.543 gal`, `$3.499`, and derived `$22.89`, and its raw-value sweep
+still passes.
+
+Screenshot-equivalent: authenticated HTML served for the add-fill
+screen (options abbreviated here only to keep this evidence readable):
+
+```html
+<section id="add-fill" class="entry-screen" hidden>
+  <header>
+    <p class="eyebrow">NEW ACQUISITION</p>
+    <h2>Add fill</h2>
+  </header>
+  <form id="fill-form">
+    <label>Vehicle
+      <select name="vehicle" required>
+        <option value="Phase A Vehicle">Phase A Vehicle</option>
+      </select>
+    </label>
+    <label>Definition
+      <select name="definition" required>
+        <option value="Regular 87" data-vehicle="Phase A Vehicle"
+          data-unit="gal" data-kind="reservoir">Regular 87</option>
+      </select>
+    </label>
+    <label>Quantity
+      <div class="input-unit">
+        <input name="quantity" inputmode="decimal" placeholder="12.345" required>
+        <output id="fill-unit">unit</output>
+      </div>
+    </label>
+    <label>Price per unit
+      <input name="price" inputmode="decimal" placeholder="$3.49" required>
+    </label>
+    <div class="preview-row">
+      <span>Completed price</span>
+      <output id="fill-price-completed">&mdash;</output>
+    </div>
+    <label>Tank state
+      <select name="tank">
+        <option value="full">Full</option>
+        <option value="partial">Partial</option>
+      </select>
+    </label>
+    <label>Optional mileage
+      <input name="mileage" inputmode="decimal" placeholder="10012.5">
+    </label>
+    <div class="preview-row derived-preview">
+      <span>Derived total</span>
+      <output id="fill-derived-total" aria-live="polite">&mdash;</output>
+      <small>Calculated from quantity and completed unit price</small>
+    </div>
+    <button type="submit">Save fill</button>
+  </form>
+</section>
+```

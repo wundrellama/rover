@@ -2,7 +2,7 @@
 ::  One path, proven. Other actions land as separate proven increments.
 ::
 /-  ast=obelisk-ast, rover
-/+  act=rover-act, default-agent, dbug, view=rover-view
+/+  act=rover-act, default-agent, dbug, entry=rover-entry, render=rover-render, view=rover-view
 /*  shell-html  %html  /app/rover/shell/html
 /*  tile-png    %png   /app/rover/assets/tile/png
 /*  font-regular       %woff2x  /app/rover/assets/fonts/berkeleymono-regular/woff2x
@@ -16,6 +16,7 @@
       [%2 state-2]
       [%3 state-3]
       [%4 state-4]
+      [%5 state-5]
   ==
 +$  state-0
   $:  pending=(map wire @t)
@@ -50,6 +51,16 @@
       charging-total=(unit charging-total-proof:rover)
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
+  ==
++$  state-5
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
   ==
 +$  card  card:agent:gall
 --
@@ -93,13 +104,55 @@
   ^-  octs
   font-bold-oblique
 ::
+++  text-octs
+  |=  text=@t
+  ^-  octs
+  (as-octs:mimes:html text)
+::
+++  entry-refusal
+  |=  verdict=entry-verdict:rover
+  ^-  @t
+  (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
+::
 ++  handle-http
-  |=  [sat=state-4 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-4]
+  |=  [sat=state-5 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-5]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
+  ?:  =(%'POST' method.request.req)
+    ?.  =('/apps/rover/add-fill' url.request.req)
+      [(http-give eyre-id 405 ~ ~) sat]
+    ?~  body.request.req
+      :_  sat
+      %:  http-give
+          eyre-id
+          400
+          ['content-type' 'text/plain']~
+          `(text-octs '%bad-shape: fill')
+      ==
+    =/  decoded  (decode-fill:entry `@t`q.u.body.request.req)
+    ?:  ?=(%| -.decoded)
+      :_  sat
+      %:  http-give
+          eyre-id
+          400
+          ['content-type' 'text/plain']~
+          `(text-octs (entry-refusal p.decoded))
+      ==
+    =/  wir=wire  /rover-fill-lookup/(scot %da now.bowl)/[eyre-id]
+    =/  jon
+      !>([%tape %rover (fill-lookup:act vehicle-label.p.decoded definition-label.p.decoded)])
+    =/  new-sat
+      %_  sat
+        http-pending  (~(put by http-pending.sat) wir eyre-id)
+        fill-pending  (~(put by fill-pending.sat) wir p.decoded)
+      ==
+    :_  new-sat
+    :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+        [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+    ==
   ?.  =(%'GET' method.request.req)
     [(http-give eyre-id 405 ~ ~) sat]
   ?:  =('/apps/rover/assets/tile.png' url.request.req)
@@ -123,7 +176,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-4
+=|  state-5
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -135,7 +188,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%4 state])
+++  on-save  !>([%5 state])
 ::
 ++  on-load
   |=  old=vase
@@ -143,11 +196,12 @@
   =/  s  !<(versioned-state old)
   =/  loaded=_this
     ?-  -.s
-      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~])
-      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~])
-      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~])
-      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~])
-      %4  this(state +.s)
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~])
+      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~])
+      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~])
+      %5  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -421,6 +475,150 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-fill-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res
+        ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  input  (~(get by fill-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ input)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-fill-lookup-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: fill.definition')
+        ==
+      ?~  p.res
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: fill.definition')
+        ==
+      =/  rows  (result-rows:view i.p.res)
+      ?.  =(1 (lent rows))
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%ambiguous: fill.definition')
+        ==
+      =/  row  (snag 0 rows)
+      =/  kind  (cell-term:view %physical-kind row)
+      =/  quantity-unit  (cell-term:view %quantity-unit row)
+      ?.  =(%reservoir kind)
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%wrong-kind: fill.definition')
+        ==
+      =/  expected-unit=@tas
+        ?:  =(%us-usd-gal price-profile.u.input)
+          %gal
+        %litre
+      ?.  =(expected-unit quantity-unit)
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%unit-mismatch: fill.profile')
+        ==
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  ids=entry-ids:act
+        [(fixture-id:act base 101) (fixture-id:act base 102)]
+      =/  write-wire=path
+        /rover-fill-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script
+        %:  insert-fill:act
+            ids
+            `@ux`(cell-atom:view %vehicle-id row)
+            `@ux`(cell-atom:view %energy-definition-id row)
+            quantity-unit
+            u.input
+            now.bowl
+        ==
+      =/  jon  !>([%tape %rover script])
+      :_  this(http-pending (~(put by http-pending) write-wire u.eyre-id), fill-pending (~(put by fill-pending) write-wire u.input))
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-pending (~(del by fill-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-fill-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res
+        ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  input  (~(get by fill-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ input)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-fill-write-refused p.res]
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%database-refused: fill')
+        ==
+      =/  proof
+        %:  derive-fill-total:act
+            quantity-milli.u.input
+            unit-price-mills.u.input
+            minor-unit-decimals.u.input
+            cash-increment-mills.u.input
+            settlement-mode.u.input
+        ==
+      =/  total-display
+        %:  format-total:render
+            total-mills.proof
+            currency.u.input
+            minor-unit-decimals.u.input
+        ==
+      =/  message
+        %-  crip
+        ;:  weld
+          "Saved fill - "
+          (trip price-display.u.input)
+          " - derived "
+          (trip total-display)
+        ==
+      :_  this
+      %:  http-give
+          u.eyre-id
+          201
+          ['content-type' 'text/plain']~
+          `(text-octs message)
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-pending (~(del by fill-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-http *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact

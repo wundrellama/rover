@@ -80,6 +80,10 @@
       place=@ux
       station=@ux
   ==
++$  entry-ids
+  $:  acquisition=@ux
+      odometer=@ux
+  ==
 ::
 ++  rover-db  %rover
 ::
@@ -682,6 +686,131 @@
     "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS default-energy; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end, A.source-zone, A.recorded-at;"
   ==
+::
+++  sql-quote
+  |=  value=@t
+  ^-  tape
+  (sql-quote-chars (trip value))
+::
+++  sql-quote-chars
+  |=  chars=tape
+  ^-  tape
+  ?~  chars
+    ~
+  =/  escaped=tape  ?:  =(39 i.chars)  "''"  [i.chars ~]
+  (weld escaped (sql-quote-chars t.chars))
+::
+++  sql-ud
+  |=  value=@ud
+  ^-  tape
+  %+  skip  (scow %ud value)
+  |=  char=@t
+  =('.' char)
+::
+++  sql-term
+  |=  value=@tas
+  ^-  tape
+  ['%' (scow %tas value)]
+::
+++  fill-lookup
+  |=  [vehicle-label=@t definition-label=@t]
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND E.label = '"
+    (sql-quote definition-label)
+    "' SELECT V.vehicle-id, E.energy-definition-id, E.quantity-unit, E.physical-kind;"
+  ==
+::
+++  insert-fill
+  |=  $:  ids=entry-ids
+          vehicle-id=@ux
+          definition-id=@ux
+          quantity-unit=@tas
+          input=fill-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  acquisition  (scow %ux acquisition.ids)
+  =/  odometer  (scow %ux odometer.ids)
+  =/  vehicle  (scow %ux vehicle-id)
+  =/  definition  (scow %ux definition-id)
+  =/  observed-start  (scow %da observed-start.input)
+  =/  observed-end  (scow %da (add observed-start.input (bex 64)))
+  =/  recorded  (scow %da recorded-at)
+  =/  zone  (sql-quote source-zone.input)
+  =/  acquisition-row
+    ;:  weld
+      "INSERT INTO energy-acquisitions VALUES ("
+      acquisition
+      ", "
+      vehicle
+      ", "
+      definition
+      ", "
+      observed-start
+      ", "
+      observed-end
+      ", %second, '"
+      zone
+      "', "
+      recorded
+      "); "
+    ==
+  =/  fill-row
+    ;:  weld
+      "INSERT INTO fuel-fills VALUES ("
+      acquisition
+      ", "
+      (sql-ud quantity-milli.input)
+      ", "
+      (sql-term quantity-unit)
+      ", "
+      (sql-term tank-state.input)
+      ", "
+      (sql-ud unit-price-mills.input)
+      ", "
+      (sql-term currency.input)
+      ", "
+      (sql-term settlement-mode.input)
+      ", "
+      (sql-term price-profile.input)
+      ", "
+      (sql-ud minor-unit-decimals.input)
+      ", "
+      (sql-ud cash-increment-mills.input)
+      ");"
+    ==
+  =/  mileage-rows=tape
+    ?~  mileage.input
+      ~
+    ;:  weld
+      " INSERT INTO odometer-observations VALUES ("
+      odometer
+      ", "
+      vehicle
+      ", "
+      (sql-ud digits.u.mileage.input)
+      ", "
+      (sql-ud places.u.mileage.input)
+      ", "
+      (sql-term odo-unit.u.mileage.input)
+      ", "
+      observed-start
+      ", "
+      observed-end
+      ", %second, '"
+      zone
+      "', "
+      recorded
+      "); INSERT INTO fuel-fill-odometers VALUES ("
+      acquisition
+      ", "
+      odometer
+      ");"
+    ==
+  ;:(weld acquisition-row fill-row mileage-rows)
 ::
 ++  vector-key
   |=  [key=@tas row=vector:ast]

@@ -86,6 +86,105 @@ if grep -Eq '(^|[^0-9,.])(12345|3499)([^0-9,.]|$)|0x[0-9a-fA-F]+' <<<"$view"; th
 fi
 note "vehicle list/detail render real rows in human units with no raw IDs"
 
+grep -q 'id="fill-form"' <<<"$view" || fail "add-fill form is missing"
+grep -q 'id="fill-price-completed"' <<<"$view" || fail "completed-price preview is missing"
+grep -q '<output id="fill-derived-total"' <<<"$view" \
+  || fail "derived total is not a non-input output"
+if grep -Eq '<input[^>]+name="(total|unitPriceMills|quantityMilli)"' <<<"$view"; then
+  fail "add-fill form asks for a derived total or machine representation"
+fi
+grep -q 'Energy delivered' <<<"$view" || fail "add-charge surface lacks Energy delivered wording"
+
+bad_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"wat","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T19:22","zone":"America/Chicago","mileage":"","mileageUnit":"mi"}' \
+  "$URL/apps/rover/add-fill")"
+[ "$bad_fill" = $'%bad-shape: fill.quantity\n400' ] \
+  || fail "malformed fill did not name its field: $bad_fill"
+note "malformed fill refuses as %bad-shape: fill.quantity"
+
+PLAYWRIGHT_ROOT="${PLAYWRIGHT_ROOT:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules}"
+CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
+[ -d "$PLAYWRIGHT_ROOT/playwright" ] || fail "Playwright package not found at $PLAYWRIGHT_ROOT"
+[ -x "$CHROMIUM_BIN" ] || fail "Chromium not found at $CHROMIUM_BIN"
+preview="$(
+  URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" \
+    NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
+const {chromium} = require('playwright');
+const fs = require('fs');
+(async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROMIUM_BIN
+  });
+  const page = await browser.newPage({viewport: {width: 390, height: 844}});
+  const raw = fs.readFileSync(process.env.JAR, 'utf8');
+  const cookie = raw.match(/urbauth-~bel\s+([^\s]+)/);
+  if (!cookie) throw new Error('urbauth cookie missing');
+  await page.context().addCookies([{
+    name: 'urbauth-~bel',
+    value: cookie[1],
+    domain: 'localhost',
+    path: '/'
+  }]);
+  await page.goto(`${process.env.URL}/apps/rover`);
+  await page.locator('#fill-form').waitFor({state: 'attached'});
+  await page.locator('[data-open-screen="add-fill"]').click();
+  await page.locator('[name="vehicle"]').selectOption({label: 'Phase A Vehicle'});
+  await page.locator('[name="definition"]').selectOption({label: 'Regular 87'});
+  await page.locator('[name="quantity"]').fill('12.344');
+  await page.locator('[name="price"]').fill('$3.49');
+  const read = selector => page.locator(selector).evaluate(element => element.value);
+  const price = await read('#fill-price-completed');
+  const standard = await read('#fill-derived-total');
+  await page.locator('[name="tank"]').selectOption('partial');
+  const afterTank = await read('#fill-derived-total');
+  await page.locator('[name="settlement"]').selectOption('cash');
+  const cash = await read('#fill-derived-total');
+  const shape = await page.locator('#fill-derived-total').evaluate(element => ({
+    tag: element.tagName,
+    editable: element.isContentEditable
+  }));
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > innerWidth
+  );
+  console.log(
+    `${price} standard=${standard} after-tank=${afterTank} cash=${cash} ` +
+    `total=${shape.tag}/${shape.editable ? 'editable' : 'readonly'} ` +
+    `overflow=${overflow}`
+  );
+  await browser.close();
+})().catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+NODE
+)"
+[ "$preview" = '$3.499 standard=$43.19 after-tank=$43.19 cash=$43.20 total=OUTPUT/readonly overflow=false' ] \
+  || fail "browser fill preview mismatch: $preview"
+note "browser completes \$3.49 to \$3.499 and derives an exact non-editable total"
+
+saved_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"6.543","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-28T19:21","zone":"America/Chicago","mileage":"","mileageUnit":"mi"}' \
+  "$URL/apps/rover/add-fill")"
+[ "$saved_fill" = $'Saved fill - $3.499 - derived $22.89\n201' ] \
+  || fail "valid fill was not saved: $saved_fill"
+history="$(click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-history ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))')"
+grep -q '\[%quantity-milli 25717 6543\].*\[%unit-price-mills 25717 3499\]' <<<"$history" \
+  || fail "saved fill did not retain exact 6543/3499 machine integers"
+view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q '6.543 gal' <<<"$view" || fail "saved fill quantity did not render back to a human"
+grep -q '\$22\.89' <<<"$view" || fail "saved fill derived total did not render"
+note "valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived \$22.89"
+
 asset_check() {
   local path="$1" content_type="$2" source="$3"
   : > "$HDRS"

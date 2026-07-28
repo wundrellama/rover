@@ -49,6 +49,23 @@
       zone=@t
   ==
 +$  odo-reading  [digits=@ud places=@ud odo-unit=distance-unit]
++$  entry-verdict  [class=@tas field=@t]
++$  fill-entry
+  $:  vehicle-label=@t
+      definition-label=@t
+      quantity-milli=@ud
+      unit-price-mills=@ud
+      price-display=@t
+      currency=currency
+      price-profile=price-profile
+      minor-unit-decimals=@ud
+      cash-increment-mills=@ud
+      tank-state=tank-state
+      settlement-mode=settlement-mode
+      observed-start=@da
+      source-zone=@t
+      mileage=(unit odo-reading)
+  ==
 +$  price-preview
   $:  currency=currency
       profile=price-profile

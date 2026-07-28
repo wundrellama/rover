@@ -308,6 +308,112 @@
       color: var(--rv-warn);
     }
 
+    .action-bar {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .entry-screen {
+      margin-bottom: 1.25rem;
+      padding: 1rem;
+      border: 1px solid var(--rv-amber);
+      background: var(--rv-bg-raised);
+    }
+
+    .entry-screen[hidden] {
+      display: none;
+    }
+
+    .entry-screen header {
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--rv-olive);
+    }
+
+    .entry-screen form,
+    .entry-screen label {
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    .entry-screen form {
+      gap: 0.9rem;
+    }
+
+    .entry-screen label {
+      color: var(--rv-amber-dim);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .entry-screen input,
+    .entry-screen select {
+      width: 100%;
+      padding: 0.65rem;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .input-unit {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+    }
+
+    .input-unit output {
+      display: grid;
+      min-width: 4.5rem;
+      min-height: 44px;
+      place-items: center;
+      border: 1px solid var(--rv-olive);
+      border-left: 0;
+      color: var(--rv-amber);
+    }
+
+    .preview-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: baseline;
+      gap: 0.35rem 1rem;
+      padding: 0.75rem;
+      border: 1px solid var(--rv-olive);
+      color: var(--rv-amber-dim);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .preview-row output {
+      color: var(--rv-amber-bright);
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .preview-row small {
+      grid-column: 1 / -1;
+      color: var(--rv-amber-dim);
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .derived-preview output {
+      color: var(--rv-ok);
+    }
+
+    .form-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+
+    .form-verdict {
+      min-height: 1.5rem;
+      color: var(--rv-warn);
+    }
+
     .status-strip {
       position: fixed;
       right: 0;
@@ -337,6 +443,20 @@
 
       main {
         padding-inline: 1.5rem;
+      }
+
+      .action-bar {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .entry-screen form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .entry-screen .preview-row,
+      .entry-screen .form-actions,
+      .entry-screen .form-verdict {
+        grid-column: 1 / -1;
       }
 
       #vehicle-view {
@@ -404,6 +524,144 @@
     });
     showGlow();
 
+    function parseScaled(text, places) {
+      const cleaned = text.trim().replaceAll(',', '');
+      const match = cleaned.match(/^([0-9]+)(?:\.([0-9]*))?$/);
+      if (!match || (match[2] || '').length > places) return null;
+      const fraction = (match[2] || '').padEnd(places, '0');
+      return BigInt(match[1] + fraction);
+    }
+
+    function completedPrice(text, profile) {
+      const cleaned = text.trim().replace(/^\$\s*/, '');
+      if (profile === 'us-usd-gal') {
+        const match = cleaned.match(/^([0-9]+)(?:\.([0-9]*))?$/);
+        if (!match || (match[2] || '').length > 3) return null;
+        const fraction = match[2] || '';
+        if (fraction.length === 3) return BigInt(match[1] + fraction);
+        const cents = BigInt(match[1] + fraction.padEnd(2, '0'));
+        return cents * 10n + 9n;
+      }
+      return parseScaled(cleaned, 3);
+    }
+
+    function millsText(mills, currency, decimals) {
+      const minorScale = 10n ** BigInt(decimals);
+      const millsPerMinor = 1000n / minorScale;
+      const minor = mills / millsPerMinor;
+      const whole = minor / minorScale;
+      const fraction = (minor % minorScale).toString().padStart(decimals, '0');
+      const prefix = currency === 'usd' ? '$' : 'EUR ';
+      return `${prefix}${whole}${decimals ? `.${fraction}` : ''}`;
+    }
+
+    function priceText(mills, profile) {
+      const whole = mills / 1000n;
+      const fraction = (mills % 1000n).toString().padStart(3, '0');
+      return `${profile === 'us-usd-gal' ? '$' : 'EUR '}${whole}.${fraction}`;
+    }
+
+    function roundHalfUp(numerator, denominator) {
+      return (numerator + denominator / 2n) / denominator;
+    }
+
+    function bindEntryScreens() {
+      const screens = [...app.querySelectorAll('.entry-screen')];
+      app.querySelectorAll('[data-open-screen]').forEach((button) => {
+        button.addEventListener('click', () => {
+          screens.forEach((screen) => {
+            screen.hidden = screen.id !== button.dataset.openScreen;
+          });
+          document.getElementById(button.dataset.openScreen)?.scrollIntoView();
+        });
+      });
+      app.querySelectorAll('[data-close-screen]').forEach((button) => {
+        button.addEventListener('click', () => {
+          button.closest('.entry-screen').hidden = true;
+        });
+      });
+
+      const form = app.querySelector('#fill-form');
+      if (!form) return;
+      const vehicle = form.elements.vehicle;
+      const definition = form.elements.definition;
+      const profile = form.elements.profile;
+      const quantity = form.elements.quantity;
+      const price = form.elements.price;
+      const settlement = form.elements.settlement;
+      const unit = app.querySelector('#fill-unit');
+      const completed = app.querySelector('#fill-price-completed');
+      const total = app.querySelector('#fill-derived-total');
+      const verdict = app.querySelector('#fill-verdict');
+
+      const syncDefinitions = () => {
+        const options = [...definition.options];
+        options.forEach((option) => {
+          option.hidden = option.dataset.vehicle !== vehicle.value;
+        });
+        if (definition.selectedOptions[0]?.hidden) {
+          definition.value = options.find((option) => !option.hidden)?.value || '';
+        }
+        const selected = definition.selectedOptions[0];
+        unit.textContent = selected?.dataset.unit || 'unit';
+        if (selected?.dataset.unit === 'gal') profile.value = 'us-usd-gal';
+        if (selected?.dataset.unit === 'litre') profile.value = 'eu-eur-litre';
+        updatePreview();
+      };
+
+      const updatePreview = () => {
+        const quantityMilli = parseScaled(quantity.value, 3);
+        const priceMills = completedPrice(price.value, profile.value);
+        completed.value = priceMills === null ? '—' : priceText(priceMills, profile.value);
+        if (quantityMilli === null || priceMills === null) {
+          total.value = '—';
+          return;
+        }
+        const product = quantityMilli * priceMills;
+        const minor = roundHalfUp(product * 100n, 1000000n);
+        let totalMills = minor * 10n;
+        if (settlement.value === 'cash') {
+          totalMills = roundHalfUp(totalMills, 50n) * 50n;
+        }
+        total.value = millsText(
+          totalMills,
+          profile.value === 'us-usd-gal' ? 'usd' : 'eur',
+          2
+        );
+      };
+
+      const now = new Date();
+      const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+      form.elements.observed.value = local.toISOString().slice(0, 16);
+      form.elements.zone.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      vehicle.addEventListener('change', syncDefinitions);
+      definition.addEventListener('change', syncDefinitions);
+      [quantity, price, profile, settlement].forEach((field) => {
+        field.addEventListener('input', updatePreview);
+        field.addEventListener('change', updatePreview);
+      });
+      syncDefinitions();
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        verdict.value = 'Saving…';
+        const payload = Object.fromEntries(new FormData(form).entries());
+        try {
+          const response = await fetch('/apps/rover/add-fill', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(payload)
+          });
+          const message = await response.text();
+          verdict.value = message;
+          if (response.ok) await loadView();
+        } catch (error) {
+          verdict.value = `%unavailable: fill · ${error.message}`;
+        }
+      });
+    }
+
     async function loadView() {
       status.textContent = 'Refreshing…';
       try {
@@ -413,6 +671,7 @@
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         app.innerHTML = await response.text();
+        bindEntryScreens();
         status.textContent = 'Connected · current on navigation';
         refreshTime.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       } catch (error) {
