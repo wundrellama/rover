@@ -55,6 +55,13 @@
       tax-component=@ux
       discount-component=@ux
   ==
++$  consumption-ids
+  $:  definition=@ux
+      vehicle=@ux
+      wh-mi=@ux
+      kwh-100km=@ux
+      mi-kwh=@ux
+  ==
 ::
 ++  rover-db  %rover
 ::
@@ -394,6 +401,29 @@
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-cost-components C ON A.acquisition-id = C.acquisition-id WHERE V.label = 'Charging Cost Vehicle' SELECT V.label AS vehicle, C.component, C.quantity, C.quantity-decimals, C.quantity-unit, C.rate-mills, C.amount-mills; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-cost-source-totals T ON A.acquisition-id = T.acquisition-id WHERE V.label = 'Charging Cost Vehicle' SELECT V.label AS vehicle, A.observed-start, T.total-mills;"
   ==
+::
+++  seed-consumption
+  |=  [ids=consumption-ids now=@da]
+  ^-  tape
+  =/  def-id  (scow %ux definition.ids)
+  =/  veh-id  (scow %ux vehicle.ids)
+  =/  wh-id   (scow %ux wh-mi.ids)
+  =/  eu-id   (scow %ux kwh-100km.ids)
+  =/  mpk-id  (scow %ux mi-kwh.ids)
+  =/  rec     (scow %da now)
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Consumption Fixture Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO vehicles VALUES ({veh-id}, 'Consumption Evidence Vehicle', N, {rec}); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
+    "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id}); "
+    "INSERT INTO consumption-observations VALUES ({wh-id}, {veh-id}, 275, 0, %wh-mi, %instant, %dashboard, ~2026.7.28..17.00.00, ~2026.7.28..17.00.01, %second, 'America/Chicago', {rec}); "
+    "INSERT INTO consumption-observations VALUES ({eu-id}, {veh-id}, 182, 1, %kwh-100km, %trip, %telematics, ~2026.7.28..17.01.00, ~2026.7.28..17.01.01, %second, 'Europe/Paris', {rec}); "
+    "INSERT INTO consumption-observations VALUES ({mpk-id}, {veh-id}, 37, 1, %mi-kwh, %since-charge, %dashboard, ~2026.7.28..17.02.00, ~2026.7.28..17.02.01, %second, 'America/Chicago', {rec});"
+  ==
+::
+++  consumption-report
+  ^-  tape
+  "FROM vehicles V JOIN consumption-observations C ON V.vehicle-id = C.vehicle-id WHERE V.label = 'Consumption Evidence Vehicle' SELECT V.label AS vehicle, C.value-digits, C.value-decimals, C.consumption-unit, C.scope, C.source, C.observed-start, C.observed-end, C.observed-precision, C.source-zone;"
 ::
 ++  verify-schema
   ^-  tape
