@@ -154,8 +154,10 @@ CREATE TABLE rover..fuel-fill-additives
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- Explicit break row rather than a sentinel. Absence = chain intact.
+-- No free-text note column (Q8): an optional @t could only store the empty-string
+-- bunt, making "no note" and "blank note" indistinguishable.
 CREATE TABLE rover..economy-breaks
-  (acquisition-id @ux, reason @tas, note @t, recorded-at @da)
+  (acquisition-id @ux, reason @tas, recorded-at @da)
   PRIMARY KEY (acquisition-id)
   FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
@@ -192,7 +194,7 @@ CREATE TABLE rover..charging-session-batteries
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 CREATE TABLE rover..charging-efficiency-breaks
-  (acquisition-id @ux, reason @tas, note @t, recorded-at @da)
+  (acquisition-id @ux, reason @tas, recorded-at @da)
   PRIMARY KEY (acquisition-id)
   FOREIGN KEY (acquisition-id) REFERENCES charging-sessions (acquisition-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
