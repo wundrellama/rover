@@ -430,6 +430,7 @@
   |=  [ids=fuel-evidence-ids now=@da]
   ^-  tape
   =/  def-id   (scow %ux definition.ids)
+  =/  sub-id   (scow %ux (fixture-id definition.ids 39))
   =/  veh-id   (scow %ux vehicle.ids)
   =/  zero-id  (scow %ux zero-fill.ids)
   =/  one-id   (scow %ux one-fill.ids)
@@ -439,23 +440,28 @@
   =/  add-b    (scow %ux additive-b.ids)
   =/  rec      (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({def-id}, 'Regular 87 E10', %reservoir, %gal, N, {rec}); "
-    "INSERT INTO energy-definition-octane VALUES ({def-id}, 87, %aki); "
-    "INSERT INTO energy-definition-blend VALUES ({def-id}, %ethanol, 100, 1); "
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Gasoline', %reservoir, %gal, N, {rec}); "
+    "INSERT INTO energy-definition-subtypes VALUES ({sub-id}, {def-id}, 'Regular 87 E10', N, {rec}); "
+    "INSERT INTO energy-subtype-octane VALUES ({sub-id}, 87, %aki); "
+    "INSERT INTO energy-subtype-blend VALUES ({sub-id}, %ethanol, 100, 1); "
     "INSERT INTO vehicles VALUES ({veh-id}, 'Fuel Evidence Vehicle', N, {rec}); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
     "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id}); "
+    "INSERT INTO vehicle-default-energy-subtype VALUES ({veh-id}, {sub-id}, {rec}); "
     "INSERT INTO additive-definitions VALUES ({add-a}, 'Injector cleaner', N, {rec}); "
     "INSERT INTO additive-definitions VALUES ({add-b}, 'Fuel stabilizer', N, {rec}); "
     "INSERT INTO energy-acquisitions VALUES ({zero-id}, {veh-id}, {def-id}, ~2026.7.28..14.00.00, ~2026.7.28..14.00.01, %second, 'America/Chicago', {rec}); "
     "INSERT INTO fuel-fills VALUES ({zero-id}, 1000, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO fuel-fill-subtype VALUES ({zero-id}, {sub-id}); "
     "INSERT INTO odometer-observations VALUES ({odo-id}, {veh-id}, 200000, 1, %mi, ~2026.7.28..14.00.00, ~2026.7.28..14.00.01, %second, 'America/Chicago', {rec}); "
     "INSERT INTO fuel-fill-odometers VALUES ({zero-id}, {odo-id}); "
     "INSERT INTO energy-acquisitions VALUES ({one-id}, {veh-id}, {def-id}, ~2026.7.28..14.01.00, ~2026.7.28..14.01.01, %second, 'America/Chicago', {rec}); "
     "INSERT INTO fuel-fills VALUES ({one-id}, 1000, %gal, %partial, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO fuel-fill-subtype VALUES ({one-id}, {sub-id}); "
     "INSERT INTO fuel-fill-additives VALUES ({one-id}, {add-a}); "
     "INSERT INTO energy-acquisitions VALUES ({many-id}, {veh-id}, {def-id}, ~2026.7.28..14.02.00, ~2026.7.28..14.02.01, %second, 'America/Chicago', {rec}); "
     "INSERT INTO fuel-fills VALUES ({many-id}, 1000, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO fuel-fill-subtype VALUES ({many-id}, {sub-id}); "
     "INSERT INTO fuel-fill-additives VALUES ({many-id}, {add-a}); "
     "INSERT INTO fuel-fill-additives VALUES ({many-id}, {add-b}); "
     "INSERT INTO economy-breaks VALUES ({many-id}, %missed-fill, {rec});"
@@ -464,8 +470,10 @@
 ++  fuel-evidence-report
   ^-  tape
   ;:  weld
-    "FROM energy-definitions E JOIN energy-definition-octane O ON E.energy-definition-id = O.energy-definition-id WHERE E.label = 'Regular 87 E10' SELECT E.label AS energy, O.rating, O.method; "
-    "FROM energy-definitions E JOIN energy-definition-blend B ON E.energy-definition-id = B.energy-definition-id WHERE E.label = 'Regular 87 E10' SELECT E.label AS energy, B.blend-kind, B.percent-digits, B.percent-decimals; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id WHERE S.label = 'Regular 87 E10' SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id WHERE S.label = 'Regular 87 E10' SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals; "
+    "FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, S.label AS default-subtype; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, S.label AS subtype; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, F.quantity-milli, F.quantity-unit, F.unit-price-mills, F.currency, F.settlement-mode; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, D.label AS additive; "
     "FROM additive-definitions D WHERE D.label = 'Injector cleaner' OR D.label = 'Fuel stabilizer' SELECT D.label AS additive, D.archived; "
@@ -605,9 +613,12 @@
     "FROM places P SELECT P.label, P.archived; "
     "FROM stations S SELECT S.label, S.station-kind, S.archived; "
     "FROM energy-acquisition-stations L JOIN stations S ON L.station-id = S.station-id SELECT S.label AS linked-station; "
-    "FROM energy-definition-octane O SELECT O.rating, O.method; "
-    "FROM energy-definition-blend B SELECT B.blend-kind, B.percent-digits, B.percent-decimals; "
-    "FROM energy-definition-grade-code G SELECT G.code; "
+    "FROM energy-definition-subtypes S SELECT S.label, S.archived; "
+    "FROM energy-subtype-octane O SELECT O.rating, O.method; "
+    "FROM energy-subtype-blend B SELECT B.blend-kind, B.percent-digits, B.percent-decimals; "
+    "FROM energy-subtype-grade-code G SELECT G.code; "
+    "FROM vehicle-default-energy-subtype D SELECT D.recorded-at; "
+    "FROM fuel-fill-subtype L SELECT L.acquisition-id; "
     "FROM fuel-fill-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT O.value-digits AS linked-odometer; "
     "FROM additive-definitions D SELECT D.label, D.archived; "
     "FROM fuel-fill-additives L JOIN additive-definitions D ON L.additive-id = D.additive-id SELECT D.label AS linked-additive; "
@@ -635,6 +646,7 @@
   |=  [ids=location-ids now=@da]
   ^-  tape
   =/  res-id  (scow %ux reservoir-definition.ids)
+  =/  sub-id  (scow %ux (fixture-id reservoir-definition.ids 90))
   =/  ele-id  (scow %ux electricity-definition.ids)
   =/  veh-id  (scow %ux vehicle.ids)
   =/  fil-id  (scow %ux fill-acquisition.ids)
@@ -647,7 +659,8 @@
   ;:  weld
     "INSERT INTO energy-definitions VALUES ({res-id}, 'Location Fixture Fuel', %reservoir, %gal, N, {rec}); "
     "INSERT INTO energy-definitions VALUES ({ele-id}, 'Location Fixture Electricity', %electricity, %kwh, N, {rec}); "
-    "INSERT INTO energy-definition-grade-code VALUES ({res-id}, 'LOC-RES'); "
+    "INSERT INTO energy-definition-subtypes VALUES ({sub-id}, {res-id}, 'Location Grade', N, {rec}); "
+    "INSERT INTO energy-subtype-grade-code VALUES ({sub-id}, 'LOC-RES'); "
     "INSERT INTO vehicles VALUES ({veh-id}, 'Location Evidence Vehicle', N, {rec}); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {res-id}, N); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {ele-id}, N); "
@@ -669,6 +682,7 @@
     "INSERT INTO station-identifiers VALUES ({mix-sta}, %chargepoint, 'CP-1234'); "
     "INSERT INTO energy-acquisitions VALUES ({fil-id}, {veh-id}, {res-id}, ~2026.7.28..18.00.00, ~2026.7.28..18.00.01, %second, 'America/Chicago', {rec}); "
     "INSERT INTO fuel-fills VALUES ({fil-id}, 9000, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
+    "INSERT INTO fuel-fill-subtype VALUES ({fil-id}, {sub-id}); "
     "INSERT INTO energy-acquisition-stations VALUES ({fil-id}, {mix-sta}); "
     "INSERT INTO acquisition-station-equipment VALUES ({fil-id}, 'Pump 7', 'PUMP 7'); "
     "INSERT INTO energy-acquisitions VALUES ({chg-id}, {veh-id}, {ele-id}, ~2026.7.28..18.30.00, ~2026.7.28..18.30.01, %second, 'America/Chicago', {rec}); "
@@ -690,7 +704,7 @@
     "FROM stations S JOIN station-identifiers I ON S.station-id = I.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, I.provider; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE V.label = 'Location Evidence Vehicle' SELECT V.label AS vehicle, E.physical-kind, S.label AS station, S.station-kind, A.observed-start; "
     "FROM stations S JOIN energy-acquisition-stations L ON S.station-id = L.station-id JOIN acquisition-station-equipment E ON L.acquisition-id = E.acquisition-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, E.equipment-label, E.receipt-text; "
-    "FROM energy-definitions D JOIN energy-definition-grade-code G ON D.energy-definition-id = G.energy-definition-id WHERE D.label = 'Location Fixture Fuel' SELECT D.label AS energy, G.code;"
+    "FROM energy-definitions D JOIN energy-definition-subtypes S ON D.energy-definition-id = S.energy-definition-id JOIN energy-subtype-grade-code G ON S.subtype-id = G.subtype-id WHERE D.label = 'Location Fixture Fuel' SELECT D.label AS energy, S.label AS subtype, G.code;"
   ==
 ::
 ++  verify-schema
@@ -730,6 +744,7 @@
     " FROM energy-acquisition-stations L JOIN stations S ON L.station-id = S.station-id JOIN places P ON S.place-id = P.place-id SELECT L.acquisition-id, S.label AS station, P.label AS place;"
     " FROM fuel-fill-additives L JOIN additive-definitions D ON L.additive-id = D.additive-id SELECT L.acquisition-id, D.label AS additive;"
     " FROM vehicle-display-preferences P SELECT P.vehicle-id, P.distance-unit, P.currency;"
+    " FROM fuel-fill-subtype L JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id SELECT L.acquisition-id, S.label AS subtype;"
   ==
 ::
 ++  sql-quote

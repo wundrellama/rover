@@ -710,3 +710,82 @@ $ PATH="$HOME/workspace/urbit/bin:$PATH" \
 
 Result: **PASS** - fresh 53-relation pour, 56 all-RESTRICT foreign-key
 constraints, zero forward references, and both agents compile on zuse 408.
+
+### Slice 2 - existing surface and subtype re-key
+
+The carried-forward fuel-evidence fixture was run unchanged first. It failed
+for the expected reason after the schema re-key:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/seed-fuel-evidence.hoon "$HOME/piers/rover-bel"
+...
+"INSERT: table [%dbo %energy-definition-octane] does not exist"
+...
+```
+
+The fixture now creates an energy source `Gasoline`, a subtype
+`Regular 87 E10`, and attaches the octane and blend evidence to that subtype.
+It also records the vehicle's default subtype and the actual subtype selected
+on each fill. The fuel, location, content-report, and browser read paths were
+changed to join through `energy-definition-subtypes`.
+
+The served fill-detail assertion was also added before the renderer change.
+RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: FAIL - fill detail has no Fuel Subtype field
+```
+
+GREEN, exact real-Eyre command and output:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: browser measurements: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+The same response contains `FUEL SUBTYPE` and `Regular 87 E10`; octane is
+read through the subtype join rather than from the energy source.
+
+Hoon and real-query regression commands:
+
+```console
+$ for probe in run-test-render run-test-entry run-test-pricing compile-rover; do
+>   PATH="$HOME/workspace/urbit/bin:$PATH" \
+>     click -k -i "probes/$probe.hoon" "$HOME/piers/rover-bel" 2>/dev/null |
+>     tail -1
+> done
+[0 %avow 0 %noun %render-tests-pass]
+[0 %avow 0 %noun %entry-tests-pass]
+[0 %avow 0 %noun %pricing-tests-pass]
+[0 %avow 0 %noun 0]
+
+$ for probe in fuel-evidence-report location-report content-report; do
+>   PATH="$HOME/workspace/urbit/bin:$PATH" \
+>     click -k -i "probes/$probe.hoon" "$HOME/piers/rover-bel" 2>/dev/null |
+>     tail -1
+> done
+[0 %avow 0 %noun ...]
+[0 %avow 0 %noun ...]
+[0 %avow 0 %noun ...]
+```
+
+Result: **PASS** - all 16 carried-forward browser fixtures remain green after
+the re-pour, and every existing subtype evidence/read path uses the new
+subtype layer.

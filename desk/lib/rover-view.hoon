@@ -379,11 +379,16 @@
   ==
 ::
 ++  fill-card
-  |=  [row=vector:ast station-links=(list vector:ast) additive-links=(list vector:ast)]
+  |=  $:  row=vector:ast
+          station-links=(list vector:ast)
+          additive-links=(list vector:ast)
+          subtype-links=(list vector:ast)
+      ==
   ^-  tape
   =/  acquisition-id  (cell-atom %acquisition-id row)
   =/  stations  (rows-by %acquisition-id acquisition-id station-links)
   =/  additives  (rows-by %acquisition-id acquisition-id additive-links)
+  =/  subtypes   (rows-by %acquisition-id acquisition-id subtype-links)
   =/  quantity
     %+  format-quantity:render
       (cell-atom %quantity-milli row)
@@ -419,6 +424,8 @@
     "</time></header><dl>"
     "<div><dt>ENERGY</dt><dd>"
     (escape (cell-text %energy row))
+    "</dd></div><div><dt>FUEL SUBTYPE</dt><dd>"
+    ?:(?=(~ subtypes) "Not recorded" (escape (cell-text %subtype i.subtypes)))
     "</dd></div><div><dt>QUANTITY</dt><dd>"
     (escape quantity)
     "</dd></div><div><dt>UNIT PRICE</dt><dd>"
@@ -439,7 +446,7 @@
   ^-  tape
   ?~  rows
     ~
-  =/  card=tape  (fill-card i.rows ~ ~)
+  =/  card=tape  (fill-card i.rows ~ ~ ~)
   =/  rest=tape  (fill-cards t.rows)
   (weld card rest)
 ::
@@ -513,6 +520,7 @@
           batteries=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
+          subtype-links=(list vector:ast)
       ==
   ^-  tape
   ?~  rows
@@ -520,7 +528,7 @@
   =/  is-fill  (vector-key:act %quantity-milli i.rows)
   =/  card=tape
     ?^  is-fill
-      (fill-card i.rows station-links additive-links)
+      (fill-card i.rows station-links additive-links subtype-links)
     (charge-card i.rows measurements batteries)
   (weld card $(rows t.rows))
 ::
@@ -531,12 +539,13 @@
           batteries=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
+          subtype-links=(list vector:ast)
       ==
   ^-  tape
   =/  ordered  (order-vectors:act %observed-start %.n (weld fills charges))
   ?:  ?=(~ ordered)
     "<p class=\"empty\">No acquisition history.</p>"
-  (history-cards ordered measurements batteries station-links additive-links)
+  (history-cards ordered measurements batteries station-links additive-links subtype-links)
 ::
 ++  vehicle-card
   |=  $:  row=vector:ast
@@ -550,6 +559,7 @@
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           preferences=(list vector:ast)
+          subtype-links=(list vector:ast)
       ==
   ^-  tape
   =/  id  (cell-atom %vehicle-id row)
@@ -570,6 +580,7 @@
         batteries
         station-links
         additive-links
+        subtype-links
     ==
   ;:  weld
     "<article class=\"vehicle-card\"><header><div><p class=\"eyebrow\">VEHICLE</p><h2>"
@@ -602,12 +613,13 @@
   =/  station-links  (rows-at commands 10)
   =/  additive-links  (rows-at commands 11)
   =/  preferences  (rows-at commands 12)
+  =/  subtype-links  (rows-at commands 13)
   =/  cards=tape
     |-
     ?~  vehicles
       ~
     =/  card
-      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries station-links additive-links preferences)
+      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries station-links additive-links preferences subtype-links)
     =/  rest=tape  $(vehicles t.vehicles)
     (weld card rest)
   =/  html=tape

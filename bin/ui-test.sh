@@ -82,6 +82,9 @@ grep -q '12.345 gal' <<<"$view" || fail "fill quantity is not human-formatted"
 grep -q '\$3\.499' <<<"$view" || fail "unit price is not human-formatted"
 grep -q '\$43\.20' <<<"$view" || fail "derived fill total is not rendered"
 grep -q 'DERIVED' <<<"$view" || fail "fill total is not labelled derived"
+grep -q 'FUEL SUBTYPE' <<<"$view" || fail "fill detail has no Fuel Subtype field"
+grep -q 'Regular 87 E10' <<<"$view" ||
+  fail "fill detail does not render the subtype label"
 if grep -Eq '(^|[^0-9,.])(12345|3499)([^0-9,.]|$)|0x[0-9a-fA-F]+' <<<"$view"; then
   fail "vehicle view leaked a raw machine value or ID"
 fi
