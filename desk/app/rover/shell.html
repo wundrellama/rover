@@ -860,11 +860,15 @@
           event.preventDefault();
           const verdict = vehicleAddForm.querySelector('output');
           verdict.value = 'Saving…';
+          const formData = new FormData(vehicleAddForm);
+          const payload = Object.fromEntries(formData);
+          payload.additionalEnergy = formData.getAll('additionalEnergy');
+          payload.drivingModes = formData.getAll('drivingModes');
           const response = await fetch('/apps/rover/add-vehicle', {
             method: 'POST',
             credentials: 'same-origin',
             headers: {'content-type': 'application/json'},
-            body: JSON.stringify(Object.fromEntries(new FormData(vehicleAddForm)))
+            body: JSON.stringify(payload)
           });
           verdict.value = await response.text();
           if (response.ok) await loadView();
@@ -900,11 +904,15 @@
           event.preventDefault();
           const verdict = settingsForm.querySelector('output');
           verdict.value = 'Saving…';
+          const formData = new FormData(settingsForm);
+          const payload = Object.fromEntries(formData);
+          payload.energySources = formData.getAll('energySources');
+          payload.drivingModes = formData.getAll('drivingModes');
           const response = await fetch('/apps/rover/edit-vehicle', {
             method: 'POST',
             credentials: 'same-origin',
             headers: {'content-type': 'application/json'},
-            body: JSON.stringify(Object.fromEntries(new FormData(settingsForm)))
+            body: JSON.stringify(payload)
           });
           verdict.value = await response.text();
           if (response.ok) await loadView();

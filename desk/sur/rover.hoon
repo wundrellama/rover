@@ -141,12 +141,19 @@
 +$  preference-entry
   [vehicle-label=@t distance-unit=(unit distance-unit) currency=currency]
 +$  vehicle-label-entry  [vehicle-label=@t]
-+$  new-vehicle-entry  [vehicle-label=@t energy-label=@t]
++$  new-vehicle-entry
+  $:  vehicle-label=@t
+      energy-label=@t
+      additional-energy-labels=(list @t)
+      driving-mode-labels=(list @t)
+  ==
 +$  vehicle-edit-entry
   $:  vehicle-label=@t
       label=@t
       tank-size=(unit scaled-entry)
       default-subtype=(unit @t)
+      energy-labels=(unit (list @t))
+      driving-mode-labels=(unit (list @t))
   ==
 +$  custom-definition-entry
   [label=@t content-type=@tas mandatory=?]

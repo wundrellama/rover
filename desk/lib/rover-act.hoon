@@ -1223,6 +1223,7 @@
     " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
     " FROM consumable-definitions C SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;"
     " FROM fuel-fill-tags L JOIN tag-definitions T ON L.tag-id = T.tag-id SELECT L.acquisition-id, T.label AS tag;"
+    " FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived;"
   ==
 ::
 ++  sql-quote
@@ -1593,6 +1594,13 @@
     "' AND E.archived = N SELECT E.energy-definition-id, E.label, E.archived;"
   ==
 ::
+++  new-vehicle-lookup
+  ^-  tape
+  ;:  weld
+    "FROM energy-definitions E WHERE E.archived = N SELECT E.energy-definition-id, E.label, E.physical-kind; "
+    "FROM driving-mode-definitions D WHERE D.archived = N SELECT D.mode-id, D.label;"
+  ==
+::
 ++  rename-energy-definition
   |=  [definition-id=@ux new-label=@t]
   ^-  tape
@@ -1613,11 +1621,115 @@
     "' SELECT V.vehicle-id, V.label, V.archived; "
     "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definition-subtypes S ON L.energy-definition-id = S.energy-definition-id WHERE V.label = '"
     (sql-quote vehicle-label)
-    "' SELECT S.subtype-id, S.label, S.archived;"
+    "' AND L.archived = N AND S.archived = N SELECT S.subtype-id, S.label, S.archived; "
+    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT E.energy-definition-id, E.label, L.archived AS link-archived; "
+    "FROM energy-definitions E WHERE E.archived = N SELECT E.energy-definition-id, E.label; "
+    "FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT D.mode-id, D.label, L.archived AS link-archived; "
+    "FROM driving-mode-definitions D WHERE D.archived = N SELECT D.mode-id, D.label;"
+  ==
+::
+++  has-id
+  |=  [needle=@ux ids=(list @ux)]
+  ^-  ?
+  ?~  ids
+    %.n
+  ?:  =(needle i.ids)
+    %.y
+  $(ids t.ids)
+::
+++  unique-ids
+  |=  ids=(list @ux)
+  ^-  (list @ux)
+  ?~  ids
+    ~
+  ?:  (has-id i.ids t.ids)
+    $(ids t.ids)
+  [i.ids $(ids t.ids)]
+::
+++  sync-energy-current
+  |=  [vehicle-id=@ux current=(list @ux) desired=(list @ux)]
+  ^-  tape
+  ?~  current
+    ~
+  ;:  weld
+    "UPDATE vehicle-energy-definitions SET archived = "
+    ?:  (has-id i.current desired)
+      "N"
+    "Y"
+    " WHERE vehicle-id = "
+    (scow %ux vehicle-id)
+    " AND energy-definition-id = "
+    (scow %ux i.current)
+    "; "
+    $(current t.current)
+  ==
+::
+++  add-energy-missing
+  |=  [vehicle-id=@ux current=(list @ux) desired=(list @ux)]
+  ^-  tape
+  ?~  desired
+    ~
+  =/  rest  $(desired t.desired)
+  ?:  (has-id i.desired current)
+    rest
+  ;:  weld
+    "INSERT INTO vehicle-energy-definitions VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux i.desired)
+    ", N); "
+    rest
+  ==
+::
+++  sync-mode-current
+  |=  [vehicle-id=@ux current=(list @ux) desired=(list @ux)]
+  ^-  tape
+  ?~  current
+    ~
+  ;:  weld
+    "UPDATE vehicle-driving-modes SET archived = "
+    ?:  (has-id i.current desired)
+      "N"
+    "Y"
+    " WHERE vehicle-id = "
+    (scow %ux vehicle-id)
+    " AND mode-id = "
+    (scow %ux i.current)
+    "; "
+    $(current t.current)
+  ==
+::
+++  add-mode-missing
+  |=  [vehicle-id=@ux current=(list @ux) desired=(list @ux)]
+  ^-  tape
+  ?~  desired
+    ~
+  =/  rest  $(desired t.desired)
+  ?:  (has-id i.desired current)
+    rest
+  ;:  weld
+    "INSERT INTO vehicle-driving-modes VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux i.desired)
+    ", N); "
+    rest
   ==
 ::
 ++  update-vehicle-settings
-  |=  [vehicle-id=@ux input=vehicle-edit-entry:rover subtype-id=(unit @ux) now=@da]
+  |=  $:  vehicle-id=@ux
+          input=vehicle-edit-entry:rover
+          subtype-id=(unit @ux)
+          current-energy-ids=(list @ux)
+          energy-ids=(unit (list @ux))
+          current-mode-ids=(list @ux)
+          mode-ids=(unit (list @ux))
+          now=@da
+      ==
   ^-  tape
   =/  id  (scow %ux vehicle-id)
   =/  tank-script=tape
@@ -1646,6 +1758,20 @@
       (scow %da now)
       "); "
     ==
+  =/  energy-script=tape
+    ?~  energy-ids
+      ~
+    ;:  weld
+      (sync-energy-current vehicle-id current-energy-ids u.energy-ids)
+      (add-energy-missing vehicle-id current-energy-ids u.energy-ids)
+    ==
+  =/  mode-script=tape
+    ?~  mode-ids
+      ~
+    ;:  weld
+      (sync-mode-current vehicle-id current-mode-ids u.mode-ids)
+      (add-mode-missing vehicle-id current-mode-ids u.mode-ids)
+    ==
   ;:  weld
     "UPDATE vehicles SET label = '"
     (sql-quote label.input)
@@ -1659,6 +1785,8 @@
     id
     "; "
     subtype-script
+    energy-script
+    mode-script
   ==
 ::
 ++  vehicle-settings-report
@@ -1673,11 +1801,51 @@
     "' SELECT V.label AS vehicle, T.digits, T.decimals, T.size-unit; "
     "FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id WHERE V.label = '"
     (sql-quote label)
-    "' SELECT V.label AS vehicle, S.label AS default-subtype;"
+    "' SELECT V.label AS vehicle, S.label AS default-subtype; "
+    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = '"
+    (sql-quote label)
+    "' SELECT E.label AS energy, L.archived AS link-archived; "
+    "FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
+    (sql-quote label)
+    "' SELECT D.label AS driving-mode, L.archived AS link-archived;"
+  ==
+::
+++  insert-energy-links
+  |=  [vehicle-id=@ux definition-ids=(list @ux)]
+  ^-  tape
+  ?~  definition-ids
+    ~
+  ;:  weld
+    "INSERT INTO vehicle-energy-definitions VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux i.definition-ids)
+    ", N); "
+    $(definition-ids t.definition-ids)
+  ==
+::
+++  insert-mode-links
+  |=  [vehicle-id=@ux mode-ids=(list @ux)]
+  ^-  tape
+  ?~  mode-ids
+    ~
+  ;:  weld
+    "INSERT INTO vehicle-driving-modes VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux i.mode-ids)
+    ", N); "
+    $(mode-ids t.mode-ids)
   ==
 ::
 ++  insert-vehicle
-  |=  [vehicle-id=@ux label=@t definition-id=@ux recorded-at=@da]
+  |=  $:  vehicle-id=@ux
+          label=@t
+          definition-id=@ux
+          definition-ids=(list @ux)
+          mode-ids=(list @ux)
+          recorded-at=@da
+      ==
   ^-  tape
   ;:  weld
     "INSERT INTO vehicles VALUES ("
@@ -1686,11 +1854,10 @@
     (sql-quote label)
     "', N, "
     (scow %da recorded-at)
-    "); INSERT INTO vehicle-energy-definitions VALUES ("
-    (scow %ux vehicle-id)
-    ", "
-    (scow %ux definition-id)
-    ", N); INSERT INTO vehicle-default-energy-definitions VALUES ("
+    "); "
+    (insert-energy-links vehicle-id definition-ids)
+    (insert-mode-links vehicle-id mode-ids)
+    "INSERT INTO vehicle-default-energy-definitions VALUES ("
     (scow %ux vehicle-id)
     ", "
     (scow %ux definition-id)

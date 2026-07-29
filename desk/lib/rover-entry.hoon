@@ -798,7 +798,15 @@
     [%| %missing-key 'vehicle.energy-source']
   ?.  (nonempty u.energy)
     [%| %bad-shape 'vehicle.energy-source']
-  [%& u.label u.energy]
+  =/  additional  (json-strings 'additionalEnergy' object)
+  =/  modes  (json-strings 'drivingModes' object)
+  =/  additional-labels=(list @t)  ?~(additional ~ u.additional)
+  =/  mode-labels=(list @t)  ?~(modes ~ u.modes)
+  ?.  ?&  (levy additional-labels nonempty)
+          (levy mode-labels nonempty)
+      ==
+    [%| %bad-shape 'vehicle.configuration']
+  [%& u.label u.energy additional-labels mode-labels]
 ::
 ++  decode-vehicle-edit
   |=  body=@t
@@ -846,7 +854,13 @@
     ?.  (nonempty u.subtype-text)
       ~
     `u.subtype-text
-  [%& u.vehicle u.label tank-size default-subtype]
+  =/  energy-labels  (json-strings 'energySources' u.object)
+  =/  mode-labels  (json-strings 'drivingModes' u.object)
+  ?.  ?&  ?~(energy-labels %.y (levy u.energy-labels nonempty))
+          ?~(mode-labels %.y (levy u.mode-labels nonempty))
+      ==
+    [%| %bad-shape 'vehicle.configuration']
+  [%& u.vehicle u.label tank-size default-subtype energy-labels mode-labels]
 ::
 ++  decode-custom-definition
   |=  body=@t

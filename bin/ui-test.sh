@@ -604,6 +604,145 @@ note "fixture 44 PASS - payment method is descriptive; settlement mode and deriv
 if [ "${ROVER_FIXTURE_STOP:-}" = 44 ]; then
   exit 0
 fi
+
+fixture45_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+fixture45_sources="$(
+  python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+labels = re.findall(r"<option[^>]+data-starter-source[^>]*>([^<]+)</option>", document)
+print("|".join(sorted(set(label.strip() for label in labels))))' <<<"$fixture45_view"
+)"
+[ "$fixture45_sources" = 'CNG|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane' ] \
+  || fail "fixture 45 clean-run source set contains fixture debris: ${fixture45_sources:-<none>}"
+note "fixture 45 PASS - the run reached fixture 44 and the served source selector still has exactly eight owner sources"
+if [ "${ROVER_FIXTURE_STOP:-}" = 45 ]; then
+  exit 0
+fi
+
+phev_vehicle="Fixture 46 PHEV $(date +%s%N)"
+phev_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":["Electricity"],"drivingModes":[]}' "$phev_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$phev_created" = "Added vehicle - $phev_vehicle"$'\n201' ] \
+  || fail "fixture 46 PHEV create failed: $phev_created"
+phev_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$phev_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%energy 116 'Gasoline'\\].*\\[%link-archived 102 1\\]" <<<"$phev_report" \
+  || fail "fixture 46 active Gasoline link missing: $phev_report"
+grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 1\\]" <<<"$phev_report" \
+  || fail "fixture 46 active Electricity link missing: $phev_report"
+phev_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+phev_panel="${phev_view#*data-vehicle-settings-panel data-vehicle=\"$phev_vehicle\"}"
+phev_panel="${phev_panel%%</article>*}"
+grep -q 'data-vehicle-action="fill"' <<<"$phev_panel" \
+  || fail "fixture 46 PHEV hub lacks Add Fill"
+grep -q 'data-vehicle-action="charge"' <<<"$phev_panel" \
+  || fail "fixture 46 PHEV hub lacks Add Charge"
+note "fixture 46 PASS - create persisted active Gasoline and Electricity links and the vehicle hub offers fill and charge"
+if [ "${ROVER_FIXTURE_STOP:-}" = 46 ]; then
+  exit 0
+fi
+
+phev_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"5.000","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-29T08:00","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' "$phev_vehicle")" \
+  "$URL/apps/rover/add-fill")"
+[ "$phev_fill" = $'Saved fill - $3.499 - derived $17.50\n201' ] \
+  || fail "fixture 47 historical-fill setup failed: $phev_fill"
+phev_edited="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","energySources":["Electricity"],"drivingModes":[]}' "$phev_vehicle" "$phev_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$phev_edited" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 47 energy-set edit failed: $phev_edited"
+phev_edited_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$phev_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%energy 116 'Gasoline'\\].*\\[%link-archived 102 0\\]" <<<"$phev_edited_report" \
+  || fail "fixture 47 removed source was not retired with archived Y: $phev_edited_report"
+grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 1\\]" <<<"$phev_edited_report" \
+  || fail "fixture 47 retained source is not active: $phev_edited_report"
+phev_edited_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+phev_edited_panel="${phev_edited_view#*data-vehicle-settings-panel data-vehicle=\"$phev_vehicle\"}"
+phev_edited_panel="${phev_edited_panel%%</article>*}"
+grep -q '<dt>ENERGY</dt><dd>Gasoline</dd>' <<<"$phev_edited_panel" \
+  || fail "fixture 47 historical Gasoline fill disappeared after unlink"
+if grep -q 'data-vehicle-action="fill"' <<<"$phev_edited_panel"; then
+  fail "fixture 47 retired reservoir source still offers Add Fill"
+fi
+grep -q 'data-vehicle-action="charge"' <<<"$phev_edited_panel" \
+  || fail "fixture 47 retained electricity source no longer offers Add Charge"
+note "fixture 47 PASS - edit retired Gasoline with literal Y, retained Electricity, and preserved the historical fill"
+if [ "${ROVER_FIXTURE_STOP:-}" = 47 ]; then
+  exit 0
+fi
+
+mode_vehicle="Fixture 48 Modes $(date +%s%N)"
+mode_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[],"drivingModes":["Tow / Haul"]}' "$mode_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$mode_created" = "Added vehicle - $mode_vehicle"$'\n201' ] \
+  || fail "fixture 48 mode create failed: $mode_created"
+mode_create_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$mode_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%driving-mode 116 'Tow / Haul'\\].*\\[%link-archived 102 1\\]" <<<"$mode_create_report" \
+  || fail "fixture 48 create-mode membership missing: $mode_create_report"
+mode_edited="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","energySources":["Gasoline"],"drivingModes":["Mixed Driving"]}' "$mode_vehicle" "$mode_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$mode_edited" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 48 mode edit failed: $mode_edited"
+mode_edit_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$mode_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%driving-mode 116 'Tow / Haul'\\].*\\[%link-archived 102 0\\]" <<<"$mode_edit_report" \
+  || fail "fixture 48 removed mode was not retired with archived Y: $mode_edit_report"
+grep -q "\\[%driving-mode 116 'Mixed Driving'\\].*\\[%link-archived 102 1\\]" <<<"$mode_edit_report" \
+  || fail "fixture 48 edit-mode membership missing: $mode_edit_report"
+mode_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+mode_options="$(
+  MODE_VEHICLE="$mode_vehicle" python3 -c 'import html, os, re, sys
+document = html.unescape(sys.stdin.read())
+vehicle = re.escape(os.environ["MODE_VEHICLE"])
+match = re.search(rf"<article[^>]+data-vehicle=\"{vehicle}\".*?</article>", document, re.S)
+panel = match.group(0) if match else ""
+options = re.findall(r"<option value=\"([^\"]+)\"[^>]*selected", panel)
+print("|".join(options))' <<<"$mode_view"
+)"
+grep -q 'Mixed Driving' <<<"$mode_options" \
+  || fail "fixture 48 edited member mode is not selected in settings: $mode_options"
+if grep -q 'Tow / Haul' <<<"$mode_options"; then
+  fail "fixture 48 non-member Tow / Haul remains selected for the vehicle"
+fi
+note "fixture 48 PASS - create and edit mode memberships persist; the non-member mode is absent for the vehicle"
+if [ "${ROVER_FIXTURE_STOP:-}" = 48 ]; then
+  exit 0
+fi
 fi
 
 if ! grep -q 'Phase A Vehicle' <<<"$view"; then

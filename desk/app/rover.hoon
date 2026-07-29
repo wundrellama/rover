@@ -501,10 +501,10 @@
       ?:  ?=(%| -.decoded)
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
       =/  wir=wire  /rover-add-vehicle-lookup/(scot %da now.bowl)/[eyre-id]
-      =/  jon  !>([%tape %rover (energy-definition-lookup:act energy-label.p.decoded)])
+      =/  jon  !>([%tape %rover new-vehicle-lookup:act])
       =/  new-sat
         %_  sat
-          pending  (~(put by pending.sat) wir vehicle-label.p.decoded)
+          pending  (~(put by pending.sat) wir `@t`q.u.body.request.req)
           http-pending  (~(put by http-pending.sat) wir eyre-id)
         ==
       :_  new-sat
@@ -1262,9 +1262,39 @@
           ==
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-allowed: vehicle.default-subtype'))
+      =/  current-energy-ids=(list @ux)
+        %+  turn  (rows-at:view p.res 2)
+        |=  row=vector:ast
+        `@ux`(cell-atom:view %energy-definition-id row)
+      =/  energy-result=(each (list @ux) @t)
+        ?~  energy-labels.p.decoded
+          [%& current-energy-ids]
+        (ids-for-labels:view u.energy-labels.p.decoded (rows-at:view p.res 3) %label %energy-definition-id)
+      ?:  ?=(%| -.energy-result)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-allowed: vehicle.energy-source'))
+      =/  resolved-energy-ids=(unit (list @ux))
+        ?~  energy-labels.p.decoded
+          ~
+        `(unique-ids:act p.energy-result)
+      =/  current-mode-ids=(list @ux)
+        %+  turn  (rows-at:view p.res 4)
+        |=  row=vector:ast
+        `@ux`(cell-atom:view %mode-id row)
+      =/  mode-result=(each (list @ux) @t)
+        ?~  driving-mode-labels.p.decoded
+          [%& current-mode-ids]
+        (ids-for-labels:view u.driving-mode-labels.p.decoded (rows-at:view p.res 5) %label %mode-id)
+      ?:  ?=(%| -.mode-result)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-allowed: vehicle.driving-mode'))
+      =/  resolved-mode-ids=(unit (list @ux))
+        ?~  driving-mode-labels.p.decoded
+          ~
+        `(unique-ids:act p.mode-result)
       =/  write-wire=path  /rover-edit-vehicle-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
-        !>([%tape %rover (update-vehicle-settings:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) p.decoded subtype-id now.bowl)])
+        !>([%tape %rover (update-vehicle-settings:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) p.decoded subtype-id current-energy-ids resolved-energy-ids current-mode-ids resolved-mode-ids now.bowl)])
       =/  new-state
         %_  state
           pending  (~(put by (~(del by pending) wire)) write-wire u.body)
@@ -1730,35 +1760,53 @@
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
-      =/  label  (~(get by pending) wire)
+      =/  body  (~(get by pending) wire)
       ?:  ?|  ?=(~ eyre-id)
-              ?=(~ label)
+              ?=(~ body)
           ==
         `this
+      =/  decoded  (decode-new-vehicle:entry u.body)
+      ?:  ?=(%| -.decoded)
+        :_  this
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: vehicle'))
       ?:  ?=(%.n -.res)
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: add-vehicle'))
-      ?~  p.res
+      =/  definitions  (rows-at:view p.res 0)
+      =/  modes  (rows-at:view p.res 1)
+      =/  primary  (row-by-text:view %label energy-label.p.decoded definitions)
+      ?~  primary
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.energy-source'))
-      =/  definitions  (result-rows:view i.p.res)
-      ?.  =(1 (lent definitions))
+      =/  additional-result
+        (ids-for-labels:view additional-energy-labels.p.decoded definitions %label %energy-definition-id)
+      ?:  ?=(%| -.additional-result)
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.energy-source'))
+      =/  mode-result
+        (ids-for-labels:view driving-mode-labels.p.decoded modes %label %mode-id)
+      ?:  ?=(%| -.mode-result)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.driving-mode'))
+      =/  primary-id=@ux  `@ux`(cell-atom:view %energy-definition-id u.primary)
+      =/  definition-ids
+        (unique-ids:act [primary-id p.additional-result])
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  write-wire=path  /rover-add-vehicle-write/(scot %da now.bowl)/[u.eyre-id]
       =/  script
         %:  insert-vehicle:act
             (fixture-id:act base 401)
-            u.label
-            `@ux`(cell-atom:view %energy-definition-id (snag 0 definitions))
+            vehicle-label.p.decoded
+            primary-id
+            definition-ids
+            (unique-ids:act p.mode-result)
             now.bowl
         ==
       =/  jon  !>([%tape %rover script])
       =/  new-state
         %_  state
           pending
-            (~(put by (~(del by pending) wire)) write-wire u.label)
+            (~(put by (~(del by pending) wire)) write-wire vehicle-label.p.decoded)
           http-pending
             (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
         ==

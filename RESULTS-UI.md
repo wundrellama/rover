@@ -1819,3 +1819,23 @@ ui-test: fixture 44 PASS - payment method is descriptive; settlement mode and de
 ```
 
 Fixtures 32-44 are all verified in this run; none is UNVERIFIED.
+
+## Follow-up slice 2 - vehicle energy and mode membership
+
+The create decoder now accepts the primary source plus an additional-source
+list and a driving-mode list. The edit decoder accepts the complete selected
+sets. Labels are resolved by server-side urQL reads; only IDs internal to Rover
+enter the atomic mutation script. Removed memberships are updated to literal
+`Y`, retained memberships to literal `N`, and only previously unseen
+memberships are inserted. No membership row is deleted.
+
+Real continuation of the Eyre/cookie run:
+
+```console
+ui-test: fixture 45 PASS - the run reached fixture 44 and the served source selector still has exactly eight owner sources
+ui-test: fixture 46 PASS - create persisted active Gasoline and Electricity links and the vehicle hub offers fill and charge
+ui-test: fixture 47 PASS - edit retired Gasoline with literal Y, retained Electricity, and preserved the historical fill
+ui-test: fixture 48 PASS - create and edit mode memberships persist; the non-member mode is absent for the vehicle
+```
+
+Fixtures 45-48 are verified; none is UNVERIFIED.

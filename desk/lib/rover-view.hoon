@@ -347,6 +347,68 @@
     rest
   ==
 ::
+++  vehicle-energy-source-options
+  |=  [rows=(list vector:ast) linked=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (cell-text %label i.rows)
+  =/  selected-row  (row-by-text %energy label linked)
+  =/  selected
+    ?~  selected-row
+      %.n
+    !=(0 (cell-atom %link-archived u.selected-row))
+  ;:  weld
+    "<option value=\""
+    (escape label)
+    "\""
+    ?:(selected " selected" "")
+    ">"
+    (escape label)
+    "</option>"
+    rest
+  ==
+::
+++  vehicle-mode-membership-options
+  |=  [rows=(list vector:ast) linked=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (cell-text %label i.rows)
+  =/  selected-row  (row-by-text %label label linked)
+  =/  selected
+    ?~  selected-row
+      %.n
+    !=(0 (cell-atom %link-archived u.selected-row))
+  ;:  weld
+    "<option value=\""
+    (escape label)
+    "\""
+    ?:(selected " selected" "")
+    ">"
+    (escape label)
+    "</option>"
+    rest
+  ==
+::
+++  active-energy-kind
+  |=  [kind=@tas rows=(list vector:ast)]
+  ^-  ?
+  ?~  rows
+    %.n
+  ?:  ?&  =(kind (cell-term %physical-kind i.rows))
+          !=(0 (cell-atom %energy-archived i.rows))
+          !=(0 (cell-atom %link-archived i.rows))
+      ==
+    %.y
+  $(rows t.rows)
+::
 ++  tag-options
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1022,6 +1084,8 @@
           subtypes=(list vector:ast)
           default-subtypes=(list vector:ast)
           driving-modes=(list vector:ast)
+          available-definitions=(list vector:ast)
+          available-modes=(list vector:ast)
           tank-sizes=(list vector:ast)
           is-default=?
       ==
@@ -1039,6 +1103,7 @@
   =/  label  (cell-text %label row)
   =/  default-subtype  (row-by-text %vehicle label default-subtypes)
   =/  modes  (rows-by-text %vehicle label driving-modes)
+  =/  vehicle-definitions  (rows-for id definition-rows)
   =/  tank  (rows-for id tank-sizes)
   =/  tank-value=tape
     ?~  tank
@@ -1053,7 +1118,13 @@
       ~
     `(cell-text %subtype u.default-subtype)
   =/  subtype-controls
-    (vehicle-subtype-options subtypes (rows-for id definition-rows) selected-subtype)
+    (vehicle-subtype-options subtypes vehicle-definitions selected-subtype)
+  =/  energy-controls
+    (vehicle-energy-source-options available-definitions vehicle-definitions)
+  =/  mode-controls
+    (vehicle-mode-membership-options available-modes modes)
+  =/  can-fill  (active-energy-kind %reservoir vehicle-definitions)
+  =/  can-charge  (active-energy-kind %electricity vehicle-definitions)
   =/  tank-text=tape
     ?~  tank
       "Unavailable - no tank size recorded"
@@ -1090,17 +1161,31 @@
     "\">Set Default</button><button type=\"button\" data-remove-vehicle data-vehicle=\""
     (escape (cell-text %label row))
     "\">Remove</button></div><div class=\"vehicle-entry-actions\">"
-    "<button type=\"button\" data-vehicle-action=\"fill\" data-vehicle=\""
-    (escape (cell-text %label row))
-    "\">Add Fill</button><button type=\"button\" data-vehicle-action=\"charge\" data-vehicle=\""
-    (escape (cell-text %label row))
-    "\">Add Charge</button><button type=\"button\" data-vehicle-action=\"odometer\" data-vehicle=\""
+    ?:  can-fill
+      ;:  weld
+        "<button type=\"button\" data-vehicle-action=\"fill\" data-vehicle=\""
+        (escape (cell-text %label row))
+        "\">Add Fill</button>"
+      ==
+    ~
+    ?:  can-charge
+      ;:  weld
+        "<button type=\"button\" data-vehicle-action=\"charge\" data-vehicle=\""
+        (escape (cell-text %label row))
+        "\">Add Charge</button>"
+      ==
+    ~
+    "<button type=\"button\" data-vehicle-action=\"odometer\" data-vehicle=\""
     (escape (cell-text %label row))
     "\">Add Odometer</button></div><form class=\"vehicle-settings-form\"><input type=\"hidden\" name=\"vehicle\" value=\""
     (escape label)
     "\"><label>Vehicle name<input name=\"label\" value=\""
     (escape label)
-    "\" required></label><label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
+    "\" required></label><label>Energy Sources<select name=\"energySources\" multiple required>"
+    energy-controls
+    "</select></label><label>Driving Modes<select name=\"drivingModes\" multiple>"
+    mode-controls
+    "</select></label><label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
     subtype-controls
     "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\" value=\""
     tank-value
@@ -1614,10 +1699,12 @@
   =/  payment-methods  (rows-at commands 29)
   =/  consumables  (rows-at commands 30)
   =/  fill-tags  (rows-at commands 31)
+  =/  available-modes  (rows-at commands 32)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
   =/  starter-subtype-html  (subtype-options subtypes)
+  =/  starter-mode-html  (vehicle-mode-membership-options available-modes ~)
   =/  default-id=(unit @)
     ?~  app-default
       ~
@@ -1644,6 +1731,8 @@
           subtypes
           default-subtypes
           driving-modes
+          starter-definitions
+          available-modes
           tank-sizes
           ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
       ==
@@ -1662,7 +1751,9 @@
       starter-html
       "</select></label><label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
       starter-subtype-html
-      "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\"></label><label>Tank Unit<select name=\"tankUnit\"><option value=\"gal\">gal</option><option value=\"litre\">litre</option></select></label><label>Driving Modes<input name=\"drivingModes\" placeholder=\"Normal, Economy, Sport\"></label><label>Distance Display<select name=\"distanceUnit\"><option value=\"native\">Source-native</option><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Currency Display<select name=\"currency\"><option value=\"usd\">USD</option><option value=\"eur\">EUR</option></select></label><button type=\"submit\">Save Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+      "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\"></label><label>Tank Unit<select name=\"tankUnit\"><option value=\"gal\">gal</option><option value=\"litre\">litre</option></select></label><label>Driving Modes<select name=\"drivingModes\" multiple>"
+      starter-mode-html
+      "</select></label><label>Distance Display<select name=\"distanceUnit\"><option value=\"native\">Source-native</option><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Currency Display<select name=\"currency\"><option value=\"usd\">USD</option><option value=\"eur\">EUR</option></select></label><button type=\"submit\">Save Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
       "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
