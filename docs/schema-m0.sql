@@ -497,6 +497,25 @@ CREATE TABLE rover..consumable-definitions
   (consumable-id @ux, label @t, quantity-unit @tas, archived @f, recorded-at @da)
   PRIMARY KEY (consumable-id);
 
+-- Enablement is presence of this link, never a boolean on vehicles. An
+-- archived link is retained configuration history and does not enable use.
+CREATE TABLE rover..vehicle-consumables
+  (vehicle-id @ux, consumable-id @ux, archived @f)
+  PRIMARY KEY (vehicle-id, consumable-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (consumable-id) REFERENCES consumable-definitions (consumable-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Capacity belongs to any vehicle/consumable pair, not specifically to DEF.
+-- Absence means no tank size was recorded.
+CREATE TABLE rover..vehicle-consumable-tank-size
+  (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas)
+  PRIMARY KEY (vehicle-id, consumable-id)
+  FOREIGN KEY (vehicle-id, consumable-id)
+    REFERENCES vehicle-consumables (vehicle-id, consumable-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
 CREATE TABLE rover..consumable-acquisitions
   (consumable-acquisition-id @ux, vehicle-id @ux, consumable-id @ux,
    observed-start @da, observed-end @da, observed-precision @tas,

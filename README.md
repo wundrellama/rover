@@ -50,7 +50,7 @@ renders as unavailable *with a reason*, never as zero or an estimate.
 | `desk/lib/rover-entry.hoon` | Entry decoding and validation |
 | `desk/lib/rover-render.hoon` | The human-units boundary |
 | `desk/lib/rover-view.hoon` | Projections and screen assembly |
-| `docs/schema-m0.sql` | The 62-relation schema, in Obelisk's DDL grammar |
+| `docs/schema-m0.sql` | The 64-relation schema, in Obelisk's DDL grammar |
 | `bin/schema-test.sh` | Static DDL validation and live schema verification |
 | `bin/ui-test.sh` | Browser-half fixture battery against a live pier |
 | `probes/` | Click threads for driving and inspecting a running pier |

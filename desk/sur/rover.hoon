@@ -211,6 +211,7 @@
   $%  [%init-db ~]
       [%app-structure-report ~]
       [%ensure-ui-schema ~]
+      [%ensure-def-schema ~]
       [%display-preference-report ~]
       [%charging-cost-report ~]
       [%charging-evidence-report ~]

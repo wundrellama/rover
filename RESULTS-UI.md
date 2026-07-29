@@ -1839,3 +1839,36 @@ ui-test: fixture 48 PASS - create and edit mode memberships persist; the non-mem
 ```
 
 Fixtures 45-48 are verified; none is UNVERIFIED.
+
+## Follow-up slice 3 - 64-relation DEF configuration schema
+
+The two relations were added in dependency order. `vehicle-consumables`
+represents enablement by row presence and carries the retire-in-place flag.
+`vehicle-consumable-tank-size` is keyed by the vehicle/consumable pair and is
+not DEF-specific.
+
+Pre-pour checks:
+
+```console
+$ python3 ~/.hermes/profiles/urbot/skills/urbit/obelisk-substrate/scripts/validate-ddl.py docs/schema-m0.sql --expect 64
+tables: 64  unique: 64
+FK constraints: 71  with explicit actions: 71
+
+clean: no duplicates, no forward references, all FKs RESTRICT
+
+$ bash bin/schema-test.sh "$HOME/piers/rover-bel"
+schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
+schema-test: FAIL - live Obelisk has 62 relations (want 64)
+```
+
+Real populated-data pour and post-pour metadata check:
+
+```console
+$ click -k -i probes/ensure-def-schema.hoon "$HOME/piers/rover-bel"
+[%action 'CREATE TABLE %vehicle-consumables']
+[%action 'CREATE TABLE %vehicle-consumable-tank-size']
+
+$ bash bin/schema-test.sh "$HOME/piers/rover-bel"
+schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
+```

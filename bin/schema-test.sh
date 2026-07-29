@@ -17,10 +17,10 @@ import sys
 source = pathlib.Path(sys.argv[1]).read_text()
 ddl = "\n".join(line.split("--", 1)[0] for line in source.splitlines())
 tables = re.findall(r"CREATE TABLE rover\.\.([a-z0-9-]+)", source)
-if len(tables) != 62 or len(set(tables)) != 62:
+if len(tables) != 64 or len(set(tables)) != 64:
     raise SystemExit(
         f"schema-test: FAIL - DDL has {len(tables)} tables, "
-        f"{len(set(tables))} unique (want 62/62)"
+        f"{len(set(tables))} unique (want 64/64)"
     )
 
 seen = set()
@@ -42,14 +42,14 @@ fk_count = len(re.findall(r"\bREFERENCES [a-z0-9-]+", ddl))
 restrict_count = len(re.findall(
     r"ON DELETE RESTRICT ON UPDATE RESTRICT", ddl
 ))
-if fk_count != 68 or restrict_count != 68:
+if fk_count != 71 or restrict_count != 71:
     raise SystemExit(
         f"schema-test: FAIL - DDL has {fk_count} FKs and "
-        f"{restrict_count} explicit RESTRICT pairs (want 68/68)"
+        f"{restrict_count} explicit RESTRICT pairs (want 71/71)"
     )
 print(
-    "schema-test: PASS - DDL has 62 unique tables, "
-    "68 explicit RESTRICT FKs, zero forward references"
+    "schema-test: PASS - DDL has 64 unique tables, "
+    "71 explicit RESTRICT FKs, zero forward references"
 )
 PY
 
@@ -63,10 +63,10 @@ mapfile -t counts < <(
 )
 [ "${#counts[@]}" -eq 3 ] ||
   fail "could not read table/column/FK counts from live metadata"
-[ "${counts[0]}" -eq 62 ] ||
-  fail "live Obelisk has ${counts[0]} relations (want 62)"
-[ "${counts[2]}" -eq 70 ] ||
-  fail "live Obelisk has ${counts[2]} FK metadata rows (want 70)"
+[ "${counts[0]}" -eq 64 ] ||
+  fail "live Obelisk has ${counts[0]} relations (want 64)"
+[ "${counts[2]}" -eq 74 ] ||
+  fail "live Obelisk has ${counts[2]} FK metadata rows (want 74)"
 
 if grep -Eq '\[%on-(delete|update) %tas %(cascade|set-default)\]' <<<"$live"; then
   fail "live Obelisk metadata contains cascade or set-default"
@@ -74,9 +74,9 @@ fi
 
 restrict_delete="$(grep -o '\[%on-delete %tas %restrict\]' <<<"$live" | wc -l)"
 restrict_update="$(grep -o '\[%on-update %tas %restrict\]' <<<"$live" | wc -l)"
-[ "$restrict_delete" -eq 70 ] ||
-  fail "live metadata has $restrict_delete RESTRICT deletes (want 70)"
-[ "$restrict_update" -eq 70 ] ||
-  fail "live metadata has $restrict_update RESTRICT updates (want 70)"
+[ "$restrict_delete" -eq 74 ] ||
+  fail "live metadata has $restrict_delete RESTRICT deletes (want 74)"
+[ "$restrict_update" -eq 74 ] ||
+  fail "live metadata has $restrict_update RESTRICT updates (want 74)"
 
-pass "fixture 17 - live Obelisk has 62 relations; all 68 FK constraints (70 column rows) are RESTRICT; zero cascade/set-default"
+pass "fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default"

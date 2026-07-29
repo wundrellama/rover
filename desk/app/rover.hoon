@@ -726,6 +726,13 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %ensure-def-schema
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover def-schema:act])
+        :_  this(pending (~(put by pending) wir 'ensure-def-schema'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %display-preference-report
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover display-preference-report:act])
