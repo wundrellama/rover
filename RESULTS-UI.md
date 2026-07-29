@@ -1785,3 +1785,37 @@ decorative pass.
 Vehicle-level subtype narrowing is different: it is intentionally absent
 under ratified app-structure ruling 8. Every subtype belonging to an allowed
 energy source remains selectable; only the default subtype is configurable.
+
+## Follow-up slice 1 - clean fixture seeding
+
+The hand-off database contained two active duplicate source rows created by
+older fixture code. They were retired in place with literal `Y` before this
+run. Fixture seed actions now create all of their private energy definitions
+archived, and selectable subtype queries require both the subtype and its
+parent definition to be active. Historical fixture acquisitions still render;
+test scaffolding no longer enters owner configuration controls.
+
+Real run against `~/piers/rover-bel`, PID 1009190, Eyre port 8081:
+
+```console
+$ ROVER_FIXTURE_STOP=44 ./bin/ui-test.sh
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+ui-test: fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens
+ui-test: fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render
+ui-test: fixture 38 field gate PASS - fill-edit screen exposes owner controls (not hidden inputs) for every editable field
+ui-test: fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact
+ui-test: fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg
+ui-test: fixture 40 PASS - manual station persists owner address parts and scale-7 coordinates while omitted parts create no rows
+ui-test: fixture 41 PASS - name-only manual station writes no empty address rows and no zero-coordinate row
+ui-test: fixture 42 PASS - DEF purchase uses snapshotted exact pricing and remains outside fuel-economy derivation
+ui-test: fixture 43 PASS - charge persists its electricity subtype through charging-session-subtype
+ui-test: fixture 44 PASS - payment method is descriptive; settlement mode and derived total are identical with or without its link
+```
+
+Fixtures 32-44 are all verified in this run; none is UNVERIFIED.

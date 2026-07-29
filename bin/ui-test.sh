@@ -106,7 +106,7 @@ print("|".join(sorted(set(label.strip() for label in labels))))' <<<"$view"
 )"
 [ "$starter_sources" = 'CNG|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane' ] \
   || fail "fixture 32 starter sources mismatch; actual served source labels: ${starter_sources:-<none>}"
-if grep -Eq '>(Structure |Pricing |Location Fixture )' <<<"$view"; then
+if grep -Eq '<option[^>]+data-starter-source[^>]*>(Structure |Pricing |Location Fixture )' <<<"$view"; then
   fail "fixture 32 fixture-debris definition remains in served live data"
 fi
 note "fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels"

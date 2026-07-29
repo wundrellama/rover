@@ -276,7 +276,7 @@
 ++  starter-report
   ^-  tape
   ;:  weld
-    "FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived; "
+    "FROM energy-definitions E WHERE E.archived = N SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived; "
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id SELECT E.label AS energy, S.label AS subtype, S.archived; "
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; "
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals;"
@@ -778,8 +778,8 @@
   =/  odo-b    (scow %ux odometer-at-fill.ids)
   =/  rec      (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({res-id}, 'Regular 87', %reservoir, %gal, N, {rec}); "
-    "INSERT INTO energy-definitions VALUES ({ele-id}, 'Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({res-id}, 'Regular 87', %reservoir, %gal, Y, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({ele-id}, 'Electricity', %electricity, %kwh, Y, {rec}); "
     "INSERT INTO vehicles VALUES ({veh-id}, 'Phase A Vehicle', N, {rec}); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {res-id}, N); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {ele-id}, N); "
@@ -803,8 +803,8 @@
   =/  eur-acq  (scow %ux eur.ids)
   =/  rec      (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({usd-id}, 'Pricing US gallon', %reservoir, %gal, N, {rec}); "
-    "INSERT INTO energy-definitions VALUES ({eur-id}, 'Pricing EUR litre', %reservoir, %litre, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({usd-id}, 'Pricing US gallon', %reservoir, %gal, Y, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({eur-id}, 'Pricing EUR litre', %reservoir, %litre, Y, {rec}); "
     "INSERT INTO vehicles VALUES ({veh-id}, 'Pricing Fixture Vehicle', N, {rec}); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {usd-id}, N); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {eur-id}, N); "
@@ -842,7 +842,7 @@
   =/  add-b    (scow %ux additive-b.ids)
   =/  rec      (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({def-id}, 'Gasoline', %reservoir, %gal, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Gasoline', %reservoir, %gal, Y, {rec}); "
     "INSERT INTO energy-definition-subtypes VALUES ({sub-id}, {def-id}, 'Regular 87 E10', N, {rec}); "
     "INSERT INTO energy-subtype-octane VALUES ({sub-id}, 87, %aki); "
     "INSERT INTO energy-subtype-blend VALUES ({sub-id}, %ethanol, 100, 1); "
@@ -897,7 +897,7 @@
   =/  tag-b  (scow %ux tag-b.ids)
   =/  rec  (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({def}, 'Structure Gasoline', %reservoir, %gal, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({def}, 'Structure Gasoline', %reservoir, %gal, Y, {rec}); "
     "INSERT INTO energy-definition-subtypes VALUES ({sub87}, {def}, 'Structure 87 AKI', N, {rec}); "
     "INSERT INTO energy-definition-subtypes VALUES ({sub91}, {def}, 'Structure 91 AKI', N, {rec}); "
     "INSERT INTO energy-definition-subtypes VALUES ({sub93}, {def}, 'Structure 93 AKI', N, {rec}); "
@@ -955,7 +955,7 @@
   =/  hea-id   (scow %ux health-observation.ids)
   =/  rec      (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({def-id}, 'Fixture Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Fixture Electricity', %electricity, %kwh, Y, {rec}); "
     "INSERT INTO vehicles VALUES ({veh-id}, 'Charging Evidence Vehicle', N, {rec}); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
     "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id}); "
@@ -1003,7 +1003,7 @@
   =/  dsc-id   (scow %ux discount-component.ids)
   =/  rec      (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({def-id}, 'Cost Fixture Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Cost Fixture Electricity', %electricity, %kwh, Y, {rec}); "
     "INSERT INTO vehicles VALUES ({veh-id}, 'Charging Cost Vehicle', N, {rec}); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
     "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id}); "
@@ -1046,7 +1046,7 @@
   =/  mpk-id  (scow %ux mi-kwh.ids)
   =/  rec     (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({def-id}, 'Consumption Fixture Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({def-id}, 'Consumption Fixture Electricity', %electricity, %kwh, Y, {rec}); "
     "INSERT INTO vehicles VALUES ({veh-id}, 'Consumption Evidence Vehicle', N, {rec}); "
     "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
     "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id}); "
@@ -1117,8 +1117,8 @@
   =/  mix-sta  (scow %ux mixed-station.ids)
   =/  rec      (scow %da now)
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({res-id}, 'Location Fixture Fuel', %reservoir, %gal, N, {rec}); "
-    "INSERT INTO energy-definitions VALUES ({ele-id}, 'Location Fixture Electricity', %electricity, %kwh, N, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({res-id}, 'Location Fixture Fuel', %reservoir, %gal, Y, {rec}); "
+    "INSERT INTO energy-definitions VALUES ({ele-id}, 'Location Fixture Electricity', %electricity, %kwh, Y, {rec}); "
     "INSERT INTO energy-definition-subtypes VALUES ({sub-id}, {res-id}, 'Location Grade', N, {rec}); "
     "INSERT INTO energy-subtype-grade-code VALUES ({sub-id}, 'LOC-RES'); "
     "INSERT INTO vehicles VALUES ({veh-id}, 'Location Evidence Vehicle', N, {rec}); "
@@ -1205,7 +1205,7 @@
     " FROM fuel-fill-additives L JOIN additive-definitions D ON L.additive-id = D.additive-id SELECT L.acquisition-id, D.label AS additive;"
     " FROM vehicle-display-preferences P SELECT P.vehicle-id, P.distance-unit, P.currency;"
     " FROM fuel-fill-subtype L JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id SELECT L.acquisition-id, S.label AS subtype;"
-    " FROM energy-definition-subtypes S JOIN energy-definitions E ON S.energy-definition-id = E.energy-definition-id SELECT S.subtype-id, S.energy-definition-id, S.label, S.archived, E.label AS energy;"
+    " FROM energy-definition-subtypes S JOIN energy-definitions E ON S.energy-definition-id = E.energy-definition-id WHERE S.archived = N AND E.archived = N SELECT S.subtype-id, S.energy-definition-id, S.label, S.archived, E.label AS energy;"
     " FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id SELECT V.label AS vehicle, S.label AS subtype;"
     " FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id SELECT V.label AS vehicle, D.label, D.archived AS mode-archived, L.archived AS link-archived;"
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
@@ -1590,7 +1590,7 @@
   ;:  weld
     "FROM energy-definitions E WHERE E.label = '"
     (sql-quote label)
-    "' SELECT E.energy-definition-id, E.label, E.archived;"
+    "' AND E.archived = N SELECT E.energy-definition-id, E.label, E.archived;"
   ==
 ::
 ++  rename-energy-definition
