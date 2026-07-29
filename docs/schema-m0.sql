@@ -1,5 +1,5 @@
--- Rover M0 schema — full pour, 36 relations.
--- Adopted 2026-07-28 (Gate 6 + open questions 1-11).
+-- Rover M0 schema — full pour, 53 relations.
+-- Adopted 2026-07-28 (Gate 6 + schema Q1-11 + app-structure Q1-7).
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -113,26 +113,44 @@ CREATE TABLE rover..energy-acquisition-stations
 -- GROUP B — definition attributes (3). Typed, not key-value (Q6).
 -- ============================================================
 
-CREATE TABLE rover..energy-definition-octane
-  (energy-definition-id @ux, rating @ud, method @tas)
-  PRIMARY KEY (energy-definition-id)
+-- Subtypes of an energy definition (Q3): "Gasoline" has no octane rating,
+-- "Gasoline 93 AKI" does. Attributes hang off the SUBTYPE, not the definition.
+CREATE TABLE rover..energy-definition-subtypes
+  (subtype-id @ux, energy-definition-id @ux, label @t, archived @f, recorded-at @da)
+  PRIMARY KEY (subtype-id)
   FOREIGN KEY (energy-definition-id)
     REFERENCES energy-definitions (energy-definition-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
-CREATE TABLE rover..energy-definition-blend
-  (energy-definition-id @ux, blend-kind @tas, percent-digits @ud,
-   percent-decimals @ud)
-  PRIMARY KEY (energy-definition-id, blend-kind)
-  FOREIGN KEY (energy-definition-id)
-    REFERENCES energy-definitions (energy-definition-id)
+CREATE TABLE rover..energy-subtype-octane
+  (subtype-id @ux, rating @ud, method @tas)
+  PRIMARY KEY (subtype-id)
+  FOREIGN KEY (subtype-id)
+    REFERENCES energy-definition-subtypes (subtype-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
-CREATE TABLE rover..energy-definition-grade-code
-  (energy-definition-id @ux, code @t)
-  PRIMARY KEY (energy-definition-id)
-  FOREIGN KEY (energy-definition-id)
-    REFERENCES energy-definitions (energy-definition-id)
+CREATE TABLE rover..energy-subtype-blend
+  (subtype-id @ux, blend-kind @tas, percent-digits @ud, percent-decimals @ud)
+  PRIMARY KEY (subtype-id, blend-kind)
+  FOREIGN KEY (subtype-id)
+    REFERENCES energy-definition-subtypes (subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..energy-subtype-grade-code
+  (subtype-id @ux, code @t)
+  PRIMARY KEY (subtype-id)
+  FOREIGN KEY (subtype-id)
+    REFERENCES energy-definition-subtypes (subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Configurable per-vehicle default subtype. No narrowing: every subtype of an
+-- allowed definition stays selectable at fill time (Q3).
+CREATE TABLE rover..vehicle-default-energy-subtype
+  (vehicle-id @ux, subtype-id @ux, recorded-at @da)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (subtype-id) REFERENCES energy-definition-subtypes (subtype-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- ============================================================
@@ -317,4 +335,119 @@ CREATE TABLE rover..acquisition-station-equipment
   PRIMARY KEY (acquisition-id)
   FOREIGN KEY (acquisition-id)
     REFERENCES energy-acquisition-stations (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ============================================================
+-- APP-STRUCTURE ADDITIONS (ratified 2026-07-28)
+-- See ~/brain/projects/rover/app-structure.md
+-- ============================================================
+
+-- Singleton (Q4): constant PK makes two defaults structurally impossible.
+-- Changed by UPDATE on the one row; absence = no default set.
+CREATE TABLE rover..app-default-vehicle
+  (scope @tas, vehicle-id @ux, recorded-at @da)
+  PRIMARY KEY (scope)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Optional (Q5): absent when unknown; the distance-to-next-fill estimate then
+-- reports unavailable with a reason rather than deriving from a guess.
+CREATE TABLE rover..vehicle-tank-size
+  (vehicle-id @ux, digits @ud, decimals @ud, size-unit @tas)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Per-fill subtype selection (Q3). Absent when not recorded.
+CREATE TABLE rover..fuel-fill-subtype
+  (acquisition-id @ux, subtype-id @ux)
+  PRIMARY KEY (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (subtype-id) REFERENCES energy-definition-subtypes (subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Driving modes (Q2): owner-defined, copied from shipped starters, scoped per
+-- vehicle so a sedan never offers Tow/Haul.
+CREATE TABLE rover..driving-mode-definitions
+  (mode-id @ux, label @t, archived @f, recorded-at @da)
+  PRIMARY KEY (mode-id);
+
+CREATE TABLE rover..vehicle-driving-modes
+  (vehicle-id @ux, mode-id @ux, archived @f)
+  PRIMARY KEY (vehicle-id, mode-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (mode-id) REFERENCES driving-mode-definitions (mode-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..fuel-fill-driving-mode
+  (acquisition-id @ux, mode-id @ux)
+  PRIMARY KEY (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (mode-id) REFERENCES driving-mode-definitions (mode-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Independently optional per-fill facts (Q6). The city/highway slider must
+-- start UNSET in the UI: an untouched slider writes no row, so 50/50 is never
+-- recorded as an assertion the owner did not make.
+CREATE TABLE rover..fuel-fill-average-speed
+  (acquisition-id @ux, digits @ud, decimals @ud, speed-unit @tas)
+  PRIMARY KEY (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..fuel-fill-drive-balance
+  (acquisition-id @ux, highway-percent @ud)
+  PRIMARY KEY (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Tags: mirrors the additives pattern (definitions + link).
+CREATE TABLE rover..tag-definitions
+  (tag-id @ux, label @t, archived @f, recorded-at @da)
+  PRIMARY KEY (tag-id);
+
+CREATE TABLE rover..fuel-fill-tags
+  (acquisition-id @ux, tag-id @ux)
+  PRIMARY KEY (acquisition-id, tag-id)
+  FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (tag-id) REFERENCES tag-definitions (tag-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Custom fields (Q1). content-type is IMMUTABLE once values exist; to change
+-- it, archive the definition and create a new one. mandatory is a
+-- ROVER-ENFORCED invariant (Obelisk has no CHECK constraints).
+CREATE TABLE rover..custom-field-definitions
+  (field-id @ux, label @t, content-type @tas, entry-type @tas, mandatory @f,
+   target @tas, archived @f, recorded-at @da)
+  PRIMARY KEY (field-id);
+
+-- Only present for %dropdown entry-type; absence is not a sentinel.
+CREATE TABLE rover..custom-field-options
+  (field-id @ux, ordinal @ud, label @t)
+  PRIMARY KEY (field-id, ordinal)
+  FOREIGN KEY (field-id) REFERENCES custom-field-definitions (field-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Typed value tables: every column used, no bunt-filled spares.
+-- Numeric values carry digits/decimals/unit so exact arithmetic still holds.
+CREATE TABLE rover..custom-field-values-number
+  (field-id @ux, parent-id @ux, digits @ud, decimals @ud, value-unit @tas)
+  PRIMARY KEY (field-id, parent-id)
+  FOREIGN KEY (field-id) REFERENCES custom-field-definitions (field-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..custom-field-values-text
+  (field-id @ux, parent-id @ux, value @t)
+  PRIMARY KEY (field-id, parent-id)
+  FOREIGN KEY (field-id) REFERENCES custom-field-definitions (field-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..custom-field-values-boolean
+  (field-id @ux, parent-id @ux, value @f)
+  PRIMARY KEY (field-id, parent-id)
+  FOREIGN KEY (field-id) REFERENCES custom-field-definitions (field-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
