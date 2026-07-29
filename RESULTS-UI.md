@@ -1283,6 +1283,80 @@ ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no g
 Results: fixtures 18-31 **PASS** with live assertions. No decorative PASS
 lines remain.
 
+## 62-relation M0 re-pour
+
+The schema fixture was changed first. RED, against the previous live pour:
+
+```console
+$ bash bin/schema-test.sh "$HOME/piers/rover-bel"
+schema-test: PASS - DDL has 62 unique tables, 68 explicit RESTRICT FKs, zero forward references
+schema-test: FAIL - live Obelisk has 53 relations (want 62)
+```
+
+The previous disposable pier was preserved, recoverably, as:
+
+```text
+/home/michael/piers/rover-bel-pre62-20260728-221956
+```
+
+A fresh `~bel` was booted with the unchanged
+`brass-408k-1.pill`, zuse 408, and Ames port 31350. Stock `%obelisk`
+`master` at `eecab1b8` and `%rover` remain separate desks. The Hoon schema
+arm was compared to `docs/schema-m0.sql` after stripping SQL comments and
+normalizing whitespace:
+
+```console
+hoon tables 62 refs 68
+docs tables 62 refs 68
+match True
+```
+
+`probes/init-db.hoon` returned one successful database creation followed by
+62 successful `CREATE TABLE` results in the DDL's declared order, ending:
+
+```console
+[%action 'CREATE TABLE %payment-method-definitions']
+[%action 'CREATE TABLE %fuel-fill-payment-method']
+[%action 'CREATE TABLE %fill-notes']
+[%action 'CREATE TABLE %charging-session-subtype']
+[%action 'CREATE TABLE %consumable-definitions']
+[%action 'CREATE TABLE %consumable-acquisitions']
+[%action 'CREATE TABLE %consumable-purchases']
+[%action 'CREATE TABLE %consumable-acquisition-stations']
+[%action 'CREATE TABLE %consumable-acquisition-odometers']
+```
+
+GREEN, exact live-metadata command and output:
+
+```console
+$ bash bin/schema-test.sh "$HOME/piers/rover-bel"
+schema-test: PASS - DDL has 62 unique tables, 68 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 62 relations; all 68 FK constraints (70 column rows) are RESTRICT; zero cascade/set-default
+```
+
+The two two-column composite foreign keys account for the two additional
+metadata rows. Compile gates:
+
+```console
+$ click -k -i probes/compile-obelisk.hoon "$HOME/piers/rover-bel" | tail -1
+[0 %avow 0 %noun 0]
+$ click -k -i probes/compile-rover.hoon "$HOME/piers/rover-bel" | tail -1
+[0 %avow 0 %noun 0]
+```
+
+Post-restart PID and Eyre listener match:
+
+```console
+$ pgrep -a urbit | grep rover-bel
+824227 ./urbit -F bel -p 31350 -B /home/michael/workspace/urbit/pills/brass-408k-1.pill -c /home/michael/piers/rover-bel
+$ ss -lntp | grep 'pid=824227,'
+LISTEN 0 16 127.0.0.1:12323 0.0.0.0:* users:(("urbit",pid=824227,fd=78))
+LISTEN 0 16 0.0.0.0:8082 0.0.0.0:* users:(("urbit",pid=824227,fd=77))
+```
+
+Result: **PASS** - fresh 62-relation pour, 68 all-RESTRICT constraints,
+zero forward references, exact DDL/arm parity, and both agents compile.
+
 ## Served HTML review artifacts
 
 The authenticated response fragments are included verbatim as:
