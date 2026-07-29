@@ -237,6 +237,73 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 35 ]; then
   exit 0
 fi
 
+vehicle_screen_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+vehicles_screen="${vehicle_screen_view#*id=\"vehicles-screen\"}"
+vehicles_screen="${vehicles_screen%%</section>*}"
+grep -q 'class="vehicle-list"' <<<"$vehicles_screen" \
+  || fail "fixture 36 Vehicles screen is not a plain vehicle list; actual HTML: $vehicles_screen"
+grep -q 'data-open-screen="vehicle-create-screen"' <<<"$vehicles_screen" \
+  || fail "fixture 36 Vehicles screen Add Vehicle does not open a creation screen; actual HTML: $vehicles_screen"
+if grep -q 'id="vehicle-add-form"' <<<"$vehicles_screen"; then
+  fail "fixture 36 Vehicles screen still embeds the creation form"
+fi
+grep -q '<section id="vehicle-create-screen"' <<<"$vehicle_screen_view" \
+  || fail "fixture 36 dedicated vehicle creation screen is absent"
+grep -q '<section id="vehicle-settings-screen"' <<<"$vehicle_screen_view" \
+  || fail "fixture 36 dedicated vehicle settings screen is absent"
+grep -q 'data-open-vehicle-settings' <<<"$vehicles_screen" \
+  || fail "fixture 36 vehicle list entries do not open settings"
+note "fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens"
+if [ "${ROVER_FIXTURE_STOP:-}" = 36 ]; then
+  exit 0
+fi
+
+edit_vehicle="Edit Vehicle $(date +%s%N)"
+edited_vehicle="$edit_vehicle Renamed"
+created_edit_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Gasoline"}' "$edit_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$created_edit_vehicle" = "Added vehicle - $edit_vehicle"$'\n201' ] \
+  || fail "fixture 37 setup vehicle failed: $created_edit_vehicle"
+edited_vehicle_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"18.5","tankUnit":"gal","defaultSubtype":"95"}' "$edit_vehicle" "$edited_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$edited_vehicle_result" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 37 vehicle edit failed: $edited_vehicle_result"
+vehicle_settings_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$edited_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%vehicle 116 '$edited_vehicle'\\]" <<<"$vehicle_settings_report" \
+  || fail "fixture 37 edited label did not persist in Obelisk; actual: $vehicle_settings_report"
+grep -q '\[%digits 25717 185\] \[%decimals 25717 1\] \[%size-unit %tas %gal\]' <<<"$vehicle_settings_report" \
+  || fail "fixture 37 tank size did not persist exactly; actual: $vehicle_settings_report"
+grep -q '\[%default-subtype 116 13625\]' <<<"$vehicle_settings_report" \
+  || fail "fixture 37 default subtype 95 did not persist; actual: $vehicle_settings_report"
+edited_vehicle_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q "value=\"$edited_vehicle\"" <<<"$edited_vehicle_view" \
+  || fail "fixture 37 edited label did not re-render"
+grep -q 'value="18.5"' <<<"$edited_vehicle_view" \
+  || fail "fixture 37 edited tank size did not re-render"
+grep -q 'value="95" selected' <<<"$edited_vehicle_view" \
+  || fail "fixture 37 edited default subtype did not re-render"
+note "fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render"
+removed_edit_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s"}' "$edited_vehicle")" \
+  "$URL/apps/rover/remove-vehicle")"
+[ "$removed_edit_vehicle" = $'Removed vehicle\n201' ] \
+  || fail "fixture 37 cleanup failed: $removed_edit_vehicle"
+if [ "${ROVER_FIXTURE_STOP:-}" = 37 ]; then
+  exit 0
+fi
+
 grep -q '<section id="main-hub"' <<<"$view" || fail "main hub is missing"
 grep -Eq 'DEFAULT VEHICLE NOT SET|Structure Vehicle|Mode Scope Vehicle' <<<"$view" ||
   fail "hub does not name its default state"

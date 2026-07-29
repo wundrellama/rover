@@ -109,6 +109,12 @@
   [vehicle-label=@t distance-unit=(unit distance-unit) currency=currency]
 +$  vehicle-label-entry  [vehicle-label=@t]
 +$  new-vehicle-entry  [vehicle-label=@t energy-label=@t]
++$  vehicle-edit-entry
+  $:  vehicle-label=@t
+      label=@t
+      tank-size=(unit scaled-entry)
+      default-subtype=(unit @t)
+  ==
 +$  custom-definition-entry
   [label=@t content-type=@tas mandatory=?]
 +$  custom-field-change-entry
@@ -175,6 +181,7 @@
       [%pricing-report ~]
       [%run-integrity scenario=integrity-kind]
       [%rename-energy-source old-label=@t new-label=@t]
+      [%vehicle-settings-report vehicle-label=@t]
       [%seed-starters ~]
       [%starter-report ~]
       [%seed-fuel-evidence ~]

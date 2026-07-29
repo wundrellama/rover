@@ -836,6 +836,17 @@
           document.getElementById('main-hub')?.scrollIntoView();
         });
       });
+      app.querySelectorAll('[data-open-vehicle-settings]').forEach((button) => {
+        button.addEventListener('click', () => {
+          screens.forEach((screen) => {
+            screen.hidden = screen.id !== 'vehicle-settings-screen';
+          });
+          app.querySelectorAll('[data-vehicle-settings-panel]').forEach((panel) => {
+            panel.hidden = panel.dataset.vehicle !== button.dataset.vehicle;
+          });
+          document.getElementById('vehicle-settings-screen')?.scrollIntoView();
+        });
+      });
 
       const vehicleAddForm = app.querySelector('#vehicle-add-form');
       if (vehicleAddForm) {
@@ -881,6 +892,21 @@
             headers: {'content-type': 'application/json'},
             body: JSON.stringify({vehicle: button.dataset.vehicle})
           });
+          if (response.ok) await loadView();
+        });
+      });
+      app.querySelectorAll('.vehicle-settings-form').forEach((settingsForm) => {
+        settingsForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = settingsForm.querySelector('output');
+          verdict.value = 'Saving…';
+          const response = await fetch('/apps/rover/edit-vehicle', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(Object.fromEntries(new FormData(settingsForm)))
+          });
+          verdict.value = await response.text();
           if (response.ok) await loadView();
         });
       });

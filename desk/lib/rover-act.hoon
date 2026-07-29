@@ -1136,6 +1136,78 @@
     ";"
   ==
 ::
+++  vehicle-edit-lookup
+  |=  vehicle-label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT V.vehicle-id, V.label, V.archived; "
+    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definition-subtypes S ON L.energy-definition-id = S.energy-definition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT S.subtype-id, S.label, S.archived;"
+  ==
+::
+++  update-vehicle-settings
+  |=  [vehicle-id=@ux input=vehicle-edit-entry:rover subtype-id=(unit @ux) now=@da]
+  ^-  tape
+  =/  id  (scow %ux vehicle-id)
+  =/  tank-script=tape
+    ?~  tank-size.input
+      ~
+    ;:  weld
+      "INSERT INTO vehicle-tank-size VALUES ("
+      id
+      ", "
+      (sql-ud digits.u.tank-size.input)
+      ", "
+      (sql-ud places.u.tank-size.input)
+      ", "
+      (sql-term value-unit.u.tank-size.input)
+      "); "
+    ==
+  =/  subtype-script=tape
+    ?~  subtype-id
+      ~
+    ;:  weld
+      "INSERT INTO vehicle-default-energy-subtype VALUES ("
+      id
+      ", "
+      (scow %ux u.subtype-id)
+      ", "
+      (scow %da now)
+      "); "
+    ==
+  ;:  weld
+    "UPDATE vehicles SET label = '"
+    (sql-quote label.input)
+    "' WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-tank-size WHERE vehicle-id = "
+    id
+    "; "
+    tank-script
+    "DELETE FROM vehicle-default-energy-subtype WHERE vehicle-id = "
+    id
+    "; "
+    subtype-script
+  ==
+::
+++  vehicle-settings-report
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote label)
+    "' SELECT V.label AS vehicle, V.archived; "
+    "FROM vehicles V JOIN vehicle-tank-size T ON V.vehicle-id = T.vehicle-id WHERE V.label = '"
+    (sql-quote label)
+    "' SELECT V.label AS vehicle, T.digits, T.decimals, T.size-unit; "
+    "FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id WHERE V.label = '"
+    (sql-quote label)
+    "' SELECT V.label AS vehicle, S.label AS default-subtype;"
+  ==
+::
 ++  insert-vehicle
   |=  [vehicle-id=@ux label=@t definition-id=@ux recorded-at=@da]
   ^-  tape

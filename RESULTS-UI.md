@@ -1418,6 +1418,51 @@ $ click -k -i probes/compile-rover.hoon "$HOME/piers/rover-bel" | tail -1
 Result: fixtures 32-35 **PASS** against real Eyre, Chromium, Rover Gall,
 and stock Obelisk.
 
+## Fixtures 36-37 - vehicle screens and persisted settings
+
+Fixture 36 was added against the old all-in-one screen. RED:
+
+```console
+$ ROVER_FIXTURE_STOP=36 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+ui-test: FAIL - fixture 36 Vehicles screen is not a plain vehicle list; actual HTML: class="app-screen" ... <form id="vehicle-add-form"> ... <article class="vehicle-card"> ...
+```
+
+The fleet surface now has three distinct screens: a plain vehicle list, a
+dedicated Add Vehicle form, and a selected vehicle's settings. Vehicle list
+buttons carry human labels only; no raw IDs cross the HTML boundary.
+
+Fixture 37 was then added before the edit route. RED:
+
+```console
+$ ROVER_FIXTURE_STOP=37 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens
+ui-test: FAIL - fixture 37 vehicle edit failed:
+405
+```
+
+GREEN after adding the Rover lookup/validation and one atomic
+mutation-only settings script:
+
+```console
+$ ROVER_FIXTURE_STOP=37 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+ui-test: fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens
+ui-test: fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render
+```
+
+Fixture 37 creates a real vehicle, posts the edit over authenticated Eyre,
+reads separate live Obelisk result sets for `vehicles`,
+`vehicle-tank-size`, and `vehicle-default-energy-subtype`, checks exact
+`18.5 gal` evidence and subtype `95`, checks the values in served HTML, and
+removes the temporary vehicle through Rover.
+
 ## Served HTML review artifacts
 
 The authenticated response fragments are included verbatim as:

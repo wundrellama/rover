@@ -242,6 +242,24 @@
     rest
   ==
 ::
+++  vehicle-list-items
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  (vehicle-list-items t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<li><button type=\"button\" data-open-vehicle-settings data-vehicle=\""
+    label
+    "\">"
+    label
+    "</button></li>"
+    rest
+  ==
+::
 ++  default-subtype-data
   |=  rows=(list vector:ast)
   ^-  tape
@@ -254,6 +272,36 @@
     (escape (cell-text %subtype i.rows))
     "\"></span>"
     (default-subtype-data t.rows)
+  ==
+::
+++  vehicle-subtype-options
+  |=  $:  rows=(list vector:ast)
+          definitions=(list vector:ast)
+          selected=(unit @t)
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  energy  (cell-text %energy i.rows)
+  ?~  (row-by-text %energy energy definitions)
+    rest
+  =/  label  (cell-text %label i.rows)
+  ;:  weld
+    "<option value=\""
+    (escape label)
+    "\""
+    ?:  ?&  ?=(^ selected)
+            =(label u.selected)
+        ==
+      " selected"
+    ""
+    ">"
+    (escape label)
+    "</option>"
+    rest
   ==
 ::
 ++  driving-mode-options
@@ -866,6 +914,7 @@
           preferences=(list vector:ast)
           subtype-links=(list vector:ast)
           economy-breaks=(list vector:ast)
+          subtypes=(list vector:ast)
           default-subtypes=(list vector:ast)
           driving-modes=(list vector:ast)
           tank-sizes=(list vector:ast)
@@ -886,6 +935,20 @@
   =/  default-subtype  (row-by-text %vehicle label default-subtypes)
   =/  modes  (rows-by-text %vehicle label driving-modes)
   =/  tank  (rows-for id tank-sizes)
+  =/  tank-value=tape
+    ?~  tank
+      ~
+    (trip (format-scaled:render (cell-atom %digits i.tank) (cell-atom %decimals i.tank) %.n))
+  =/  tank-unit=@tas
+    ?~  tank
+      %gal
+    (cell-term %size-unit i.tank)
+  =/  selected-subtype=(unit @t)
+    ?~  default-subtype
+      ~
+    `(cell-text %subtype u.default-subtype)
+  =/  subtype-controls
+    (vehicle-subtype-options subtypes (rows-for id definition-rows) selected-subtype)
   =/  tank-text=tape
     ?~  tank
       "Unavailable - no tank size recorded"
@@ -910,7 +973,9 @@
         economy-breaks
     ==
   ;:  weld
-    "<article class=\"vehicle-card\"><header><div><p class=\"eyebrow\">VEHICLE</p><h2>"
+    "<article class=\"vehicle-card\" data-vehicle-settings-panel data-vehicle=\""
+    (escape (cell-text %label row))
+    "\" hidden><header><div><p class=\"eyebrow\">VEHICLE SETTINGS</p><h2>"
     (escape (cell-text %label row))
     "</h2></div><span class=\"status\">"
     ?:(is-default "DEFAULT" ?:(archived "ARCHIVED" "ACTIVE"))
@@ -926,7 +991,19 @@
     (escape (cell-text %label row))
     "\">Add Charge</button><button type=\"button\" data-vehicle-action=\"odometer\" data-vehicle=\""
     (escape (cell-text %label row))
-    "\">Add Odometer</button></div><details class=\"vehicle-settings\"><summary>Vehicle settings</summary>"
+    "\">Add Odometer</button></div><form class=\"vehicle-settings-form\"><input type=\"hidden\" name=\"vehicle\" value=\""
+    (escape label)
+    "\"><label>Vehicle name<input name=\"label\" value=\""
+    (escape label)
+    "\" required></label><label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
+    subtype-controls
+    "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\" value=\""
+    tank-value
+    "\"></label><label>Tank Unit<select name=\"tankUnit\"><option value=\"gal\""
+    ?:(=(%gal tank-unit) " selected" "")
+    ">gal</option><option value=\"litre\""
+    ?:(=(%litre tank-unit) " selected" "")
+    ">litre</option></select></label><button type=\"submit\">Save Vehicle Settings</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form><details class=\"vehicle-settings\"><summary>Configuration summary</summary>"
     "<dl><div><dt>ENERGY SOURCE</dt><dd>Configured below</dd></div>"
     "<div><dt>FUEL SUBTYPES</dt><dd>"
     ?~(default-subtype "No default subtype; all source subtypes remain selectable" (escape (cell-text %subtype u.default-subtype)))
@@ -1165,6 +1242,8 @@
   =/  starter-definitions  (rows-at commands 23)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
+  =/  starter-html  (starter-definition-options starter-definitions)
+  =/  starter-subtype-html  (subtype-options subtypes)
   =/  default-id=(unit @)
     ?~  app-default
       ~
@@ -1188,6 +1267,7 @@
           preferences
           subtype-links
           economy-breaks
+          subtypes
           default-subtypes
           driving-modes
           tank-sizes
@@ -1199,11 +1279,21 @@
     ;:  weld
       (main-hub app-default definition-rows odometers tank-sizes)
       (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions)
-      "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><div id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><form id=\"vehicle-add-form\"><label>Vehicle name<input name=\"label\" required></label><label>Energy Source<select name=\"energy\">"
-      (starter-definition-options starter-definitions)
-      "</select></label><button type=\"submit\">Add Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form>"
-      ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
-      "</div></section>"
+      "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
+      ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
+      "</section>"
+      "<section id=\"vehicle-create-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button><header class=\"view-header\"><p class=\"eyebrow\">NEW VEHICLE</p><h1>ADD VEHICLE</h1></header><form id=\"vehicle-add-form\"><label>Vehicle name<input name=\"label\" required></label><label>Primary Energy Source<select name=\"energy\">"
+      starter-html
+      "</select></label><label>Additional Energy Sources<select name=\"additionalEnergy\" multiple>"
+      starter-html
+      "</select></label><label>Allowed Subtypes<select name=\"allowedSubtypes\" multiple>"
+      starter-subtype-html
+      "</select></label><label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
+      starter-subtype-html
+      "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\"></label><label>Tank Unit<select name=\"tankUnit\"><option value=\"gal\">gal</option><option value=\"litre\">litre</option></select></label><label>Driving Modes<input name=\"drivingModes\" placeholder=\"Normal, Economy, Sport\"></label><label>Distance Display<select name=\"distanceUnit\"><option value=\"native\">Source-native</option><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Currency Display<select name=\"currency\"><option value=\"usd\">USD</option><option value=\"eur\">EUR</option></select></label><button type=\"submit\">Save Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+      "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
+      ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
+      "</section>"
       (history-screen vehicles fills fill-odometers)
       (statistics-screen fills vehicles subtype-links)
       (settings-screen custom-definitions)

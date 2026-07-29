@@ -643,6 +643,54 @@
     [%| %bad-shape 'vehicle.energy-source']
   [%& u.label u.energy]
 ::
+++  decode-vehicle-edit
+  |=  body=@t
+  ^-  (each vehicle-edit-entry:rover entry-verdict:rover)
+  =/  object  (json-object body)
+  ?~  object
+    [%| %bad-shape 'vehicle']
+  =/  vehicle  (json-string 'vehicle' u.object)
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ vehicle)
+          ?=(~ label)
+      ==
+    [%| %missing-key 'vehicle.label']
+  ?.  ?&  (nonempty u.vehicle)
+          (nonempty u.label)
+      ==
+    [%| %bad-shape 'vehicle.label']
+  =/  tank-text  (json-string 'tankSize' u.object)
+  =/  tank-unit-text  (json-string 'tankUnit' u.object)
+  =/  tank-size=(unit scaled-entry:rover)
+    ?~  tank-text
+      ~
+    ?.  (nonempty u.tank-text)
+      ~
+    =/  parsed  (parse-decimal:render u.tank-text 3)
+    ?:  ?=(%| -.parsed)
+      ~
+    =/  unit  ?~(tank-unit-text ~ (slaw %tas u.tank-unit-text))
+    ?~  unit
+      ~
+    ?:  ?|  =(%gal u.unit)
+            =(%litre u.unit)
+        ==
+      `[digits.p.parsed places.p.parsed u.unit]
+    ~
+  ?:  ?&  ?=(^ tank-text)
+          (nonempty u.tank-text)
+          ?=(~ tank-size)
+      ==
+    [%| %bad-shape 'vehicle.tank-size']
+  =/  subtype-text  (json-string 'defaultSubtype' u.object)
+  =/  default-subtype=(unit @t)
+    ?~  subtype-text
+      ~
+    ?.  (nonempty u.subtype-text)
+      ~
+    `u.subtype-text
+  [%& u.vehicle u.label tank-size default-subtype]
+::
 ++  decode-custom-definition
   |=  body=@t
   ^-  (each custom-definition-entry:rover entry-verdict:rover)
