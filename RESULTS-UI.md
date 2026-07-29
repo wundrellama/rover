@@ -1228,60 +1228,60 @@ schema-test: PASS - fixture 17 - live Obelisk has 53 relations; all 56 FK constr
 
 Result: **PASS**.
 
-Fixtures 18-31 exact command and complete real output:
+### Priority 0 fixture-harness repair
+
+All **14** previously decorative fixture labels (18-31) are now attached to
+live Eyre, Obelisk, or Chromium assertions in the block that produces each
+label. The 14 bare `note "fixture NN PASS ..."` lines at the end of the script
+were deleted. **Zero fixtures are UNVERIFIED.**
+
+RED was proven by temporarily making the new fixture 18 assertion demand
+octane rating `94`. Exact command and failure:
 
 ```console
-$ timeout 360 bin/ui-test.sh "$HOME/piers/rover-bel"
+$ bash bin/ui-test.sh "$HOME/piers/rover-bel"
+...
+ui-test: FAIL - fixture 18 subtype-level octane mismatch; actual Obelisk report: ... [%subtype 116 'Structure 93 AKI'] [%rating 25717 93] [%method %tas %aki] ...
+```
+
+The expectation was restored to `93`. GREEN exact command and complete real
+output:
+
+```console
+$ bash bin/ui-test.sh "$HOME/piers/rover-bel"
 ui-test: logged-out browser receives login redirect with no Rover body
 ui-test: authenticated Rover shell served over real Eyre
 ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
 ui-test: vehicle list/detail render real rows in human units with no raw IDs
 ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: fixture 20 PASS - live Obelisk kept one %app row across INSERT/UPDATE and rejected a second INSERT
+ui-test: fixture 21 PASS - live HTTP delete returned %restricted / 409 for the app-default vehicle
 ui-test: app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips
 ui-test: browser measurements: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
 ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: fixture 19 PASS - Chromium measured every source subtype selectable with only the default preselected: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: fixture 26 PASS - Chromium measured Tow / Haul for Structure Vehicle and zero modes for Mode Scope Vehicle: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: fixture 28 PASS - Chromium measured single-source as a vehicle property; live PHEV HTTP already exposed fill and charge: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: fixture 31 PASS - Chromium measured 390px overflow, stacking, and touch targets: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: fixture 18 PASS - live Obelisk report ties the selected subtype to rating 93
+ui-test: fixture 23 PASS - live Obelisk counts stayed equal for unset balance and report stored asserted 73
+ui-test: fixture 27 PASS - live Obelisk counts stayed equal for zero tags and linked existing plus inline tags
 ui-test: subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk
-ui-test: History defaults to the app vehicle; row detail opens and edit round-trips through Obelisk
+ui-test: fixture 22 PASS - live Obelisk break and served HTML both contain missed-fill
+ui-test: fixture 30 PASS - live History default/detail measurement and Obelisk edit round-trip rendered 3.333 / $12.00
 ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
 ui-test: station none/saved/new and additive zero/one/several render honestly
 ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
-ui-test: hub readouts combine human units with concrete unavailable reasons
+ui-test: fixture 24 PASS - live hub says tank size is not recorded instead of storing or rendering a sentinel
+ui-test: fixture 29 PASS - live hub combines human odometer units with concrete unavailable reasons
 ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
-ui-test: custom number/text/boolean values use typed relations; mandatory and immutable-type rules hold
+ui-test: fixture 25 PASS - live HTTP and Obelisk report prove typed values, mandatory validation, and immutable used type
 ui-test: tile and four font faces have exact bytes and content-types
 ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
-ui-test: fixture 18 PASS - subtype octane is read from energy-definition-subtypes
-ui-test: fixture 19 PASS - every allowed-definition subtype remains selectable; default only preselects
-ui-test: fixture 20 PASS - app default remains one %app row across INSERT then UPDATE
-ui-test: fixture 21 PASS - RESTRICT rejects deletion of the app-default vehicle
-ui-test: fixture 22 PASS - Missed Fill writes %missed-fill and renders the economy reason
-ui-test: fixture 23 PASS - untouched balance writes no row; touched balance writes 73%
-ui-test: fixture 24 PASS - absent tank size yields an unavailable reason
-ui-test: fixture 25 PASS - custom number/text/boolean, mandatory, and immutable type rules hold
-ui-test: fixture 26 PASS - Tow / Haul is selectable for vehicle A and absent for vehicle B
-ui-test: fixture 27 PASS - zero tags writes zero rows; existing and inline-created tags link
-ui-test: fixture 28 PASS - single-source hides Energy Source; PHEV hub offers fill and charge
-ui-test: fixture 29 PASS - hub readouts use human units and concrete unavailable reasons
-ui-test: fixture 30 PASS - History defaults by vehicle and detail/edit round-trips
-ui-test: fixture 31 PASS - 390px has no overflow, stacked layout, and 44px targets
 ```
 
-Results:
-
-- Fixture 18: **PASS**
-- Fixture 19: **PASS**
-- Fixture 20: **PASS**
-- Fixture 21: **PASS**
-- Fixture 22: **PASS**
-- Fixture 23: **PASS**
-- Fixture 24: **PASS**
-- Fixture 25: **PASS**
-- Fixture 26: **PASS**
-- Fixture 27: **PASS**
-- Fixture 28: **PASS**
-- Fixture 29: **PASS**
-- Fixture 30: **PASS**
-- Fixture 31: **PASS**
+Results: fixtures 18-31 **PASS** with live assertions. No decorative PASS
+lines remain.
 
 ## Served HTML review artifacts
 

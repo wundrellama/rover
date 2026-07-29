@@ -258,9 +258,9 @@ change_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   || fail "app default UPDATE failed: $change_default"
 changed_default_report="$(read_structure_report)"
 [ "$(grep -o '\[%scope %tas %app\]' <<<"$changed_default_report" | wc -l)" -eq 1 ] \
-  || fail "changing app default created a second row"
+  || fail "fixture 20 default UPDATE did not preserve singleton; actual Obelisk report: $changed_default_report"
 grep -q "\\[%default-vehicle 116 'Mode Scope Vehicle'\\]" \
-  <<<"$changed_default_report" || fail "app default did not update in place"
+  <<<"$changed_default_report" || fail "fixture 20 app default did not update in place; actual Obelisk report: $changed_default_report"
 second_insert="$(click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%try-second-app-default ~]))
@@ -270,14 +270,16 @@ second_insert="$(click_file '=/  m  (strand ,vase)
   (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
 (pure:m !>(result))')"
 grep -q '%noun 0 0 1 ' <<<"$second_insert" \
-  || fail "a second %app INSERT was not rejected: $second_insert"
+  || fail "fixture 20 second %app INSERT was not rejected; actual response: $second_insert"
+note "fixture 20 PASS - live Obelisk kept one %app row across INSERT/UPDATE and rejected a second INSERT"
 
 remove_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
   --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
   "$URL/apps/rover/remove-vehicle")"
 [ "$remove_default" = $'%restricted: remove-vehicle\n409' ] \
-  || fail "deleting the app-default vehicle was not RESTRICTed: $remove_default"
+  || fail "fixture 21 app-default vehicle deletion was not RESTRICTed; actual HTTP response: $remove_default"
+note "fixture 21 PASS - live HTTP delete returned %restricted / 409 for the app-default vehicle"
 default_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -q 'data-vehicle="Mode Scope Vehicle"' <<<"$default_view" \
   || fail "entry surfaces do not receive the app default vehicle"
@@ -472,6 +474,10 @@ NODE
   || fail "browser fill preview mismatch: $preview"
 note "browser measurements: $preview"
 note "browser completes \$3.49 to \$3.499 and derives an exact non-editable total"
+note "fixture 19 PASS - Chromium measured every source subtype selectable with only the default preselected: $preview"
+note "fixture 26 PASS - Chromium measured Tow / Haul for Structure Vehicle and zero modes for Mode Scope Vehicle: $preview"
+note "fixture 28 PASS - Chromium measured single-source as a vehicle property; live PHEV HTTP already exposed fill and charge: $preview"
+note "fixture 31 PASS - Chromium measured 390px overflow, stacking, and touch targets: $preview"
 
 before_structure_report="$(read_structure_report)"
 before_balance_count="$(grep -o '\[%highway-percent ' <<<"$before_structure_report" | wc -l)"
@@ -486,9 +492,10 @@ unset_balance_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 
 unset_report="$(read_structure_report)"
 grep -q "\\[%subtype 116 'Structure 93 AKI'\\].*\\[%rating 25717 93\\]" \
-  <<<"$unset_report" || fail "fill subtype did not retain subtype-level octane"
+  <<<"$unset_report" || fail "fixture 18 subtype-level octane mismatch; actual Obelisk report: $unset_report"
+note "fixture 18 PASS - live Obelisk report ties the selected subtype to rating 93"
 grep -q '\[%reason %tas %missed-fill\]' <<<"$unset_report" \
-  || fail "Missed Fill did not write an economy-breaks row"
+  || fail "fixture 22 Missed Fill wrote no economy-breaks row; actual Obelisk report: $unset_report"
 grep -q "\\[%driving-mode 116 'Tow / Haul'\\]" <<<"$unset_report" \
   || fail "vehicle-scoped driving mode was not written"
 grep -q '\[%digits 25717 555\].*\[%decimals 25717 1\].*\[%speed-unit %tas' \
@@ -496,10 +503,10 @@ grep -q '\[%digits 25717 555\].*\[%decimals 25717 1\].*\[%speed-unit %tas' \
 after_unset_balance_count="$(grep -o '\[%highway-percent ' <<<"$unset_report" | wc -l)"
 after_unset_tag_count="$(grep -o '\[%tag 116 ' <<<"$unset_report" | wc -l)"
 if [ "$after_unset_balance_count" -ne "$before_balance_count" ]; then
-  fail "untouched city/highway slider wrote a drive-balance row"
+  fail "fixture 23 untouched balance changed row count: before=$before_balance_count after=$after_unset_balance_count"
 fi
 if [ "$after_unset_tag_count" -ne "$before_tag_count" ]; then
-  fail "zero selected tags wrote a synthetic tag row"
+  fail "fixture 27 zero-tag fill changed row count: before=$before_tag_count after=$after_unset_tag_count"
 fi
 
 inline_tag="Mountain-$(date +%s%N)"
@@ -515,15 +522,18 @@ touched_balance_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 
 structure_report="$(read_structure_report)"
 grep -q '\[%highway-percent 25717 73\]' <<<"$structure_report" \
-  || fail "touched city/highway slider did not write asserted percentage"
+  || fail "fixture 23 touched balance did not store 73; actual Obelisk report: $structure_report"
+note "fixture 23 PASS - live Obelisk counts stayed equal for unset balance and report stored asserted 73"
 for tag in 'Road trip' 'Winter' "$inline_tag"; do
   grep -q "\\[%tag 116 '$tag'\\]" <<<"$structure_report" \
-    || fail "selected or inline-created tag was not linked: $tag"
+    || fail "fixture 27 tag was not linked: expected=$tag actual Obelisk report=$structure_report"
 done
+note "fixture 27 PASS - live Obelisk counts stayed equal for zero tags and linked existing plus inline tags"
 note "subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk"
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -Eq 'Unavailable - %?missed-fill' <<<"$view" \
-  || fail "missed-fill economy interval did not render unavailable with its reason"
+  || fail "fixture 22 missed-fill reason did not render; actual served HTML: $view"
+note "fixture 22 PASS - live Obelisk break and served HTML both contain missed-fill"
 
 history_vehicle="History Vehicle $(date +%s%N)"
 history_vehicle_payload="$(
@@ -555,8 +565,8 @@ view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -q 'value="3.333"' <<<"$view" ||
   fail "edited History quantity did not render back"
 grep -q '\$12\.00' <<<"$view" ||
-  fail "edited History calculated total did not render back"
-note "History defaults to the app vehicle; row detail opens and edit round-trips through Obelisk"
+  fail "fixture 30 edited History calculated total did not render; actual served HTML: $view"
+note "fixture 30 PASS - live History default/detail measurement and Obelisk edit round-trip rendered 3.333 / \$12.00"
 
 saved_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
@@ -654,12 +664,13 @@ grep -Eq '[0-9]{1,3}(,[0-9]{3})+\.[0-9]+ (mi|km)' <<<"$human_hub" \
 grep -q '<strong>Unavailable</strong>' <<<"$human_hub" \
   || fail "default-vehicle hub does not mark unavailable derivations"
 grep -q 'Tank size is not recorded for this vehicle.' <<<"$human_hub" \
-  || fail "default-vehicle hub does not explain unavailable derivations"
+  || fail "fixture 24/29 hub lacks concrete tank-size reason; actual hub HTML: $human_hub"
 curl -s -b "$JAR" -o /dev/null \
   -H 'content-type: application/json' \
   --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
   "$URL/apps/rover/set-default-vehicle"
-note "hub readouts combine human units with concrete unavailable reasons"
+note "fixture 24 PASS - live hub says tank size is not recorded instead of storing or rendering a sentinel"
+note "fixture 29 PASS - live hub combines human odometer units with concrete unavailable reasons"
 
 bad_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
@@ -782,7 +793,7 @@ for field in "$number_field" "$text_field" "$boolean_field"; do
   [ "$archived" = $'Archived custom field\n201' ] \
     || fail "archiving custom field failed: $archived"
 done
-note "custom number/text/boolean values use typed relations; mandatory and immutable-type rules hold"
+note "fixture 25 PASS - live HTTP and Obelisk report prove typed values, mandatory validation, and immutable used type"
 
 asset_check() {
   local path="$1" content_type="$2" source="$3"
@@ -825,18 +836,3 @@ case "$charge" in
     ;;
   *) fail "Rover site/tile docket charge not found: $charge" ;;
 esac
-
-note "fixture 18 PASS - subtype octane is read from energy-definition-subtypes"
-note "fixture 19 PASS - every allowed-definition subtype remains selectable; default only preselects"
-note "fixture 20 PASS - app default remains one %app row across INSERT then UPDATE"
-note "fixture 21 PASS - RESTRICT rejects deletion of the app-default vehicle"
-note "fixture 22 PASS - Missed Fill writes %missed-fill and renders the economy reason"
-note "fixture 23 PASS - untouched balance writes no row; touched balance writes 73%"
-note "fixture 24 PASS - absent tank size yields an unavailable reason"
-note "fixture 25 PASS - custom number/text/boolean, mandatory, and immutable type rules hold"
-note "fixture 26 PASS - Tow / Haul is selectable for vehicle A and absent for vehicle B"
-note "fixture 27 PASS - zero tags writes zero rows; existing and inline-created tags link"
-note "fixture 28 PASS - single-source hides Energy Source; PHEV hub offers fill and charge"
-note "fixture 29 PASS - hub readouts use human units and concrete unavailable reasons"
-note "fixture 30 PASS - History defaults by vehicle and detail/edit round-trips"
-note "fixture 31 PASS - 390px has no overflow, stacked layout, and 44px targets"
