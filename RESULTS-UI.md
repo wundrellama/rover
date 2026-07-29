@@ -1767,20 +1767,16 @@ All **14 previously fake fixtures were converted to real, failable
 assertions**. All numbered fixtures 18-44 are verified; none is left
 UNVERIFIED.
 
-## Remaining non-fixture scope - UNVERIFIED
+## Prior hand-off disclosure - resolved by this follow-up
 
-Two vehicle-configuration requirements are not covered by fixtures 32-44 and
-are not complete in this tree:
+At the 44-fixture hand-off, two vehicle-configuration requirements were not
+covered and were not complete:
 
 - changing a vehicle's linked energy-source set after creation;
 - creating or changing that vehicle's driving-mode membership.
 
-The settings paths for label, tank size, default subtype, and display
-preference are live and verified. The Add Vehicle HTML presents additional
-energy and driving-mode fields, but the current `add-vehicle` decoder persists
-only label and primary energy, so those two fields must not be reported as
-working. This is an honest **UNVERIFIED / NOT IMPLEMENTED** result, not a
-decorative pass.
+That disclosure was accurate for the hand-off commit. Both paths are now
+implemented and verified by fixtures 46-48 below.
 
 Vehicle-level subtype narrowing is different: it is intentionally absent
 under ratified app-structure ruling 8. Every subtype belonging to an allowed
@@ -1911,3 +1907,109 @@ ui-test: fixture 53 PASS - DEF remains outside fuel acquisitions and leaves exac
 
 The DEF readout is available on the default-vehicle hub and in Statistics.
 Fixtures 51-53 are verified; none is UNVERIFIED.
+
+## Follow-up slice 6 - consumables starter pack
+
+The same copy-on-selection rule used by energy starters now has a direct,
+failable consumables proof. Fixture 54 renames the active owner `DEF` row,
+repeats `%seed-starters`, queries active consumables through Rover, and requires
+exactly four rows: the renamed DEF copy, Washer Fluid, Motor Oil, and Coolant.
+It rejects a newly inserted `DEF` row, then restores the owner label.
+
+The red run failed at the action mold before implementation:
+
+```console
+ui-test: FAIL - fixture 54 owner consumable rename failed: [0 %avow 1 %thread-fail ... %poke-fail ... %rename-consumable ...]
+```
+
+The real green result:
+
+```console
+ui-test: fixture 54 PASS - DEF, washer fluid, motor oil, and coolant seed once; an owner rename survives re-seeding
+```
+
+## Final complete battery
+
+This is one unshortened invocation against real Eyre, Rover, and stock
+Obelisk. `ROVER_CAPTURE_DIR` only writes the authenticated served-HTML
+artifact; it does not skip or alter a fixture.
+
+```console
+$ ROVER_CAPTURE_DIR="$PWD/artifacts" ./bin/ui-test.sh
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+ui-test: fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens
+ui-test: fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render
+ui-test: fixture 38 field gate PASS - fill-edit screen exposes owner controls (not hidden inputs) for every editable field
+ui-test: fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact
+ui-test: fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg
+ui-test: fixture 40 PASS - manual station persists owner address parts and scale-7 coordinates while omitted parts create no rows
+ui-test: fixture 41 PASS - name-only manual station writes no empty address rows and no zero-coordinate row
+ui-test: fixture 42 PASS - DEF purchase uses snapshotted exact pricing and remains outside fuel-economy derivation
+ui-test: fixture 43 PASS - charge persists its electricity subtype through charging-session-subtype
+ui-test: fixture 44 PASS - payment method is descriptive; settlement mode and derived total are identical with or without its link
+ui-test: fixture 45 PASS - the run reached fixture 44 and the served source selector still has exactly eight owner sources
+ui-test: fixture 46 PASS - create persisted active Gasoline and Electricity links and the vehicle hub offers fill and charge
+ui-test: fixture 47 PASS - edit retired Gasoline with literal Y, retained Electricity, and preserved the historical fill
+ui-test: fixture 48 PASS - create and edit mode memberships persist; the non-member mode is absent for the vehicle
+ui-test: fixture 49 PASS - enabled Diesel has an active DEF link; disabled Diesel has no link row
+ui-test: fixture 50 PASS - composite DEF tank size stores exact 55/1/gal, absence creates no row, and settings re-render 5.5 gal
+ui-test: fixture 51 PASS - two odometer-linked DEF purchases derive and render exact 500.000 mi/gal DEF
+ui-test: fixture 52 PASS - missing odometer evidence explicitly breaks the latest DEF interval with a human reason
+ui-test: fixture 53 PASS - DEF remains outside fuel acquisitions and leaves exact 9.000 mpg unchanged
+ui-test: fixture 54 PASS - DEF, washer fluid, motor oil, and coolant seed once; an owner rename survives re-seeding
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: fixture 20 PASS - live Obelisk kept one %app row across INSERT/UPDATE and rejected a second INSERT
+ui-test: fixture 21 PASS - live HTTP delete returned %restricted / 409 for the app-default vehicle
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: fixture 19 PASS - Chromium measured every source subtype selectable with only the default preselected
+ui-test: fixture 26 PASS - Chromium measured Tow / Haul for an assigned vehicle and zero modes for a non-member vehicle
+ui-test: fixture 28 PASS - Chromium measured single-source as a vehicle property; live PHEV HTTP already exposed fill and charge
+ui-test: fixture 31 PASS - Chromium measured 390px overflow, stacking, and touch targets
+ui-test: app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips
+ui-test: fixture 18 PASS - live Obelisk report ties the selected subtype to rating 93
+ui-test: fixture 23 PASS - live Obelisk counts stayed equal for unset balance and report stored asserted 73
+ui-test: fixture 27 PASS - live Obelisk counts stayed equal for zero tags and linked existing plus inline tags
+ui-test: subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk
+ui-test: fixture 22 PASS - live Obelisk break and served HTML both contain missed-fill
+ui-test: fixture 30 PASS - live History default/detail measurement and Obelisk edit round-trip rendered 3.333 / $12.00
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: fixture 24 PASS - live hub says tank size is not recorded instead of storing or rendering a sentinel
+ui-test: fixture 29 PASS - live hub combines human odometer units with concrete unavailable reasons
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: fixture 25 PASS - live HTTP and Obelisk report prove typed values, mandatory validation, and immutable used type
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: the clean battery invocation reaches fixture 54 and its complete
+legacy regression tail exits zero. Fixtures 32-54 are all genuinely verified.
+Nothing is left UNVERIFIED.
+
+## Served DEF vehicle-settings HTML
+
+The exact authenticated Eyre response fragment is committed as
+[served-vehicle-settings-def.html](artifacts/served-vehicle-settings-def.html).
+It is the full vehicle-settings `<article>`, not a template. Its live DEF
+configuration fieldset is:
+
+```html
+<fieldset data-def-configuration><legend>DEF configuration</legend><label><input type="checkbox" name="defEnabled" value="yes" checked> Enable DEF</label><label>DEF tank size<input name="defTankSize" inputmode="decimal" value="5.5"></label><label>DEF tank unit<select name="defTankUnit"><option value="gal" selected>gal</option><option value="litre">litre</option></select></label></fieldset>
+```
+
+Artifact verification:
+
+```console
+$ sha256sum artifacts/served-vehicle-settings-def.html
+cc43a3437cdb822a4da68caaa0f17968173f083734ac60a756aa561127f5fbc5  artifacts/served-vehicle-settings-def.html
+$ wc -c artifacts/served-vehicle-settings-def.html
+4886 artifacts/served-vehicle-settings-def.html
+```

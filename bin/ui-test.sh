@@ -61,6 +61,29 @@ read_starter_report() {
 (pure:m !>(result))'
 }
 
+read_consumable_starter_report() {
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%consumable-starter-report ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))'
+}
+
+html_slice() {
+  python3 -c 'import sys
+start, end = sys.argv[1:3]
+document = sys.stdin.read()
+left = document.find(start)
+if left < 0:
+    print("")
+    raise SystemExit
+right = document.find(end, left + len(start))
+print(document[left:] if right < 0 else document[left:right])' "$1" "$2"
+}
+
 CODE="$(derive_code "$PIER")"
 [ -n "$CODE" ] || fail "could not derive +code"
 JAR="$(mktemp /tmp/rover-ui-cookie.XXXXXX)"
@@ -242,8 +265,7 @@ created_edit_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 [ "$created_edit_vehicle" = "Added vehicle - $edit_vehicle"$'\n201' ] \
   || fail "fixture 36 setup vehicle failed: $created_edit_vehicle"
 vehicle_screen_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-vehicles_screen="${vehicle_screen_view#*id=\"vehicles-screen\"}"
-vehicles_screen="${vehicles_screen%%</section>*}"
+vehicles_screen="$(html_slice 'id="vehicles-screen"' '</section>' <<<"$vehicle_screen_view")"
 grep -q 'class="vehicle-list"' <<<"$vehicles_screen" \
   || fail "fixture 36 Vehicles screen is not a plain vehicle list; actual HTML: $vehicles_screen"
 grep -q 'data-open-screen="vehicle-create-screen"' <<<"$vehicles_screen" \
@@ -322,8 +344,7 @@ fill_edit_setup="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 [ "$fill_edit_setup" = $'Saved fill - $3.499 - derived $34.99\n201' ] \
   || fail "fixture 38 setup fill failed: $fill_edit_setup"
 fill_edit_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-fill_edit_html="${fill_edit_view#*class=\"history-edit-form\"}"
-fill_edit_html="${fill_edit_html%%</form>*}"
+fill_edit_html="$(html_slice 'class="history-edit-form"' '</form>' <<<"$fill_edit_view")"
 for field in quantity price observed tank subtype station drivingMode averageSpeed \
   driveBalance notes paymentMethod mileage; do
   grep -Eq "name=\"$field\"" <<<"$fill_edit_html" \
@@ -430,8 +451,7 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 39 ]; then
 fi
 
 station_form_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-station_form="${station_form_view#*id=\"fill-new-station\"}"
-station_form="${station_form%%</div>*}"
+station_form="$(html_slice 'id="fill-new-station"' '</div>' <<<"$station_form_view")"
 for field in newAddressFormatted newAddressLine1 newAddressLine2 newLocality \
   newRegion newPostalCode newCountry newLatitude newLongitude; do
   grep -q "name=\"$field\"" <<<"$station_form" \
@@ -639,8 +659,7 @@ grep -q "\\[%energy 116 'Gasoline'\\].*\\[%link-archived 102 1\\]" <<<"$phev_rep
 grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 1\\]" <<<"$phev_report" \
   || fail "fixture 46 active Electricity link missing: $phev_report"
 phev_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-phev_panel="${phev_view#*data-vehicle-settings-panel data-vehicle=\"$phev_vehicle\"}"
-phev_panel="${phev_panel%%</article>*}"
+phev_panel="$(html_slice "data-vehicle-settings-panel data-vehicle=\"$phev_vehicle\"" '</article>' <<<"$phev_view")"
 grep -q 'data-vehicle-action="fill"' <<<"$phev_panel" \
   || fail "fixture 46 PHEV hub lacks Add Fill"
 grep -q 'data-vehicle-action="charge"' <<<"$phev_panel" \
@@ -675,8 +694,7 @@ grep -q "\\[%energy 116 'Gasoline'\\].*\\[%link-archived 102 0\\]" <<<"$phev_edi
 grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 1\\]" <<<"$phev_edited_report" \
   || fail "fixture 47 retained source is not active: $phev_edited_report"
 phev_edited_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-phev_edited_panel="${phev_edited_view#*data-vehicle-settings-panel data-vehicle=\"$phev_vehicle\"}"
-phev_edited_panel="${phev_edited_panel%%</article>*}"
+phev_edited_panel="$(html_slice "data-vehicle-settings-panel data-vehicle=\"$phev_vehicle\"" '</article>' <<<"$phev_edited_view")"
 grep -q '<dt>ENERGY</dt><dd>Gasoline</dd>' <<<"$phev_edited_panel" \
   || fail "fixture 47 historical Gasoline fill disappeared after unlink"
 if grep -q 'data-vehicle-action="fill"' <<<"$phev_edited_panel"; then
@@ -790,12 +808,21 @@ if grep -q '\[%digits 25717 ' <<<"$no_def_report"; then
   fail "fixture 50 no-tank control has a vehicle-consumable-tank-size row: $no_def_report"
 fi
 def_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-def_panel="${def_view#*data-vehicle-settings-panel data-vehicle=\"$def_vehicle\"}"
-def_panel="${def_panel%%</article>*}"
+def_panel="$(
+  DEF_VEHICLE="$def_vehicle" python3 -c 'import os, re, sys
+document = sys.stdin.read()
+vehicle = re.escape(os.environ["DEF_VEHICLE"])
+match = re.search(rf"<article[^>]+data-vehicle-settings-panel data-vehicle=\"{vehicle}\".*?</article>", document, re.S)
+print(match.group(0) if match else "")' <<<"$def_view"
+)"
 grep -q 'name="defEnabled" value="yes" checked' <<<"$def_panel" \
   || fail "fixture 50 served Diesel settings do not show DEF enabled: $def_panel"
 grep -q 'name="defTankSize"[^>]*value="5.5"' <<<"$def_panel" \
   || fail "fixture 50 served Diesel settings do not show exact DEF tank size: $def_panel"
+if [ -n "${ROVER_CAPTURE_DIR:-}" ]; then
+  mkdir -p "$ROVER_CAPTURE_DIR"
+  printf '%s\n' "$def_panel" > "$ROVER_CAPTURE_DIR/served-vehicle-settings-def.html"
+fi
 note "fixture 50 PASS - composite DEF tank size stores exact 55/1/gal, absence creates no row, and settings re-render 5.5 gal"
 if [ "${ROVER_FIXTURE_STOP:-}" = 50 ]; then
   exit 0
@@ -876,6 +903,41 @@ note "fixture 53 PASS - DEF remains outside fuel acquisitions and leaves exact 9
 if [ "${ROVER_FIXTURE_STOP:-}" = 53 ]; then
   exit 0
 fi
+
+consumable_rename="$(click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%rename-consumable (crip "DEF") (crip "Owner DEF Custom")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))')"
+grep -q '%noun 0' <<<"$consumable_rename" \
+  || fail "fixture 54 owner consumable rename failed: $consumable_rename"
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s3)
+(pure:m !>(~))' >/dev/null
+consumable_starters="$(read_consumable_starter_report)"
+[ "$(grep -o '\[%consumable-id ' <<<"$consumable_starters" | wc -l)" -eq 4 ] \
+  || fail "fixture 54 re-seed changed consumable starter count: $consumable_starters"
+for starter in 'Owner DEF Custom' 'Washer Fluid' 'Motor Oil' 'Coolant'; do
+  grep -q "\\[%label 116 '$starter'\\]" <<<"$consumable_starters" \
+    || fail "fixture 54 starter missing after re-seed ($starter): $consumable_starters"
+done
+if grep -q "\\[%label 116 'DEF'\\]" <<<"$consumable_starters"; then
+  fail "fixture 54 re-seed inserted a duplicate DEF row"
+fi
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%rename-consumable (crip "Owner DEF Custom") (crip "DEF")]))
+;<  ~  bind:m  (sleep ~s2)
+(pure:m !>(~))' >/dev/null
+note "fixture 54 PASS - DEF, washer fluid, motor oil, and coolant seed once; an owner rename survives re-seeding"
+if [ "${ROVER_FIXTURE_STOP:-}" = 54 ]; then
+  exit 0
+fi
 fi
 
 if ! grep -q 'Phase A Vehicle' <<<"$view"; then
@@ -923,8 +985,7 @@ for statistic in economy-by-subtype fuel-costs distance-between-fills \
   grep -q "data-statistic=\"$statistic\"" <<<"$view" ||
     fail "Statistics screen lacks table: $statistic"
 done
-statistics_html="${view#*id=\"statistics-screen\"}"
-statistics_html="${statistics_html%%id=\"settings-screen\"*}"
+statistics_html="$(html_slice 'id="statistics-screen"' 'id="settings-screen"' <<<"$view")"
 if grep -Eqi '<(canvas|svg)|chart' <<<"$statistics_html"; then
   fail "Statistics contains charting in the tables-only milestone"
 fi
@@ -967,8 +1028,7 @@ fi
 note "vehicle list/detail render real rows in human units with no raw IDs"
 
 grep -q 'id="fill-form"' <<<"$view" || fail "add-fill form is missing"
-fill_html="${view#*id=\"add-fill\"}"
-fill_html="${fill_html%%</section>*}"
+fill_html="$(html_slice 'id="add-fill"' '</section>' <<<"$view")"
 field_order="$(
   FILL_HTML="$fill_html" python3 - <<'PY'
 import os
@@ -994,8 +1054,8 @@ grep -q 'id="fill-drive-balance".*data-state="unset"' <<<"$fill_html" \
   || fail "city/highway slider does not start visibly unset"
 grep -q 'id="fill-tags"' <<<"$fill_html" || fail "Tags picker is missing"
 grep -q 'id="fill-custom-fields"' <<<"$fill_html" || fail "custom-field region is missing"
-for subtype in 'Structure 87 AKI' 'Structure 91 AKI' 'Structure 93 AKI'; do
-  grep -q "$subtype" <<<"$fill_html" ||
+for subtype in 87 91 93; do
+  grep -q ">$subtype</option>" <<<"$fill_html" ||
     fail "Add Fill is missing allowed subtype: $subtype"
 done
 grep -q 'value="Tow / Haul" data-vehicle="Structure Vehicle"' <<<"$fill_html" \
@@ -1016,8 +1076,7 @@ grep -q 'name="energyDelivered"' <<<"$view" \
 grep -q 'name="energySource"' <<<"$view" \
   || fail "add-charge form lacks delivered-energy source"
 grep -q 'name="costState"' <<<"$view" || fail "add-charge form lacks cost state"
-charge_html="${view#*id=\"add-charge\"}"
-charge_html="${charge_html%%</section>*}"
+charge_html="$(html_slice 'id="add-charge"' '</section>' <<<"$view")"
 grep -q '>Energy Source<' <<<"$charge_html" \
   || fail "Add Charge does not use Energy Source owner naming"
 if grep -Eqi '>[[:space:]]*[^<]*definition' <<<"$charge_html"; then
@@ -1103,8 +1162,7 @@ phev_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 [ "$phev_default" = $'Saved default vehicle\n201' ] \
   || fail "setting multi-source default failed: $phev_default"
 phev_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-phev_hub="${phev_view#*id=\"main-hub\"}"
-phev_hub="${phev_hub%%</section>*}"
+phev_hub="$(html_slice 'id="main-hub"' '</section>' <<<"$phev_view")"
 grep -q '>Add Fill<' <<<"$phev_hub" ||
   fail "multi-source hub does not offer Add Fill"
 grep -q '>Add Charge<' <<<"$phev_hub" ||
@@ -1115,21 +1173,33 @@ curl -s -b "$JAR" -o /dev/null \
   "$URL/apps/rover/set-default-vehicle"
 
 temporary_vehicle="Temporary Vehicle $(date +%s%N)"
+browser_scope_vehicle="Browser Scope Vehicle $(date +%s%N)"
 temporary_payload="$(
-  printf '{"label":"%s","energy":"Structure Gasoline"}' "$temporary_vehicle"
+  printf '{"label":"%s","energy":"Gasoline"}' "$temporary_vehicle"
 )"
 added_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' --data-raw "$temporary_payload" \
   "$URL/apps/rover/add-vehicle")"
 [ "$added_vehicle" = "Added vehicle - $temporary_vehicle"$'\n201' ] \
   || fail "Add Vehicle failed: $added_vehicle"
-removed_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+browser_scope_added="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[],"drivingModes":["Tow / Haul"]}' "$browser_scope_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$browser_scope_added" = "Added vehicle - $browser_scope_vehicle"$'\n201' ] \
+  || fail "browser scope vehicle failed: $browser_scope_added"
+browser_scope_edited="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","energySources":["Gasoline"],"drivingModes":["Tow / Haul"],"defaultSubtype":"91"}' "$browser_scope_vehicle" "$browser_scope_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$browser_scope_edited" = $'Saved vehicle settings\n201' ] \
+  || fail "browser scope default subtype failed: $browser_scope_edited"
+browser_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
   --data-raw "$(printf '{"vehicle":"%s"}' "$temporary_vehicle")" \
-  "$URL/apps/rover/remove-vehicle")"
-[ "$removed_vehicle" = $'Removed vehicle\n201' ] \
-  || fail "removing an unreferenced vehicle failed: $removed_vehicle"
-note "app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips"
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$browser_default" = $'Saved default vehicle\n201' ] \
+  || fail "browser fixture default failed: $browser_default"
 
 PLAYWRIGHT_ROOT="${PLAYWRIGHT_ROOT:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules}"
 CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
@@ -1137,6 +1207,7 @@ CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-li
 [ -x "$CHROMIUM_BIN" ] || fail "Chromium not found at $CHROMIUM_BIN"
 preview="$(
   URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" \
+    SUBTYPE_VEHICLE="$browser_scope_vehicle" MODELESS_VEHICLE="$temporary_vehicle" \
     NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
 const {chromium} = require('playwright');
 const fs = require('fs');
@@ -1161,7 +1232,7 @@ const fs = require('fs');
   await fillForm.waitFor({state: 'attached', timeout: 90000});
   await page.locator('[data-open-screen="add-fill"]').click();
   const initialVehicle = await fillForm.locator('[name="vehicle"]').inputValue();
-  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Structure Vehicle'});
+  await fillForm.locator('[name="vehicle"]').selectOption({label: process.env.SUBTYPE_VEHICLE});
   const subtypeState = await fillForm.locator('[name="subtype"]').evaluate((select) => ({
     selected: select.value,
     visible: [...select.options]
@@ -1174,7 +1245,7 @@ const fs = require('fs');
       .filter((option) => option.dataset.vehicle && !option.hidden)
       .map((option) => option.value)
   );
-  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Mode Scope Vehicle'});
+  await fillForm.locator('[name="vehicle"]').selectOption({label: process.env.MODELESS_VEHICLE});
   const otherModes = await fillForm.locator('[name="drivingMode"]').evaluate(
     (select) => [...select.options]
       .filter((option) => option.dataset.vehicle && !option.hidden).length
@@ -1249,9 +1320,10 @@ const fs = require('fs');
   const historyFilter = page.locator('#history-vehicle-filter');
   const historyDefault = await historyFilter.inputValue();
   const defaultRowsHonest = await page.locator('[data-history-vehicle]')
-    .evaluateAll((rows) => rows
+    .evaluateAll((rows, vehicle) => rows
       .filter((row) => !row.hidden)
-      .every((row) => row.dataset.historyVehicle === 'Mode Scope Vehicle'));
+      .every((row) => row.dataset.historyVehicle === vehicle),
+      process.env.MODELESS_VEHICLE);
   const firstHistoryRow = page.locator('[data-history-vehicle]').first();
   const historyTarget = await firstHistoryRow.getAttribute('data-history-vehicle');
   await historyFilter.evaluate((select, target) => {
@@ -1285,14 +1357,29 @@ const fs = require('fs');
 });
 NODE
 )"
-[ "$preview" = '$3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true' ] \
+expected_preview="\$3.499 standard=\$43.19 quantity=\$43.20 price=\$43.32 after-tank=\$43.19 after-evidence=\$43.19 cash=\$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=$temporary_vehicle subtypes=91/100|85|87|88|89|90|91|92|93|95|98 modes=Tow / Haul/0 history=$temporary_vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true"
+[ "$preview" = "$expected_preview" ] \
   || fail "browser fill preview mismatch: $preview"
 note "browser measurements: $preview"
 note "browser completes \$3.49 to \$3.499 and derives an exact non-editable total"
 note "fixture 19 PASS - Chromium measured every source subtype selectable with only the default preselected: $preview"
-note "fixture 26 PASS - Chromium measured Tow / Haul for Structure Vehicle and zero modes for Mode Scope Vehicle: $preview"
+note "fixture 26 PASS - Chromium measured Tow / Haul for an assigned vehicle and zero modes for a non-member vehicle: $preview"
 note "fixture 28 PASS - Chromium measured single-source as a vehicle property; live PHEV HTTP already exposed fill and charge: $preview"
 note "fixture 31 PASS - Chromium measured 390px overflow, stacking, and touch targets: $preview"
+
+curl -s -b "$JAR" -o /dev/null \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle"
+for cleanup_vehicle in "$browser_scope_vehicle" "$temporary_vehicle"; do
+  removed_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{"vehicle":"%s"}' "$cleanup_vehicle")" \
+    "$URL/apps/rover/remove-vehicle")"
+  [ "$removed_vehicle" = $'Removed vehicle\n201' ] \
+    || fail "removing browser fixture vehicle failed ($cleanup_vehicle): $removed_vehicle"
+done
+note "app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips"
 
 before_structure_report="$(read_structure_report)"
 before_balance_count="$(grep -o '\[%highway-percent ' <<<"$before_structure_report" | wc -l)"
@@ -1352,7 +1439,7 @@ note "fixture 22 PASS - live Obelisk break and served HTML both contain missed-f
 
 history_vehicle="History Vehicle $(date +%s%N)"
 history_vehicle_payload="$(
-  printf '{"label":"%s","energy":"Structure Gasoline"}' "$history_vehicle"
+  printf '{"label":"%s","energy":"Gasoline"}' "$history_vehicle"
 )"
 history_vehicle_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' --data-raw "$history_vehicle_payload" \
@@ -1361,7 +1448,7 @@ history_vehicle_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   || fail "History vehicle setup failed: $history_vehicle_result"
 history_observed='2026-07-30T12:34'
 history_fill_payload="$(
-  printf '{"vehicle":"%s","definition":"Structure Gasoline","quantity":"3.000","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$history_vehicle" "$history_observed"
+  printf '{"vehicle":"%s","definition":"Gasoline","quantity":"3.000","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$history_vehicle" "$history_observed"
 )"
 history_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' --data-raw "$history_fill_payload" \
@@ -1369,7 +1456,7 @@ history_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 [ "$history_fill" = $'Saved fill - $3.499 - derived $10.50\n201' ] \
   || fail "History setup fill failed: $history_fill"
 history_edit_payload="$(
-  printf '{"vehicle":"%s","definition":"Structure Gasoline","quantity":"3.333","price":"$3.59","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$history_vehicle" "$history_observed"
+  printf '{"vehicle":"%s","definition":"Gasoline","quantity":"3.333","price":"$3.59","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$history_vehicle" "$history_observed"
 )"
 history_edit="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' --data-raw "$history_edit_payload" \
@@ -1447,8 +1534,7 @@ km_preference="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -Fq '32,186.9 km (converted)' <<<"$view" \
   || fail "Fuel Evidence Vehicle did not render converted and labelled"
-phase_card="${view#*<h2>Phase A Vehicle</h2>}"
-phase_card="${phase_card%%<h2>*}"
+phase_card="$(html_slice '<h2>Phase A Vehicle</h2>' '<h2>' <<<"$view")"
 grep -q 'value="native" selected' <<<"$phase_card" \
   || fail "Phase A Vehicle preference was affected by the other vehicle"
 preference_report="$(click_file '=/  m  (strand ,vase)
@@ -1472,8 +1558,7 @@ human_hub_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 [ "$human_hub_default" = $'Saved default vehicle\n201' ] \
   || fail "setting human-readout fixture default failed: $human_hub_default"
 human_hub_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-human_hub="${human_hub_view#*id=\"main-hub\"}"
-human_hub="${human_hub%%id=\"add-fill\"*}"
+human_hub="$(html_slice 'id="main-hub"' 'id="add-fill"' <<<"$human_hub_view")"
 grep -Eq '[0-9]{1,3}(,[0-9]{3})+\.[0-9]+ (mi|km)' <<<"$human_hub" \
   || fail "default-vehicle hub odometer is not rendered in human units"
 grep -q '<strong>Unavailable</strong>' <<<"$human_hub" \

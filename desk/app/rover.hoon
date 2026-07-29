@@ -828,6 +828,13 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %rename-consumable
+        =/  wir=path  /rover-consumable-rename/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (consumable-definition-lookup:act old-label.a)])
+        :_  this(pending (~(put by pending) wir new-label.a))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %seed-fill-edit-support
         =/  wir=path  /rover-fill-edit-support/(scot %da now.bowl)
         =/  jon  !>([%tape %rover (fill-edit-support-lookup:act vehicle-label.a)])
@@ -876,6 +883,13 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover starter-report:act])
         :_  this(pending (~(put by pending) wir 'starter-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %consumable-starter-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover consumable-starter-report:act])
+        :_  this(pending (~(put by pending) wir 'consumable-starter-report'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -1225,6 +1239,35 @@
         !>([%tape %rover (rename-energy-definition:act `@ux`(cell-atom:view %energy-definition-id (snag 0 definitions)) u.new-label)])
       =/  next-pending
         (~(put by (~(del by pending) wire)) write-wire 'rename-energy-source')
+      :_  this(pending next-pending)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-consumable-rename *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  new-label  (~(get by pending) wire)
+      ?:  ?|  ?=(%.n -.res)
+              ?=(~ new-label)
+          ==
+        `this(last `res)
+      =/  definitions  (rows-at:view p.res 0)
+      ?.  =(1 (lent definitions))
+        `this(last `res)
+      =/  write-wire=path  /rover/consumable-rename/(scot %da now.bowl)
+      =/  jon
+        !>([%tape %rover (rename-consumable-definition:act `@ux`(cell-atom:view %consumable-id (snag 0 definitions)) u.new-label)])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) write-wire 'rename-consumable')
       :_  this(pending next-pending)
       :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]

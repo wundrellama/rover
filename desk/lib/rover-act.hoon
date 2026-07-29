@@ -282,6 +282,10 @@
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals;"
   ==
 ::
+++  consumable-starter-report
+  ^-  tape
+  "FROM consumable-definitions C WHERE C.archived = N SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;"
+::
 ++  consumable-lookup
   |=  [vehicle-label=@t consumable-label=@t]
   ^-  tape
@@ -1638,6 +1642,15 @@
     "' AND E.archived = N SELECT E.energy-definition-id, E.label, E.archived;"
   ==
 ::
+++  consumable-definition-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM consumable-definitions C WHERE C.label = '"
+    (sql-quote label)
+    "' AND C.archived = N SELECT C.consumable-id, C.label, C.archived;"
+  ==
+::
 ++  new-vehicle-lookup
   ^-  tape
   ;:  weld
@@ -1654,6 +1667,17 @@
     (sql-quote new-label)
     "' WHERE energy-definition-id = "
     (scow %ux definition-id)
+    ";"
+  ==
+::
+++  rename-consumable-definition
+  |=  [consumable-id=@ux new-label=@t]
+  ^-  tape
+  ;:  weld
+    "UPDATE consumable-definitions SET label = '"
+    (sql-quote new-label)
+    "' WHERE consumable-id = "
+    (scow %ux consumable-id)
     ";"
   ==
 ::
