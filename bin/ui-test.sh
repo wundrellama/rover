@@ -61,6 +61,17 @@ read_starter_report() {
 (pure:m !>(result))'
 }
 
+read_demo_starter_report() {
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%demo-starter-report ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))'
+}
+
 read_consumable_starter_report() {
   click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
@@ -128,19 +139,13 @@ labels = re.findall(r"<option[^>]+data-starter-source[^>]*>([^<]+)</option>", do
 print("|".join(sorted(set(label.strip() for label in labels))))' <<<"$view"
 )"
 expected_sources='CNG|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane'
-if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
-  expected_sources='CNG|Demo Diesel Energy|Demo Gasoline Energy|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane'
-fi
 [ "$starter_sources" = "$expected_sources" ] \
-  || fail "fixture 32 starter sources mismatch; actual served source labels: ${starter_sources:-<none>}"
+  || fail "fixture 68 served Energy Source set is not exactly the eight starters; actual labels: ${starter_sources:-<none>}"
 if grep -Eq '<option[^>]+data-starter-source[^>]*>(Structure |Pricing |Location Fixture )' <<<"$view"; then
   fail "fixture 32 fixture-debris definition remains in served live data"
 fi
-if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
-  note "fixture 32 PASS - exact eight-source starter set remains alongside two demo definitions with zero fixture-debris labels"
-else
-  note "fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels"
-fi
+note "fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels"
+note "fixture 68 PASS - served Energy Source set is exactly the eight starters with zero Demo definitions"
 if [ "${ROVER_FRESH_ONLY:-}" = 1 ]; then
   fresh_summary="$(
     python3 -c 'import html, re, sys
@@ -206,6 +211,12 @@ if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-demo-fuel ~]))
 ;<  ~  bind:m  (sleep ~s4)
 (pure:m !>(~))' >/dev/null
+  demo_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline"}' \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$demo_default" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 63 could not set the demo app-default-vehicle: $demo_default"
   demo_before_def="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
   demo_summary="$(
     python3 -c 'import html, re, sys
@@ -253,6 +264,248 @@ print("yes" if "data-economy-break=\"%missed-fill\"" in document else "no")' <<<
 ;<  ~  bind:m  (sleep ~s4)
 (pure:m !>(~))' >/dev/null
   demo_after_def="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  demo_sources_after="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+labels = re.findall(r"<option[^>]+data-starter-source[^>]*>([^<]+)</option>", document)
+print("|".join(sorted(set(label.strip() for label in labels))))' <<<"$demo_after_def"
+  )"
+  [ "$demo_sources_after" = "$expected_sources" ] \
+    || fail "fixture 68 demo seed changed the served starter source set; actual labels: ${demo_sources_after:-<none>}"
+  if grep -Eq '<option[^>]+data-starter-source[^>]*>Demo ' <<<"$demo_after_def"; then
+    fail "fixture 68 demo seed exposed a Demo energy definition"
+  fi
+  note "fixture 68 PASS - post-seed Energy Source set remains exactly the eight starters with zero Demo definitions"
+  statistics_html="$(
+    html_slice 'id="statistics-screen"' 'id="settings-screen"' <<<"$demo_after_def"
+  )"
+  grep -q 'data-statistics-vehicle=' <<<"$statistics_html" \
+    || fail "fixture 63 statistics screen lacks an explicit vehicle scope"
+  grep -q 'id="statistics-vehicle-select"' <<<"$statistics_html" \
+    || fail "fixture 63 statistics screen lacks the History-pattern vehicle selector"
+  if grep -q '<th>Vehicle</th>' <<<"$statistics_html"; then
+    fail "fixture 63 a statistics table still contains a Vehicle column"
+  fi
+  note "fixture 63 PASS - statistics exposes the app-default scope and selector with zero Vehicle table columns"
+  grep -q 'data-statistics-scope-heading' <<<"$statistics_html" \
+    || fail "fixture 64 statistics header lacks the single scope-name marker"
+  statistics_scope_name="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+match = re.search(
+    r"<header class=\"view-header\">.*?<p id=\"statistics-vehicle-name\"[^>]*>([^<]+)</p>.*?</header>",
+    document,
+    re.S,
+)
+print(match.group(1).strip() if match else "")' <<<"$statistics_html"
+  )"
+  [ "$statistics_scope_name" = 'Rover Demo Gasoline' ] \
+    || fail "fixture 64 statistics header scope is not the app default: ${statistics_scope_name:-<none>}"
+  [ "$(grep -o 'data-statistics-scope-heading' <<<"$statistics_html" | wc -l)" -eq 1 ] \
+    || fail "fixture 64 statistics scope marker is not unique"
+  note "fixture 64 PASS - the header names Rover Demo Gasoline exactly once as the statistics subject"
+
+  PLAYWRIGHT_ROOT="${PLAYWRIGHT_ROOT:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules}"
+  CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
+  statistics_switch="$(
+    URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
+const {chromium} = require('playwright');
+const fs = require('fs');
+(async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROMIUM_BIN
+  });
+  const page = await browser.newPage();
+  const raw = fs.readFileSync(process.env.JAR, 'utf8');
+  const cookie = raw.match(/\s(urbauth-[^\s]+)\s+([^\s]+)/);
+  await page.context().addCookies([{
+    name: cookie[1], value: cookie[2], domain: 'localhost', path: '/'
+  }]);
+  await page.goto(`${process.env.URL}/apps/rover`);
+  const selector = page.locator('#statistics-vehicle-select');
+  await selector.waitFor({state: 'attached'});
+  const snapshot = async () => page.locator('#statistics-screen').evaluate((screen) => {
+    const selected = screen.querySelector('#statistics-vehicle-select').value;
+    const tables = [...screen.querySelectorAll('[data-statistic]')].map((table) => {
+      const rows = [...table.querySelectorAll('tbody tr')].filter((row) => !row.hidden);
+      if (rows.some((row) => row.dataset.statisticsVehicle !== selected)) {
+        throw new Error(`${table.dataset.statistic} leaks a row outside ${selected}`);
+      }
+      return [table.dataset.statistic, rows.map((row) => row.textContent.trim()).join('|')];
+    });
+    return {
+      selected,
+      header: screen.querySelector('#statistics-vehicle-name').textContent.trim(),
+      tables: Object.fromEntries(tables),
+    };
+  });
+  const before = await snapshot();
+  if (process.env.ROVER_STATISTICS_ARTIFACT) {
+    const fragment = await page.locator('#statistics-screen').evaluate((screen) => {
+      const copy = screen.cloneNode(true);
+      copy.hidden = false;
+      copy.querySelectorAll('tbody tr[hidden]').forEach((row) => row.remove());
+      return `<!-- Authenticated Eyre DOM after default-vehicle filtering. -->\n${copy.outerHTML}\n`;
+    });
+    fs.writeFileSync(process.env.ROVER_STATISTICS_ARTIFACT, fragment);
+  }
+  await selector.evaluate((select) => {
+    const option = [...select.options].find(
+      (candidate) => candidate.textContent === 'Rover Demo Diesel'
+    );
+    if (!option) throw new Error('Rover Demo Diesel selector option is missing');
+    select.value = option.value;
+    select.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  const after = await snapshot();
+  const names = Object.keys(before.tables);
+  const changed = names.filter((name) => before.tables[name] !== after.tables[name]);
+  console.log(JSON.stringify({before, after, changed}));
+  await browser.close();
+})().catch((error) => {
+  console.error(error.stack || error);
+  process.exit(1);
+});
+NODE
+  )" || fail "fixture 65 Chromium statistics selector check failed"
+  statistics_switch_summary="$(
+    python3 -c 'import json, sys
+data = json.loads(sys.stdin.read())
+print("|".join([
+    data["before"]["selected"],
+    data["before"]["header"],
+    data["after"]["selected"],
+    data["after"]["header"],
+    ",".join(data["changed"]),
+]))' <<<"$statistics_switch"
+  )"
+  expected_statistics_switch='Rover Demo Gasoline|Rover Demo Gasoline|Rover Demo Diesel|Rover Demo Diesel|economy-by-subtype,fuel-costs,distance-between-fills,time-between-fills,average-price-per-unit,distance-per-tank,def-economy'
+  [ "$statistics_switch_summary" = "$expected_statistics_switch" ] \
+    || fail "fixture 65 switching scope did not change every table and header: $statistics_switch_summary"
+  note "fixture 65 PASS - selector changed the header and all seven statistics tables from gasoline to diesel"
+
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %rover "DELETE FROM app-default-vehicle WHERE scope = %app;"]))
+;<  ~  bind:m  (sleep ~s2)
+(pure:m !>(~))' >/dev/null
+  no_default_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  no_default_statistics="$(
+    html_slice 'id="statistics-screen"' 'id="settings-screen"' <<<"$no_default_view"
+  )"
+  no_default_browser="$(
+    URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
+const {chromium} = require('playwright');
+const fs = require('fs');
+(async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROMIUM_BIN
+  });
+  const page = await browser.newPage();
+  const raw = fs.readFileSync(process.env.JAR, 'utf8');
+  const cookie = raw.match(/\s(urbauth-[^\s]+)\s+([^\s]+)/);
+  await page.context().addCookies([{
+    name: cookie[1], value: cookie[2], domain: 'localhost', path: '/'
+  }]);
+  await page.goto(`${process.env.URL}/apps/rover`);
+  const result = await page.locator('#statistics-screen').evaluate((screen) => ({
+    selected: screen.querySelector('#statistics-vehicle-select').value,
+    header: screen.querySelector('#statistics-vehicle-name').textContent.trim(),
+    visible: [...screen.querySelectorAll('tbody tr')].filter((row) => !row.hidden).length,
+  }));
+  console.log(JSON.stringify(result));
+  await browser.close();
+})().catch((error) => {
+  console.error(error.stack || error);
+  process.exit(1);
+});
+NODE
+  )"
+  no_default_browser_status=$?
+  restored_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline"}' \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$restored_default" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 66 could not restore the demo app-default-vehicle: $restored_default"
+  [ "$no_default_browser_status" -eq 0 ] \
+    || fail "fixture 66 Chromium no-default check failed"
+  grep -q 'data-statistics-no-default' <<<"$no_default_statistics" \
+    || fail "fixture 66 statistics screen does not mark the absent default"
+  grep -q 'No default vehicle set.' <<<"$no_default_statistics" \
+    || fail "fixture 66 statistics screen does not plainly state that no default is set"
+  grep -q 'id="statistics-vehicle-select"' <<<"$no_default_statistics" \
+    || fail "fixture 66 no-default state does not offer the vehicle selector"
+  no_default_summary="$(
+    python3 -c 'import json, sys
+data = json.loads(sys.stdin.read())
+print("|".join([data["selected"], data["header"], str(data["visible"])]))' \
+      <<<"$no_default_browser"
+  )"
+  [ "$no_default_summary" = '|No default vehicle set.|0' ] \
+    || fail "fixture 66 no-default state selected or pooled vehicle rows: $no_default_summary"
+  note "fixture 66 PASS - absent app default is stated plainly; selector remains; zero vehicle rows are pooled"
+
+  scoped_hub_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  scoped_hub="$(
+    html_slice 'id="main-hub"' 'id="add-fill"' <<<"$scoped_hub_view"
+  )"
+  [ "$(grep -Fo 'data-hub-statistics-vehicle="Rover Demo Gasoline"' <<<"$scoped_hub" | wc -l)" -eq 5 ] \
+    || fail "fixture 67 five fuel-statistics hub readouts are not explicitly scoped to the default vehicle"
+  if grep -Fq 'data-hub-statistics-vehicle="Rover Demo Diesel"' <<<"$scoped_hub"; then
+    fail "fixture 67 second-vehicle fills moved a default-vehicle hub readout"
+  fi
+  note "fixture 67 PASS - all five fuel-statistics hub readouts remain scoped to Rover Demo Gasoline despite diesel fills"
+  demo_starter_report="$(read_demo_starter_report)"
+  demo_starter_check="$(
+    python3 -c 'import re, sys
+report = sys.stdin.read()
+definition_rows = re.findall(
+    r"\[%vehicle 116 \x27([^\x27]+)\x27\].*?"
+    r"\[%demo-energy-definition-id [0-9]+ ([^ ]+)\].*?"
+    r"\[%starter-energy-definition-id [0-9]+ ([^ ]+)\].*?"
+    r"\[%starter-energy 116 \x27([^\x27]+)\x27\]",
+    report,
+)
+subtype_rows = re.findall(
+    r"\[%vehicle 116 \x27([^\x27]+)\x27\].*?"
+    r"\[%demo-energy-definition-id [0-9]+ ([^ ]+)\].*?"
+    r"\[%subtype-parent-definition-id [0-9]+ ([^ ]+)\].*?"
+    r"\[%demo-subtype-id [0-9]+ ([^ ]+)\].*?"
+    r"\[%starter-subtype-id [0-9]+ ([^ ]+)\].*?"
+    r"\[%starter-subtype 116 (\x27[^\x27]+\x27|[0-9]+)\]",
+    report,
+)
+definitions = {(vehicle, energy, demo == starter)
+               for vehicle, demo, starter, energy in definition_rows}
+cords = {"14136": "87", "13113": "93", "12835": "#2"}
+subtypes = {
+    (vehicle, cords.get(subtype, subtype.strip(chr(39))),
+     definition == parent, demo == starter)
+    for vehicle, definition, parent, demo, starter, subtype in subtype_rows
+}
+expected_definitions = {
+    ("Rover Demo Gasoline", "Gasoline", True),
+    ("Rover Demo Diesel", "Diesel", True),
+}
+expected_subtypes = {
+    ("Rover Demo Gasoline", "87", True, True),
+    ("Rover Demo Gasoline", "93", True, True),
+    ("Rover Demo Diesel", "#2", True, True),
+    ("Rover Demo Diesel", "B20", True, True),
+}
+print("yes" if definitions == expected_definitions else repr(sorted(definitions)))
+print("yes" if subtypes == expected_subtypes else repr(sorted(subtypes)))' \
+      <<<"$demo_starter_report"
+  )"
+  mapfile -t demo_starter_parts <<<"$demo_starter_check"
+  [ "${demo_starter_parts[0]:-}" = yes ] \
+    || fail "fixture 69 demo fill energy-definition IDs do not match starter rows: ${demo_starter_parts[0]:-<none>}"
+  [ "${demo_starter_parts[1]:-}" = yes ] \
+    || fail "fixture 69 demo fill subtype IDs do not match starter rows: ${demo_starter_parts[1]:-<none>}"
+  note "fixture 69 PASS - demo fills use starter Gasoline/Diesel IDs and starter 87/93/#2/B20 subtype IDs"
   after_summary="$(
     python3 -c 'import html, re, sys
 document = html.unescape(sys.stdin.read())

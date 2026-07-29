@@ -965,6 +965,36 @@
         syncHistory();
       }
 
+      const statisticsVehicle = app.querySelector('#statistics-vehicle-select');
+      if (statisticsVehicle) {
+        if (defaultVehicle) statisticsVehicle.value = defaultVehicle;
+        const syncStatistics = () => {
+          const selected = statisticsVehicle.value;
+          let visible = 0;
+          app.querySelectorAll('[data-statistics-vehicle]').forEach((row) => {
+            if (row.id === 'statistics-vehicle-name') return;
+            row.hidden = !selected || row.dataset.statisticsVehicle !== selected;
+            if (!row.hidden) visible += 1;
+          });
+          const heading = app.querySelector('#statistics-vehicle-name');
+          if (heading) {
+            if (selected) {
+              heading.textContent = selected;
+              heading.dataset.statisticsVehicle = selected;
+              delete heading.dataset.statisticsNoDefault;
+            } else {
+              heading.textContent = 'No default vehicle set.';
+              delete heading.dataset.statisticsVehicle;
+              heading.dataset.statisticsNoDefault = '';
+            }
+          }
+          const empty = app.querySelector('#statistics-empty');
+          if (empty) empty.hidden = visible !== 0;
+        };
+        statisticsVehicle.addEventListener('change', syncStatistics);
+        syncStatistics();
+      }
+
       app.querySelectorAll('.history-record-toggle').forEach((button) => {
         button.addEventListener('click', () => {
           const detail = button.nextElementSibling;

@@ -683,6 +683,9 @@
     (def-economy id purchases odometers)
   ;:  weld
     "<tr "
+    "data-statistics-vehicle=\""
+    label
+    "\" "
     ?:  available.status
       ;:  weld
         "data-def-economy-vehicle=\""
@@ -697,8 +700,6 @@
       "\""
     ==
     "><td>"
-    label
-    "</td><td>"
     (escape display.status)
     "</td><td>"
     ?:(available.status "Consecutive odometer-linked DEF purchases." (escape reason.status))
@@ -731,6 +732,14 @@
     ?~  app-default
       "DEFAULT VEHICLE NOT SET"
     (escape (cell-text %label i.app-default))
+  =/  hub-stat-scope=tape
+    ?~  app-default
+      " data-hub-statistics-no-default"
+    ;:  weld
+      " data-hub-statistics-vehicle=\""
+      (escape (cell-text %label i.app-default))
+      "\""
+    ==
   =/  sources=(list vector:ast)
     ?~  default-id
       ~
@@ -777,13 +786,23 @@
     "</strong><small>"
     ?:(?=(~ default-id) "No default vehicle is set." "Latest non-overlapping observation.")
     "</small></article>"
-    "<article><span>ECONOMY - LAST FILL</span><strong>Unavailable</strong><small>An eligible full-fill interval is required.</small></article>"
-    "<article><span>ECONOMY - LIFETIME</span><strong>Unavailable</strong><small>No eligible lifetime interval is recorded.</small></article>"
-    "<article><span>ESTIMATED DISTANCE TO NEXT FILL</span><strong>Unavailable</strong><small>"
+    "<article"
+    hub-stat-scope
+    "><span>ECONOMY - LAST FILL</span><strong>Unavailable</strong><small>An eligible full-fill interval is required.</small></article>"
+    "<article"
+    hub-stat-scope
+    "><span>ECONOMY - LIFETIME</span><strong>Unavailable</strong><small>No eligible lifetime interval is recorded.</small></article>"
+    "<article"
+    hub-stat-scope
+    "><span>ESTIMATED DISTANCE TO NEXT FILL</span><strong>Unavailable</strong><small>"
     tank-reason
     "</small></article>"
-    "<article><span>BEST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
-    "<article><span>WORST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
+    "<article"
+    hub-stat-scope
+    "><span>BEST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
+    "<article"
+    hub-stat-scope
+    "><span>WORST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
     "<article><span>DEF ECONOMY - LAST INTERVAL</span><strong>"
     (escape display.def-status)
     "</strong><small>"
@@ -1908,7 +1927,7 @@
       %tank  (weld " data-distance-per-tank=\"" (weld display "\""))
     ==
   ;:  weld
-    "<tr data-stat-vehicle=\""
+    "<tr data-statistics-vehicle=\""
     (escape vehicle)
     "\""
     attribute
@@ -1917,8 +1936,6 @@
     ""
     "><td>"
     date
-    "</td><td>"
-    (escape vehicle)
     "</td><td>"
     display
     "</td><td>"
@@ -1971,7 +1988,9 @@
     ?+  mode  ~
       %economy
         ;:  weld
-          "<tr data-economy-vehicle=\""
+          "<tr data-statistics-vehicle=\""
+          (escape vehicle)
+          "\" data-economy-vehicle=\""
           (escape vehicle)
           "\" data-economy=\""
           ?~(economy "Unavailable" (weld (trip (format-scaled:render milli.u.economy 3 %.n)) (weld " " (trip unit.u.economy))))
@@ -1995,24 +2014,24 @@
         ==
       %cost
         ;:  weld
-          "<tr data-fuel-cost=\""
+          "<tr data-statistics-vehicle=\""
+          (escape vehicle)
+          "\" data-fuel-cost=\""
           (escape total)
           "\"><td>"
           date
-          "</td><td>"
-          (escape vehicle)
           "</td><td>"
           (escape total)
           "</td></tr>"
         ==
       %price
         ;:  weld
-          "<tr data-average-price=\""
+          "<tr data-statistics-vehicle=\""
+          (escape vehicle)
+          "\" data-average-price=\""
           (escape price)
           "\"><td>"
           date
-          "</td><td>"
-          (escape vehicle)
           "</td><td>"
           (escape price)
           "</td></tr>"
@@ -2023,6 +2042,7 @@
 ++  statistics-screen
   |=  $:  fills=(list vector:ast)
           vehicles=(list vector:ast)
+          app-default=(list vector:ast)
           subtype-links=(list vector:ast)
           odometers=(list vector:ast)
           breaks=(list vector:ast)
@@ -2032,32 +2052,60 @@
       ==
   ^-  tape
   =/  recent  (order-vectors:act %observed-start %.n fills)
+  =/  default-label=(unit @t)
+    ?~  app-default
+      ~
+    `(cell-text %label i.app-default)
+  =/  scope-header=tape
+    ?~  default-label
+      "<p id=\"statistics-vehicle-name\" data-statistics-scope-heading data-statistics-no-default>No default vehicle set.</p>"
+    ;:  weld
+      "<p id=\"statistics-vehicle-name\" data-statistics-scope-heading data-statistics-vehicle=\""
+      (escape u.default-label)
+      "\">"
+      (escape u.default-label)
+      "</p>"
+    ==
+  =/  selector=tape
+    ;:  weld
+      "<label>Vehicle<select id=\"statistics-vehicle-select\">"
+      ?~(default-label "<option value=\"\" selected>Select a vehicle</option>" "")
+      (vehicle-options vehicles)
+      "</select></label>"
+    ==
   ?~  fills
     ;:  weld
-      "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header>"
+      "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1>"
+      scope-header
+      "</header>"
+      selector
       "<div class=\"empty-state\" data-statistics-state=\"no-data\"><h2>No data yet</h2><p>Add a fill to begin tracking economy.</p></div></section>"
     ==
   ;:  weld
-    "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header>"
+    "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1>"
+    scope-header
+    "</header>"
+    selector
+    "<p id=\"statistics-empty\" class=\"empty\" hidden>No statistics are recorded for this vehicle.</p>"
     "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"
     (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %economy)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"fuel-costs\"><h2>Fuel costs</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Total cost</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"fuel-costs\"><h2>Fuel costs</h2><table><thead><tr><th>Date</th><th>Total cost</th></tr></thead><tbody>"
     (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %cost)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"distance-between-fills\"><h2>Distance between fills</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Distance</th><th>Eligibility</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"distance-between-fills\"><h2>Distance between fills</h2><table><thead><tr><th>Date</th><th>Distance</th><th>Eligibility</th></tr></thead><tbody>"
     (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %distance)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Elapsed time</th><th>Eligibility</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><thead><tr><th>Date</th><th>Elapsed time</th><th>Eligibility</th></tr></thead><tbody>"
     (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %time)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Observed unit price</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit</h2><table><thead><tr><th>Date</th><th>Observed unit price</th></tr></thead><tbody>"
     (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %price)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Estimated distance</th><th>Eligibility</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><thead><tr><th>Date</th><th>Estimated distance</th><th>Eligibility</th></tr></thead><tbody>"
     (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %tank)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Vehicle</th><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
     (def-economy-stat-rows vehicles def-purchases def-odometers)
     "</tbody></table></section></section>"
   ==
@@ -2161,7 +2209,7 @@
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
       (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods)
-      (statistics-screen fills vehicles subtype-links fill-odometers economy-breaks tank-sizes def-purchases def-odometers)
+      (statistics-screen fills vehicles app-default subtype-links fill-odometers economy-breaks tank-sizes def-purchases def-odometers)
       (settings-screen custom-definitions)
     ==
   (crip html)

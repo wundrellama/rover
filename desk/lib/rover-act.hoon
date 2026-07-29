@@ -321,8 +321,8 @@
   |=  $:  base=@ux
           ordinal=@ud
           vehicle-ordinal=@ud
-          definition-ordinal=@ud
-          subtype-ordinal=@ud
+          definition-id=@ux
+          subtype-id=@ux
           station-ordinal=@ud
           payment-ordinal=@ud
           observed=@da
@@ -335,8 +335,8 @@
   ^-  tape
   =/  acquisition  (scow %ux (fixture-id base ordinal))
   =/  vehicle  (scow %ux (fixture-id base vehicle-ordinal))
-  =/  definition  (scow %ux (fixture-id base definition-ordinal))
-  =/  subtype  (scow %ux (fixture-id base subtype-ordinal))
+  =/  definition  (scow %ux definition-id)
+  =/  subtype  (scow %ux subtype-id)
   =/  station  (scow %ux (fixture-id base station-ordinal))
   =/  payment  (scow %ux (fixture-id base payment-ordinal))
   =/  odometer-id  (scow %ux (fixture-id base (add 1.000 ordinal)))
@@ -360,15 +360,19 @@
   ==
 ::
 ++  seed-demo-fuel
-  |=  [base=@ux now=@da]
+  |=  $:  base=@ux
+          now=@da
+          gas-definition-id=@ux
+          diesel-definition-id=@ux
+          gas-87-id=@ux
+          gas-93-id=@ux
+          diesel-2-id=@ux
+          diesel-b20-id=@ux
+      ==
   ^-  tape
   =/  rec  (scow %da now)
-  =/  gas-def  (scow %ux (fixture-id base 1))
-  =/  diesel-def  (scow %ux (fixture-id base 2))
-  =/  gas-87  (scow %ux (fixture-id base 11))
-  =/  gas-93  (scow %ux (fixture-id base 12))
-  =/  diesel-2  (scow %ux (fixture-id base 21))
-  =/  diesel-b20  (scow %ux (fixture-id base 22))
+  =/  gas-def  (scow %ux gas-definition-id)
+  =/  diesel-def  (scow %ux diesel-definition-id)
   =/  gas-vehicle  (scow %ux (fixture-id base 31))
   =/  diesel-vehicle  (scow %ux (fixture-id base 32))
   =/  place-a  (scow %ux (fixture-id base 41))
@@ -378,12 +382,6 @@
   =/  cash  (scow %ux (fixture-id base 51))
   =/  card  (scow %ux (fixture-id base 52))
   ;:  weld
-    "INSERT INTO energy-definitions VALUES ({gas-def}, 'Demo Gasoline Energy', %reservoir, %gal, N, {rec}); "
-    "INSERT INTO energy-definitions VALUES ({diesel-def}, 'Demo Diesel Energy', %reservoir, %gal, N, {rec}); "
-    "INSERT INTO energy-definition-subtypes VALUES ({gas-87}, {gas-def}, 'Regular 87', N, {rec}); "
-    "INSERT INTO energy-definition-subtypes VALUES ({gas-93}, {gas-def}, 'Premium 93', N, {rec}); "
-    "INSERT INTO energy-definition-subtypes VALUES ({diesel-2}, {diesel-def}, '#2 Diesel', N, {rec}); "
-    "INSERT INTO energy-definition-subtypes VALUES ({diesel-b20}, {diesel-def}, 'B20 Diesel', N, {rec}); "
     "INSERT INTO vehicles VALUES ({gas-vehicle}, 'Rover Demo Gasoline', N, {rec}); "
     "INSERT INTO vehicles VALUES ({diesel-vehicle}, 'Rover Demo Diesel', N, {rec}); "
     "INSERT INTO vehicle-energy-definitions VALUES ({gas-vehicle}, {gas-def}, N); "
@@ -398,23 +396,75 @@
     "INSERT INTO stations VALUES ({station-b}, {place-b}, 'South Fuel', %fuel, N, {rec}); "
     "INSERT INTO payment-method-definitions VALUES ({cash}, 'Demo Cash', N, {rec}); "
     "INSERT INTO payment-method-definitions VALUES ({card}, 'Demo Fleet Card', N, {rec}); "
-    (demo-fill base 101 31 1 11 42 51 ~2026.7.1..12.00.00 10.000 10.000 3.399 %.n now)
-    (demo-fill base 102 31 1 12 44 52 ~2026.7.2..12.00.00 10.300 10.000 3.499 %.n now)
-    (demo-fill base 103 31 1 11 42 52 ~2026.7.3..12.00.00 10.608 11.000 3.459 %.n now)
-    (demo-fill base 104 31 1 12 44 51 ~2026.7.4..12.00.00 10.908 10.000 3.579 %.y now)
-    (demo-fill base 105 31 1 11 42 52 ~2026.7.5..12.00.00 11.232 12.000 3.429 %.n now)
-    (demo-fill base 106 31 1 12 44 52 ~2026.7.6..12.00.00 11.522 10.000 3.619 %.n now)
-    (demo-fill base 201 32 2 21 42 52 ~2026.7.2..13.00.00 50.000 12.000 3.899 %.n now)
-    (demo-fill base 202 32 2 22 44 51 ~2026.7.3..13.00.00 50.400 12.500 3.979 %.n now)
-    (demo-fill base 203 32 2 21 42 52 ~2026.7.4..13.00.00 50.810 12.500 4.029 %.n now)
-    (demo-fill base 204 32 2 22 44 52 ~2026.7.5..13.00.00 51.200 12.000 3.949 %.n now)
-    (demo-fill base 205 32 2 21 42 51 ~2026.7.6..13.00.00 51.620 14.000 4.099 %.n now)
-    (demo-fill base 206 32 2 22 44 52 ~2026.7.7..13.00.00 52.020 12.500 4.059 %.n now)
+    (demo-fill base 101 31 gas-definition-id gas-87-id 42 51 ~2026.7.1..12.00.00 10.000 10.000 3.399 %.n now)
+    (demo-fill base 102 31 gas-definition-id gas-93-id 44 52 ~2026.7.2..12.00.00 10.300 10.000 3.499 %.n now)
+    (demo-fill base 103 31 gas-definition-id gas-87-id 42 52 ~2026.7.3..12.00.00 10.608 11.000 3.459 %.n now)
+    (demo-fill base 104 31 gas-definition-id gas-93-id 44 51 ~2026.7.4..12.00.00 10.908 10.000 3.579 %.y now)
+    (demo-fill base 105 31 gas-definition-id gas-87-id 42 52 ~2026.7.5..12.00.00 11.232 12.000 3.429 %.n now)
+    (demo-fill base 106 31 gas-definition-id gas-93-id 44 52 ~2026.7.6..12.00.00 11.522 10.000 3.619 %.n now)
+    (demo-fill base 201 32 diesel-definition-id diesel-2-id 42 52 ~2026.7.2..13.00.00 50.000 12.000 3.899 %.n now)
+    (demo-fill base 202 32 diesel-definition-id diesel-b20-id 44 51 ~2026.7.3..13.00.00 50.400 12.500 3.979 %.n now)
+    (demo-fill base 203 32 diesel-definition-id diesel-2-id 42 52 ~2026.7.4..13.00.00 50.810 12.500 4.029 %.n now)
+    (demo-fill base 204 32 diesel-definition-id diesel-b20-id 44 52 ~2026.7.5..13.00.00 51.200 12.000 3.949 %.n now)
+    (demo-fill base 205 32 diesel-definition-id diesel-2-id 42 51 ~2026.7.6..13.00.00 51.620 14.000 4.099 %.n now)
+    (demo-fill base 206 32 diesel-definition-id diesel-b20-id 44 52 ~2026.7.7..13.00.00 52.020 12.500 4.059 %.n now)
   ==
 ::
 ++  demo-fuel-check
   ^-  tape
-  "FROM vehicles V WHERE V.label = 'Rover Demo Gasoline' OR V.label = 'Rover Demo Diesel' SELECT V.vehicle-id, V.label;"
+  ;:  weld
+    "FROM vehicles V WHERE V.label = 'Rover Demo Gasoline' OR V.label = 'Rover Demo Diesel' SELECT V.vehicle-id, V.label; "
+    "FROM energy-definitions E WHERE E.label = 'Gasoline' AND E.archived = N SELECT E.energy-definition-id; "
+    "FROM energy-definitions E WHERE E.label = 'Diesel' AND E.archived = N SELECT E.energy-definition-id; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id WHERE E.label = 'Gasoline' AND E.archived = N AND S.label = '87' AND S.archived = N SELECT S.subtype-id; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id WHERE E.label = 'Gasoline' AND E.archived = N AND S.label = '93' AND S.archived = N SELECT S.subtype-id; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id WHERE E.label = 'Diesel' AND E.archived = N AND S.label = '#2' AND S.archived = N SELECT S.subtype-id; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id WHERE E.label = 'Diesel' AND E.archived = N AND S.label = 'B20' AND S.archived = N SELECT S.subtype-id; "
+    "FROM vehicles V WHERE V.label = 'Rover Demo Gasoline' SELECT V.vehicle-id; "
+    "FROM vehicles V WHERE V.label = 'Rover Demo Diesel' SELECT V.vehicle-id; "
+    "FROM energy-definitions E WHERE E.label = 'Demo Gasoline Energy' SELECT E.energy-definition-id; "
+    "FROM energy-definitions E WHERE E.label = 'Demo Diesel Energy' SELECT E.energy-definition-id; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id WHERE E.label = 'Demo Gasoline Energy' AND S.label = 'Regular 87' SELECT S.subtype-id; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id WHERE E.label = 'Demo Gasoline Energy' AND S.label = 'Premium 93' SELECT S.subtype-id; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id WHERE E.label = 'Demo Diesel Energy' AND S.label = '#2 Diesel' SELECT S.subtype-id; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id WHERE E.label = 'Demo Diesel Energy' AND S.label = 'B20 Diesel' SELECT S.subtype-id;"
+  ==
+::
+++  repair-demo-fuel
+  |=  $:  gas-vehicle-id=@ux
+          diesel-vehicle-id=@ux
+          gas-definition-id=@ux
+          diesel-definition-id=@ux
+          gas-87-id=@ux
+          gas-93-id=@ux
+          diesel-2-id=@ux
+          diesel-b20-id=@ux
+          old-gas-definition-id=@ux
+          old-diesel-definition-id=@ux
+          old-gas-87-id=@ux
+          old-gas-93-id=@ux
+          old-diesel-2-id=@ux
+          old-diesel-b20-id=@ux
+      ==
+  ^-  tape
+  ;:  weld
+    "INSERT INTO vehicle-energy-definitions VALUES ({(scow %ux gas-vehicle-id)}, {(scow %ux gas-definition-id)}, N); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({(scow %ux diesel-vehicle-id)}, {(scow %ux diesel-definition-id)}, N); "
+    "UPDATE vehicle-default-energy-definitions SET energy-definition-id = {(scow %ux gas-definition-id)} WHERE vehicle-id = {(scow %ux gas-vehicle-id)}; "
+    "UPDATE vehicle-default-energy-definitions SET energy-definition-id = {(scow %ux diesel-definition-id)} WHERE vehicle-id = {(scow %ux diesel-vehicle-id)}; "
+    "UPDATE energy-acquisitions SET energy-definition-id = {(scow %ux gas-definition-id)} WHERE vehicle-id = {(scow %ux gas-vehicle-id)}; "
+    "UPDATE energy-acquisitions SET energy-definition-id = {(scow %ux diesel-definition-id)} WHERE vehicle-id = {(scow %ux diesel-vehicle-id)}; "
+    "UPDATE fuel-fill-subtype SET subtype-id = {(scow %ux gas-87-id)} WHERE subtype-id = {(scow %ux old-gas-87-id)}; "
+    "UPDATE fuel-fill-subtype SET subtype-id = {(scow %ux gas-93-id)} WHERE subtype-id = {(scow %ux old-gas-93-id)}; "
+    "UPDATE fuel-fill-subtype SET subtype-id = {(scow %ux diesel-2-id)} WHERE subtype-id = {(scow %ux old-diesel-2-id)}; "
+    "UPDATE fuel-fill-subtype SET subtype-id = {(scow %ux diesel-b20-id)} WHERE subtype-id = {(scow %ux old-diesel-b20-id)}; "
+    "DELETE FROM vehicle-energy-definitions WHERE vehicle-id = {(scow %ux gas-vehicle-id)} AND energy-definition-id = {(scow %ux old-gas-definition-id)}; "
+    "DELETE FROM vehicle-energy-definitions WHERE vehicle-id = {(scow %ux diesel-vehicle-id)} AND energy-definition-id = {(scow %ux old-diesel-definition-id)}; "
+    "DELETE FROM energy-definition-subtypes WHERE energy-definition-id = {(scow %ux old-gas-definition-id)}; "
+    "DELETE FROM energy-definition-subtypes WHERE energy-definition-id = {(scow %ux old-diesel-definition-id)}; "
+    "DELETE FROM energy-definitions WHERE energy-definition-id = {(scow %ux old-gas-definition-id)}; "
+    "DELETE FROM energy-definitions WHERE energy-definition-id = {(scow %ux old-diesel-definition-id)};"
+  ==
 ::
 ++  demo-def-check
   ^-  tape
@@ -422,6 +472,13 @@
     "FROM vehicles V WHERE V.label = 'Rover Demo Diesel' SELECT V.vehicle-id; "
     "FROM consumable-definitions C WHERE C.label = 'DEF' SELECT C.consumable-id; "
     "FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id WHERE V.label = 'Rover Demo Diesel' SELECT A.consumable-acquisition-id;"
+  ==
+::
+++  demo-starter-report
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Rover Demo Gasoline' OR V.label = 'Rover Demo Diesel' SELECT V.label AS vehicle, A.energy-definition-id AS demo-energy-definition-id, E.energy-definition-id AS starter-energy-definition-id, E.label AS starter-energy; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = 'Rover Demo Gasoline' OR V.label = 'Rover Demo Diesel' SELECT V.label AS vehicle, A.energy-definition-id AS demo-energy-definition-id, S.energy-definition-id AS subtype-parent-definition-id, L.subtype-id AS demo-subtype-id, S.subtype-id AS starter-subtype-id, S.label AS starter-subtype;"
   ==
 ::
 ++  demo-def-purchase

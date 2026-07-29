@@ -237,6 +237,7 @@
       [%seed-starters ~]
       [%seed-demo-fuel ~]
       [%seed-demo-def ~]
+      [%demo-starter-report ~]
       [%starter-report ~]
       [%consumable-starter-report ~]
       [%seed-fuel-evidence ~]

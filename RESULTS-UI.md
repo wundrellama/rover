@@ -1,5 +1,168 @@
 # Rover UI milestone results
 
+## 2026-07-29 default-vehicle statistics and clean demo data
+
+This slice started from `master` at
+`6f315783cfd31ad64cf7b5878750e31b35db18ae`. It keeps stock Obelisk on
+`dev` `2b72856e9fc0ca50391eb653540edf6574bffd04`; Rover's copied developer
+mold and the pinned upstream mold both still hash to
+`c74bf1c911b61b7abb4de8c98b28b30d684e5e3c0b10a0c65f759f64ee9f93dd`.
+
+The checks for fixtures 63-69 were added before their implementations. These
+are representative observed RED results from the real `~binbel` pier and
+headless Chromium, not synthetic failures:
+
+```console
+ui-test: FAIL - fixture 63 statistics screen lacks an explicit vehicle scope
+ui-test: FAIL - fixture 64 statistics header lacks the single scope-name marker
+ui-test: FAIL - fixture 65 Chromium statistics selector check failed
+Error: economy-by-subtype leaks a row outside Rover Demo Diesel
+ui-test: FAIL - fixture 66 no-default state selected or pooled vehicle rows: Rover Demo Gasoline|Rover Demo Gasoline|36
+ui-test: FAIL - fixture 67 five fuel-statistics hub readouts are not explicitly scoped to the default vehicle
+ui-test: FAIL - fixture 68 served Energy Source set is not exactly the eight starters; actual labels: CNG|Demo Diesel Energy|Demo Gasoline Energy|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane
+ui-test: FAIL - fixture 69 demo fill energy-definition IDs do not match starter rows: [('Rover Demo Diesel', 'Demo Diesel Energy', True), ('Rover Demo Gasoline', 'Demo Gasoline Energy', True)]
+```
+
+The final authenticated run against `http://localhost:8085` passed every new
+assertion. Fixture 65 compares the visible body of all seven tables before and
+after a real selector change. Fixture 66 removes the singleton through real
+Obelisk, checks the rendered browser state, and restores it through Rover's
+HTTP route. Fixture 68 checks the exact dropdown both before and after demo
+seeding.
+
+```console
+$ ROVER_DEMO_ONLY=1 bash bin/ui-test.sh "$HOME/piers/rover-binbel"
+ui-test: fixture 68 PASS - served Energy Source set is exactly the eight starters with zero Demo definitions
+ui-test: fixture 68 PASS - post-seed Energy Source set remains exactly the eight starters with zero Demo definitions
+ui-test: fixture 63 PASS - statistics exposes the app-default scope and selector with zero Vehicle table columns
+ui-test: fixture 64 PASS - the header names Rover Demo Gasoline exactly once as the statistics subject
+ui-test: fixture 65 PASS - selector changed the header and all seven statistics tables from gasoline to diesel
+ui-test: fixture 66 PASS - absent app default is stated plainly; selector remains; zero vehicle rows are pooled
+ui-test: fixture 67 PASS - all five fuel-statistics hub readouts remain scoped to Rover Demo Gasoline despite diesel fills
+ui-test: fixture 69 PASS - demo fills use starter Gasoline/Diesel IDs and starter 87/93/#2/B20 subtype IDs
+ui-test: fixture 59 PASS - every statistics table renders a computed demo row
+ui-test: fixture 61 PASS - DEF economy is 500.000 mi/gal DEF and diesel fuel economy is byte-identical before and after DEF purchases
+```
+
+The fixture harness itself was mutation-checked: changing fixture 65's
+expected header to `WRONG HEADER` in a temporary copy made the real browser
+run exit 1 at fixture 65.
+
+### Statistics scope and served artifact
+
+The Statistics screen reads the `app-default-vehicle` singleton on load, uses
+the same label-valued selector pattern as History, and hides every row outside
+that scope. A selector change updates the header and all tables together. If
+the singleton is absent, the header says `No default vehicle set.`, the
+selector remains available, and no vehicle row is shown. Every repeated
+`Vehicle` column was removed.
+
+The deliverable is
+[`artifacts/served-statistics.html`](artifacts/served-statistics.html). It is
+the authenticated Chromium DOM captured after the default-vehicle filter ran,
+not a handwritten example:
+
+```console
+vehicle_headers=0
+gasoline_rows=37
+diesel_rows=0
+scope_headings=1
+tables=7
+computed_mpg=27.000 mpg|28.000 mpg|29.000 mpg|30.000 mpg
+```
+
+The selector still offers `Rover Demo Diesel`; its data rows are absent from
+this gasoline-scoped capture. Switching to it is what fixture 65 checks.
+
+The hub already used the app-default ID for current odometer, tank/DEF
+configuration, and its actions. The five named fuel-statistics cards were
+hard-coded `Unavailable` placeholders, so they did not yet calculate or pool
+either vehicle's figures. This slice gives all five the same explicit
+app-default/no-default scope metadata. Fixture 67 proves the cards are marked
+for `Rover Demo Gasoline` and never for the second vehicle while both
+vehicles' fills are present. It does not claim that the still-unimplemented
+hub summaries calculate values.
+
+### Demo definitions and live relational IDs
+
+Fresh demo seeding now resolves exactly one active starter `Gasoline`,
+`Diesel`, `87`, `93`, `#2`, and `B20` row, then passes those IDs into the
+single atomic mutation script. It does not insert energy definitions or
+subtypes. The compatibility branch repaired the already-served legacy demo in
+one mutation-only script, repointed its vehicle defaults, acquisitions, and
+subtype links, then deleted the obsolete demo definitions and subtypes.
+
+The live Obelisk report proves the joined IDs, not only their labels:
+
+```text
+Rover Demo Gasoline
+  definition = starter Gasoline = 0x90d3f6144652239d3d4acfe6d9d18f19
+  subtype 87 = starter 87 = 0x90d3f6144652239d3d4acfe6d9d18f7e
+  subtype 93 = starter 93 = 0x90d3f6144652239d3d4acfe6d9d18f74
+Rover Demo Diesel
+  definition = starter Diesel = 0x90d3f6144652239d3d4acfe6d9d18f1a
+  subtype #2 = starter #2 = 0x90d3f6144652239d3d4acfe6d9d18fd1
+  subtype B20 = starter B20 = 0x90d3f6144652239d3d4acfe6d9d18fd5
+```
+
+For each subtype row, the report also asserts that its parent definition ID
+equals the fill acquisition's definition ID. The served Energy Source
+dropdown is exactly:
+
+```text
+CNG | Diesel | Electricity | Ethanol | Gasoline | Hydrogen | LNG | Propane
+```
+
+### Carried-forward gates
+
+The production changes were deployed to the separate accumulated-fixture
+`~wanbel` pier and the complete fixtures 1-54 browser battery exited zero.
+The source/runtime gates and unit generators also pass:
+
+```console
+$ bash bin/dev-pin-test.sh
+dev-pin-test: PASS - fixture 55 source gate - dev commit and compatibility mold SHA match
+$ bash bin/schema-test.sh "$HOME/piers/rover-binbel"
+schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
+$ click -k -i probes/run-test-render.hoon "$HOME/piers/rover-binbel"
+[0 %avow 0 %noun %render-tests-pass]
+$ click -k -i probes/run-test-pricing.hoon "$HOME/piers/rover-binbel"
+[0 %avow 0 %noun %pricing-tests-pass]
+$ click -k -i probes/run-test-entry.hoon "$HOME/piers/rover-binbel"
+[0 %avow 0 %noun %entry-tests-pass]
+```
+
+A separate starter-only `~sampel` pier was booted on the same brass-408k pill,
+loaded with the exact dev Obelisk desk and current Rover desk, poured once,
+seeded once, tested, and shut down cleanly. This avoids pretending the demo
+ship can exercise a no-fill state:
+
+```console
+$ ROVER_FRESH_ONLY=1 bash bin/ui-test.sh "$HOME/piers/rover-sampel"
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 68 PASS - served Energy Source set is exactly the eight starters with zero Demo definitions
+ui-test: fixture 57 PASS - fresh ship serves exact energy, subtype, additive, driving-mode, and consumable starter packs with zero scenario data
+ui-test: fixture 62 PASS - starter-only ship shows a no-data-yet instruction distinct from interval refusal reasons
+```
+
+On the final served ship, both Gall apps remain live on zuse 408:
+
+```console
+> +vats %obelisk
+  %cz hash ends in:       hujs5
+  app status:             running
+> +vats %rover
+  %cz hash ends in:       eomii
+  app status:             running
+$ ss -lntp | grep 'pid=1581177'
+LISTEN 0 16 127.0.0.1:12326 0.0.0.0:* users:(("urbit",pid=1581177,fd=155))
+LISTEN 0 16 0.0.0.0:8085    0.0.0.0:* users:(("urbit",pid=1581177,fd=154))
+```
+
+Fixtures 1-69: **PASS**. All browser checks used real Eyre authentication and
+real Obelisk state; no mock or pooled fallback is present.
+
 ## 2026-07-29 dev re-pin — Part 1 gate
 
 The Obelisk compatibility unit is now pinned to upstream `dev`

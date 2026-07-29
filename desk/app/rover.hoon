@@ -835,6 +835,13 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %demo-starter-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover demo-starter-report:act])
+        :_  this(pending (~(put by pending) wir 'demo-starter-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %rename-energy-source
         =/  wir=path  /rover-energy-rename/(scot %da now.bowl)
         =/  jon  !>([%tape %rover (energy-definition-lookup:act old-label.a)])
@@ -1116,11 +1123,79 @@
       ?:  ?=(%.n -.res)
         `this(last `res, pending (~(del by pending) wire))
       =/  existing  (rows-at:view p.res 0)
-      ?:  ?=(^ existing)
+      =/  gas-definition  (rows-at:view p.res 1)
+      =/  diesel-definition  (rows-at:view p.res 2)
+      =/  gas-87  (rows-at:view p.res 3)
+      =/  gas-93  (rows-at:view p.res 4)
+      =/  diesel-2  (rows-at:view p.res 5)
+      =/  diesel-b20  (rows-at:view p.res 6)
+      ?:  ?|  !=(1 (lent gas-definition))
+              !=(1 (lent diesel-definition))
+              !=(1 (lent gas-87))
+              !=(1 (lent gas-93))
+              !=(1 (lent diesel-2))
+              !=(1 (lent diesel-b20))
+          ==
         `this(last `res, pending (~(del by pending) wire))
+      ?^  existing
+        =/  gas-vehicle  (rows-at:view p.res 7)
+        =/  diesel-vehicle  (rows-at:view p.res 8)
+        =/  old-gas-definition  (rows-at:view p.res 9)
+        =/  old-diesel-definition  (rows-at:view p.res 10)
+        =/  old-gas-87  (rows-at:view p.res 11)
+        =/  old-gas-93  (rows-at:view p.res 12)
+        =/  old-diesel-2  (rows-at:view p.res 13)
+        =/  old-diesel-b20  (rows-at:view p.res 14)
+        ?:  ?|  !=(1 (lent gas-vehicle))
+                !=(1 (lent diesel-vehicle))
+                !=(1 (lent old-gas-definition))
+                !=(1 (lent old-diesel-definition))
+                !=(1 (lent old-gas-87))
+                !=(1 (lent old-gas-93))
+                !=(1 (lent old-diesel-2))
+                !=(1 (lent old-diesel-b20))
+            ==
+          `this(last `res, pending (~(del by pending) wire))
+        =/  repair=tape
+          %:  repair-demo-fuel:act
+              `@ux`(cell-atom:view %vehicle-id (snag 0 gas-vehicle))
+              `@ux`(cell-atom:view %vehicle-id (snag 0 diesel-vehicle))
+              `@ux`(cell-atom:view %energy-definition-id (snag 0 gas-definition))
+              `@ux`(cell-atom:view %energy-definition-id (snag 0 diesel-definition))
+              `@ux`(cell-atom:view %subtype-id (snag 0 gas-87))
+              `@ux`(cell-atom:view %subtype-id (snag 0 gas-93))
+              `@ux`(cell-atom:view %subtype-id (snag 0 diesel-2))
+              `@ux`(cell-atom:view %subtype-id (snag 0 diesel-b20))
+              `@ux`(cell-atom:view %energy-definition-id (snag 0 old-gas-definition))
+              `@ux`(cell-atom:view %energy-definition-id (snag 0 old-diesel-definition))
+              `@ux`(cell-atom:view %subtype-id (snag 0 old-gas-87))
+              `@ux`(cell-atom:view %subtype-id (snag 0 old-gas-93))
+              `@ux`(cell-atom:view %subtype-id (snag 0 old-diesel-2))
+              `@ux`(cell-atom:view %subtype-id (snag 0 old-diesel-b20))
+          ==
+        =/  repair-wire=path
+          /rover/demo-fuel-repair/(scot %da now.bowl)
+        =/  repair-json  !>([%tape %rover repair])
+        =/  repair-pending
+          (~(put by (~(del by pending) wire)) repair-wire 'repair-demo-fuel-write')
+        :_  this(pending repair-pending)
+        :~  [%pass repair-wire %agent [our.bowl %obelisk] %watch /server]
+            [%pass repair-wire %agent [our.bowl %obelisk] %poke %obelisk-action repair-json]
+        ==
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  write-wire=path  /rover/demo-fuel-write/(scot %da now.bowl)
-      =/  jon  !>([%tape %rover (seed-demo-fuel:act base now.bowl)])
+      =/  script=tape
+        %:  seed-demo-fuel:act
+            base
+            now.bowl
+            `@ux`(cell-atom:view %energy-definition-id (snag 0 gas-definition))
+            `@ux`(cell-atom:view %energy-definition-id (snag 0 diesel-definition))
+            `@ux`(cell-atom:view %subtype-id (snag 0 gas-87))
+            `@ux`(cell-atom:view %subtype-id (snag 0 gas-93))
+            `@ux`(cell-atom:view %subtype-id (snag 0 diesel-2))
+            `@ux`(cell-atom:view %subtype-id (snag 0 diesel-b20))
+        ==
+      =/  jon  !>([%tape %rover script])
       =/  next-pending
         (~(put by (~(del by pending) wire)) write-wire 'seed-demo-fuel-write')
       :_  this(pending next-pending)

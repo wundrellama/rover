@@ -1,0 +1,406 @@
+<!-- Authenticated Eyre DOM after default-vehicle filtering. -->
+<section id="statistics-screen" class="app-screen">
+  <button type="button" class="back-control" data-open-screen="main-hub">
+    ‹ MAIN
+  </button>
+  <header class="view-header">
+    <p class="eyebrow">ROVER ANALYSIS</p>
+    <h1>STATISTICS</h1>
+    <p
+      id="statistics-vehicle-name"
+      data-statistics-scope-heading=""
+      data-statistics-vehicle="Rover Demo Gasoline"
+    >
+      Rover Demo Gasoline
+    </p>
+  </header>
+  <label
+    >Vehicle<select id="statistics-vehicle-select">
+      <option value="Rover Demo Gasoline">Rover Demo Gasoline</option>
+      <option value="Rover Demo Diesel">Rover Demo Diesel</option>
+    </select></label
+  >
+  <p id="statistics-empty" class="empty" hidden="">
+    No statistics are recorded for this vehicle.
+  </p>
+  <section class="stat-table" data-statistic="economy-by-subtype">
+    <h2>Economy per fill by fuel subtype</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Fuel subtype</th>
+          <th>Economy</th>
+          <th>Eligibility</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-economy-vehicle="Rover Demo Gasoline"
+          data-economy="Unavailable"
+        >
+          <td>2026-07-01 12:00:00</td>
+          <td>87</td>
+          <td>Unavailable</td>
+          <td>An eligible adjacent full-fill interval is required.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-economy-vehicle="Rover Demo Gasoline"
+          data-economy="30.000 mpg"
+        >
+          <td>2026-07-02 12:00:00</td>
+          <td>93</td>
+          <td>30.000 mpg</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-economy-vehicle="Rover Demo Gasoline"
+          data-economy="28.000 mpg"
+        >
+          <td>2026-07-03 12:00:00</td>
+          <td>87</td>
+          <td>28.000 mpg</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-economy-vehicle="Rover Demo Gasoline"
+          data-economy="Unavailable"
+          data-economy-break="%missed-fill"
+        >
+          <td>2026-07-04 12:00:00</td>
+          <td>93</td>
+          <td>Unavailable</td>
+          <td>%missed-fill breaks this interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-economy-vehicle="Rover Demo Gasoline"
+          data-economy="27.000 mpg"
+        >
+          <td>2026-07-05 12:00:00</td>
+          <td>87</td>
+          <td>27.000 mpg</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-economy-vehicle="Rover Demo Gasoline"
+          data-economy="29.000 mpg"
+        >
+          <td>2026-07-06 12:00:00</td>
+          <td>93</td>
+          <td>29.000 mpg</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  <section class="stat-table" data-statistic="fuel-costs">
+    <h2>Fuel costs</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Total cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-fuel-cost="$33.99"
+        >
+          <td>2026-07-01 12:00:00</td>
+          <td>$33.99</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-fuel-cost="$34.99"
+        >
+          <td>2026-07-02 12:00:00</td>
+          <td>$34.99</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-fuel-cost="$38.05"
+        >
+          <td>2026-07-03 12:00:00</td>
+          <td>$38.05</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-fuel-cost="$35.79"
+        >
+          <td>2026-07-04 12:00:00</td>
+          <td>$35.79</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-fuel-cost="$41.15"
+        >
+          <td>2026-07-05 12:00:00</td>
+          <td>$41.15</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-fuel-cost="$36.19"
+        >
+          <td>2026-07-06 12:00:00</td>
+          <td>$36.19</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  <section class="stat-table" data-statistic="distance-between-fills">
+    <h2>Distance between fills</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Distance</th>
+          <th>Eligibility</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-statistics-vehicle="Rover Demo Gasoline">
+          <td>2026-07-01 12:00:00</td>
+          <td>Unavailable</td>
+          <td>Adjacent odometer-linked full fills are required.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-distance-between-fills="300.000 mi"
+        >
+          <td>2026-07-02 12:00:00</td>
+          <td>300.000 mi</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-distance-between-fills="308.000 mi"
+        >
+          <td>2026-07-03 12:00:00</td>
+          <td>308.000 mi</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-interval-break="%missed-fill"
+        >
+          <td>2026-07-04 12:00:00</td>
+          <td>Unavailable</td>
+          <td>%missed-fill breaks this interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-distance-between-fills="324.000 mi"
+        >
+          <td>2026-07-05 12:00:00</td>
+          <td>324.000 mi</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-distance-between-fills="290.000 mi"
+        >
+          <td>2026-07-06 12:00:00</td>
+          <td>290.000 mi</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  <section class="stat-table" data-statistic="time-between-fills">
+    <h2>Time between fills</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Elapsed time</th>
+          <th>Eligibility</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-statistics-vehicle="Rover Demo Gasoline">
+          <td>2026-07-01 12:00:00</td>
+          <td>Unavailable</td>
+          <td>
+            Two eligible ordered fills are required for the selected vehicle.
+          </td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-time-between-fills="24.000 h"
+        >
+          <td>2026-07-02 12:00:00</td>
+          <td>24.000 h</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-time-between-fills="24.000 h"
+        >
+          <td>2026-07-03 12:00:00</td>
+          <td>24.000 h</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-interval-break="%missed-fill"
+        >
+          <td>2026-07-04 12:00:00</td>
+          <td>Unavailable</td>
+          <td>%missed-fill breaks this interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-time-between-fills="24.000 h"
+        >
+          <td>2026-07-05 12:00:00</td>
+          <td>24.000 h</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-time-between-fills="24.000 h"
+        >
+          <td>2026-07-06 12:00:00</td>
+          <td>24.000 h</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  <section class="stat-table" data-statistic="average-price-per-unit">
+    <h2>Average price per unit</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Observed unit price</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-average-price="$3.399"
+        >
+          <td>2026-07-01 12:00:00</td>
+          <td>$3.399</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-average-price="$3.499"
+        >
+          <td>2026-07-02 12:00:00</td>
+          <td>$3.499</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-average-price="$3.459"
+        >
+          <td>2026-07-03 12:00:00</td>
+          <td>$3.459</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-average-price="$3.579"
+        >
+          <td>2026-07-04 12:00:00</td>
+          <td>$3.579</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-average-price="$3.429"
+        >
+          <td>2026-07-05 12:00:00</td>
+          <td>$3.429</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-average-price="$3.619"
+        >
+          <td>2026-07-06 12:00:00</td>
+          <td>$3.619</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  <section class="stat-table" data-statistic="distance-per-tank">
+    <h2>Distance per tank</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Estimated distance</th>
+          <th>Eligibility</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-statistics-vehicle="Rover Demo Gasoline">
+          <td>2026-07-01 12:00:00</td>
+          <td>Unavailable</td>
+          <td>
+            Tank size and an eligible economy interval are required; Rover never
+            guesses tank size.
+          </td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-distance-per-tank="465.000 mi"
+        >
+          <td>2026-07-02 12:00:00</td>
+          <td>465.000 mi</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-distance-per-tank="434.000 mi"
+        >
+          <td>2026-07-03 12:00:00</td>
+          <td>434.000 mi</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-interval-break="%missed-fill"
+        >
+          <td>2026-07-04 12:00:00</td>
+          <td>Unavailable</td>
+          <td>%missed-fill breaks this interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-distance-per-tank="418.500 mi"
+        >
+          <td>2026-07-05 12:00:00</td>
+          <td>418.500 mi</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+        <tr
+          data-statistics-vehicle="Rover Demo Gasoline"
+          data-distance-per-tank="449.500 mi"
+        >
+          <td>2026-07-06 12:00:00</td>
+          <td>449.500 mi</td>
+          <td>Eligible full-fill interval.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  <section class="stat-table" data-statistic="def-economy">
+    <h2>DEF economy</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Distance per DEF unit</th>
+          <th>Eligibility</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</section>
