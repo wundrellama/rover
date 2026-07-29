@@ -233,6 +233,14 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 35 ]; then
   exit 0
 fi
 
+edit_vehicle="Edit Vehicle $(date +%s%N)"
+edited_vehicle="$edit_vehicle Renamed"
+created_edit_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Gasoline"}' "$edit_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$created_edit_vehicle" = "Added vehicle - $edit_vehicle"$'\n201' ] \
+  || fail "fixture 36 setup vehicle failed: $created_edit_vehicle"
 vehicle_screen_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 vehicles_screen="${vehicle_screen_view#*id=\"vehicles-screen\"}"
 vehicles_screen="${vehicles_screen%%</section>*}"
@@ -254,14 +262,6 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 36 ]; then
   exit 0
 fi
 
-edit_vehicle="Edit Vehicle $(date +%s%N)"
-edited_vehicle="$edit_vehicle Renamed"
-created_edit_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
-  -H 'content-type: application/json' \
-  --data-raw "$(printf '{"label":"%s","energy":"Gasoline"}' "$edit_vehicle")" \
-  "$URL/apps/rover/add-vehicle")"
-[ "$created_edit_vehicle" = "Added vehicle - $edit_vehicle"$'\n201' ] \
-  || fail "fixture 37 setup vehicle failed: $created_edit_vehicle"
 edited_vehicle_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
   --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"18.5","tankUnit":"gal","defaultSubtype":"95"}' "$edit_vehicle" "$edited_vehicle")" \
@@ -328,8 +328,11 @@ for field in quantity price observed tank subtype station drivingMode averageSpe
   driveBalance notes paymentMethod mileage; do
   grep -Eq "name=\"$field\"" <<<"$fill_edit_html" \
     || fail "fixture 38 fill-edit screen lacks editable $field; actual form HTML: $fill_edit_html"
+  if grep -Eq "type=\"hidden\"[^>]*name=\"$field\"" <<<"$fill_edit_html"; then
+    fail "fixture 38 fill-edit screen hides $field instead of exposing an owner control; actual form HTML: $fill_edit_html"
+  fi
 done
-note "fixture 38 field gate PASS - fill-edit screen exposes every editable field"
+note "fixture 38 field gate PASS - fill-edit screen exposes owner controls (not hidden inputs) for every editable field"
 fill_edit_support="$(click_file "=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-fill-edit-support (crip \"$fill_edit_vehicle\")]))
@@ -342,7 +345,7 @@ grep -q '%noun 0' <<<"$fill_edit_support" \
   || fail "fixture 38 support definitions failed: $fill_edit_support"
 fill_edit_new_observed='2026-07-27T11:45'
 fill_edit_payload="$(
-  printf '{"vehicle":"%s","definition":"Gasoline","originalObserved":"%s","quantity":"11.111","price":"$3.59","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"Edit Station","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"95","missedFill":"no","drivingMode":"Mixed Driving","averageSpeed":"55.5","speedUnit":"mph","driveBalance":"64","tags":[],"newTag":"","notes":"Owner corrected every field","paymentMethod":"Personal Visa"}' \
+  printf '{"vehicle":"%s","definition":"Gasoline","originalObserved":"%s","quantity":"11.111","price":"$3.59","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"Edit Station","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":["Octane Booster"],"subtype":"95","missedFill":"no","drivingMode":"Mixed Driving","averageSpeed":"55.5","speedUnit":"mph","driveBalance":"64","tags":["Road Trip"],"newTag":"","notes":"Owner corrected every field","paymentMethod":"Personal Visa"}' \
     "$fill_edit_vehicle" "$fill_edit_observed" "$fill_edit_new_observed"
 )"
 fill_edit_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
@@ -369,7 +372,9 @@ for expected in \
   "\\[%digits 25717 555\\] \\[%decimals 25717 1\\]" \
   "\\[%highway-percent 25717 64\\]" \
   "\\[%note 116 'Owner corrected every field'\\]" \
-  "\\[%payment-method 116 'Personal Visa'\\]"; do
+  "\\[%payment-method 116 'Personal Visa'\\]" \
+  "\\[%additive 116 'Octane Booster'\\]" \
+  "\\[%tag 116 'Road Trip'\\]"; do
   grep -q "$expected" <<<"$fill_edit_report" \
     || fail "fixture 38 child field missing ($expected); actual: $fill_edit_report"
 done
@@ -378,6 +383,10 @@ grep -q 'value="11.111"' <<<"$fill_edit_rerender" \
   || fail "fixture 38 edited quantity did not re-render"
 grep -q '\$39\.99' <<<"$fill_edit_rerender" \
   || fail "fixture 38 edited derived total did not re-render"
+grep -Eq 'name="additives" value="Octane Booster" checked' <<<"$fill_edit_rerender" \
+  || fail "fixture 38 edited additive did not re-render as an editable selected control"
+grep -Eq 'name="tags" value="Road Trip" checked' <<<"$fill_edit_rerender" \
+  || fail "fixture 38 edited tag did not re-render as an editable selected control"
 note "fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact"
 if [ "${ROVER_FIXTURE_STOP:-}" = 38 ]; then
   exit 0
@@ -394,7 +403,7 @@ fill_edit_pre_odometer="$(click_file "=/  m  (strand ,vase)
 [ "$(grep -oF '[%vector-count 0]' <<<"$fill_edit_pre_odometer" | wc -l)" -eq 1 ] \
   || fail "fixture 39 target fill unexpectedly had an odometer link before edit: $fill_edit_pre_odometer"
 fill_edit_odometer_payload="$(
-  printf '{"vehicle":"%s","definition":"Gasoline","originalObserved":"%s","quantity":"11.111","price":"$3.59","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"20000.0","mileageUnit":"mi","station":"Edit Station","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"95","missedFill":"no","drivingMode":"Mixed Driving","averageSpeed":"55.5","speedUnit":"mph","driveBalance":"64","tags":[],"newTag":"","notes":"Owner corrected every field","paymentMethod":"Personal Visa"}' \
+  printf '{"vehicle":"%s","definition":"Gasoline","originalObserved":"%s","quantity":"11.111","price":"$3.59","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"20000.0","mileageUnit":"mi","station":"Edit Station","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":["Octane Booster"],"subtype":"95","missedFill":"no","drivingMode":"Mixed Driving","averageSpeed":"55.5","speedUnit":"mph","driveBalance":"64","tags":["Road Trip"],"newTag":"","notes":"Owner corrected every field","paymentMethod":"Personal Visa"}' \
     "$fill_edit_vehicle" "$fill_edit_new_observed" "$fill_edit_new_observed"
 )"
 fill_edit_odometer_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \

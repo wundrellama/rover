@@ -1298,6 +1298,8 @@
             (fixture-id:act base 922)
             (fixture-id:act base 923)
             (fixture-id:act base 924)
+            (fixture-id:act base 925)
+            (fixture-id:act base 926)
         ==
       =/  write-wire=path  /rover/fill-edit-support/(scot %da now.bowl)
       =/  jon

@@ -384,6 +384,56 @@
     rest
   ==
 ::
+++  selected-options
+  |=  $:  rows=(list vector:ast)
+          key=@tas
+          selected=(unit @t)
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (cell-text key i.rows)
+  ;:  weld
+    "<option value=\""
+    (escape label)
+    "\""
+    ?:  ?&  ?=(^ selected)
+            =(label u.selected)
+        ==
+      " selected"
+    ""
+    ">"
+    (escape label)
+    "</option>"
+    $(rows t.rows)
+  ==
+::
+++  selected-check-options
+  |=  $:  rows=(list vector:ast)
+          key=@tas
+          selected=(list vector:ast)
+          selected-key=@tas
+          name=@t
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (cell-text key i.rows)
+  ;:  weld
+    "<label class=\"check-option\"><input type=\"checkbox\" name=\""
+    (escape name)
+    "\" value=\""
+    (escape label)
+    "\""
+    ?:  ?=(^ (row-by-text selected-key label selected))
+      " checked"
+    ""
+    "><span>"
+    (escape label)
+    "</span></label>"
+    $(rows t.rows)
+  ==
+::
 ++  custom-field-controls
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1087,12 +1137,61 @@
   |=  $:  row=vector:ast
           vehicles=(list vector:ast)
           odometer-links=(list vector:ast)
+          stations=(list vector:ast)
+          station-links=(list vector:ast)
+          additives=(list vector:ast)
+          additive-links=(list vector:ast)
+          subtypes=(list vector:ast)
+          subtype-links=(list vector:ast)
+          driving-modes=(list vector:ast)
+          fill-driving-modes=(list vector:ast)
+          fill-average-speeds=(list vector:ast)
+          fill-drive-balances=(list vector:ast)
+          fill-notes=(list vector:ast)
+          fill-payment-links=(list vector:ast)
+          economy-breaks=(list vector:ast)
+          tags=(list vector:ast)
+          fill-tags=(list vector:ast)
           payment-methods=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle  (vehicle-label (cell-atom %vehicle-id row) vehicles)
   =/  acquisition  (cell-atom %acquisition-id row)
   =/  odometer  (rows-by %acquisition-id acquisition odometer-links)
+  =/  station-link  (rows-by %acquisition-id acquisition station-links)
+  =/  acquisition-additives  (rows-by %acquisition-id acquisition additive-links)
+  =/  subtype-link  (rows-by %acquisition-id acquisition subtype-links)
+  =/  mode-link  (rows-by %acquisition-id acquisition fill-driving-modes)
+  =/  speed-link  (rows-by %acquisition-id acquisition fill-average-speeds)
+  =/  balance-link  (rows-by %acquisition-id acquisition fill-drive-balances)
+  =/  note-link  (rows-by %acquisition-id acquisition fill-notes)
+  =/  payment-link  (rows-by %acquisition-id acquisition fill-payment-links)
+  =/  acquisition-tags  (rows-by %acquisition-id acquisition fill-tags)
+  =/  missed-fill  ?=(^ (rows-by %acquisition-id acquisition economy-breaks))
+  =/  station-selected=(unit @t)
+    ?~  station-link  ~  `(cell-text %station i.station-link)
+  =/  subtype-selected=(unit @t)
+    ?~  subtype-link  ~  `(cell-text %subtype i.subtype-link)
+  =/  mode-selected=(unit @t)
+    ?~  mode-link  ~  `(cell-text %driving-mode i.mode-link)
+  =/  payment-selected=(unit @t)
+    ?~  payment-link  ~  `(cell-text %payment-method i.payment-link)
+  =/  note-value=@t
+    ?~  note-link  ''  (cell-text %note i.note-link)
+  =/  mileage-value=tape
+    ?~  odometer
+      ~
+    (trip (format-scaled:render (cell-atom %value-digits i.odometer) (cell-atom %decimal-places i.odometer) %.n))
+  =/  mileage-unit=@tas
+    ?~  odometer  %mi  (cell-term %unit i.odometer)
+  =/  speed-value=tape
+    ?~  speed-link
+      ~
+    (trip (format-scaled:render (cell-atom %digits i.speed-link) (cell-atom %decimals i.speed-link) %.n))
+  =/  speed-unit=@tas
+    ?~  speed-link  %mph  (cell-term %speed-unit i.speed-link)
+  =/  balance-value=tape
+    ?~  balance-link  ~  (scow %ud (cell-atom %highway-percent i.balance-link))
   =/  quantity
     (format-quantity:render (cell-atom %quantity-milli row) (cell-term %quantity-unit row))
   =/  proof
@@ -1144,22 +1243,60 @@
     (escape vehicle)
     "\"><input type=\"hidden\" name=\"originalObserved\" value=\""
     observed-input
-    "\"><input type=\"hidden\" name=\"observed\" value=\""
+    "\"><label>Date and time<input type=\"datetime-local\" name=\"observed\" value=\""
     observed-input
-    "\"><input type=\"hidden\" name=\"definition\" value=\""
+    "\" required></label><input type=\"hidden\" name=\"definition\" value=\""
     (escape (cell-text %energy row))
     "\"><input type=\"hidden\" name=\"zone\" value=\""
     (escape (cell-text %source-zone row))
-    "\"><input type=\"hidden\" name=\"mileage\" value=\"\"><input type=\"hidden\" name=\"mileageUnit\" value=\"mi\"><input type=\"hidden\" name=\"station\" value=\"none\"><input type=\"hidden\" name=\"newStationLabel\" value=\"\"><input type=\"hidden\" name=\"newPlaceLabel\" value=\"\"><input type=\"hidden\" name=\"newStationKind\" value=\"private\"><input type=\"hidden\" name=\"subtype\" value=\"\"><input type=\"hidden\" name=\"missedFill\" value=\"no\"><input type=\"hidden\" name=\"drivingMode\" value=\"\"><input type=\"hidden\" name=\"averageSpeed\" value=\"\"><input type=\"hidden\" name=\"speedUnit\" value=\"mph\"><input type=\"hidden\" name=\"driveBalance\" value=\"\"><input type=\"hidden\" name=\"newTag\" value=\"\"><label>Notes<textarea name=\"notes\"></textarea></label><label>Payment Method<select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
-    (payment-options payment-methods)
+    "\"><label>Odometer <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"mileage\" inputmode=\"decimal\" value=\""
+    mileage-value
+    "\"><select name=\"mileageUnit\"><option value=\"mi\""
+    ?:(=(%mi mileage-unit) " selected" "")
+    ">mi</option><option value=\"km\""
+    ?:(=(%km mileage-unit) " selected" "")
+    ">km</option></select></div></label><label>Station <span class=\"optional\">optional</span><select name=\"station\"><option value=\"none\""
+    ?:  ?=(~ station-selected)  " selected"  ""
+    ">Not recorded</option>"
+    (selected-options stations %label station-selected)
+    "</select></label><input type=\"hidden\" name=\"newStationLabel\" value=\"\"><input type=\"hidden\" name=\"newPlaceLabel\" value=\"\"><input type=\"hidden\" name=\"newStationKind\" value=\"private\"><label>Fuel subtype <span class=\"optional\">optional</span><select name=\"subtype\"><option value=\"\""
+    ?:  ?=(~ subtype-selected)  " selected"  ""
+    ">Not recorded</option>"
+    (selected-options (rows-by-text %energy (cell-text %energy row) subtypes) %label subtype-selected)
+    "</select></label><fieldset><legend>Additives <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
+    (selected-check-options additives %label acquisition-additives %additive 'additives')
+    "</div></fieldset><fieldset><legend>Tags <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
+    (selected-check-options tags %label acquisition-tags %tag 'tags')
+    "</div></fieldset><label class=\"check-option\"><input type=\"checkbox\" name=\"missedFill\" value=\"yes\""
+    ?:(missed-fill " checked" "")
+    "><span>Missed fill</span></label><label>Driving mode <span class=\"optional\">optional</span><select name=\"drivingMode\"><option value=\"\""
+    ?:  ?=(~ mode-selected)  " selected"  ""
+    ">Not recorded</option>"
+    (selected-options (rows-by-text %vehicle vehicle driving-modes) %label mode-selected)
+    "</select></label><label>Average speed <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"averageSpeed\" inputmode=\"decimal\" value=\""
+    speed-value
+    "\"><select name=\"speedUnit\"><option value=\"mph\""
+    ?:(=(%mph speed-unit) " selected" "")
+    ">mph</option><option value=\"kph\""
+    ?:(=(%kph speed-unit) " selected" "")
+    ">km/h</option></select></div></label><label>Highway driving percent <span class=\"optional\">optional</span><input name=\"driveBalance\" type=\"number\" min=\"0\" max=\"100\" value=\""
+    balance-value
+    "\"></label><input type=\"hidden\" name=\"newTag\" value=\"\"><label>Notes<textarea name=\"notes\">"
+    (escape note-value)
+    "</textarea></label><label>Payment Method<select name=\"paymentMethod\"><option value=\"\""
+    ?:  ?=(~ payment-selected)  " selected"  ""
+    ">Not recorded</option>"
+    (selected-options payment-methods %label payment-selected)
     "</select></label><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" value=\""
     (escape (format-scaled:render (cell-atom %quantity-milli row) 3 %.n))
     "\"></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" value=\""
     (escape (format-unit-price:render (cell-atom %unit-price-mills row) (cell-term %currency row)))
-    "\"></label><input type=\"hidden\" name=\"profile\" value=\""
+    "\"></label><label>Tank state<select name=\"tank\"><option value=\"full\""
+    ?:(=(%full (cell-term %tank-state row)) " selected" "")
+    ">Full</option><option value=\"partial\""
+    ?:(=(%partial (cell-term %tank-state row)) " selected" "")
+    ">Partial</option></select></label><input type=\"hidden\" name=\"profile\" value=\""
     (escape (scot %tas (cell-term %price-profile row)))
-    "\"><input type=\"hidden\" name=\"tank\" value=\""
-    (escape (scot %tas (cell-term %tank-state row)))
     "\"><input type=\"hidden\" name=\"settlement\" value=\""
     (escape (scot %tas (cell-term %settlement-mode row)))
     "\"><button type=\"submit\">Save changes</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></div></article>"
@@ -1170,13 +1307,20 @@
           fills=(list vector:ast)
           odometer-links=(list vector:ast)
           stations=(list vector:ast)
+          station-links=(list vector:ast)
+          additives=(list vector:ast)
+          additive-links=(list vector:ast)
           subtypes=(list vector:ast)
+          subtype-links=(list vector:ast)
           driving-modes=(list vector:ast)
           fill-driving-modes=(list vector:ast)
           fill-average-speeds=(list vector:ast)
           fill-drive-balances=(list vector:ast)
           fill-notes=(list vector:ast)
           fill-payment-links=(list vector:ast)
+          economy-breaks=(list vector:ast)
+          tags=(list vector:ast)
+          fill-tags=(list vector:ast)
           payment-methods=(list vector:ast)
       ==
   ^-  tape
@@ -1186,7 +1330,29 @@
     ^-  tape
     ?~  rows
       ~
-    (weld (history-row i.rows vehicles odometer-links payment-methods) $(rows t.rows))
+    =/  rendered
+      %:  history-row
+          i.rows
+          vehicles
+          odometer-links
+          stations
+          station-links
+          additives
+          additive-links
+          subtypes
+          subtype-links
+          driving-modes
+          fill-driving-modes
+          fill-average-speeds
+          fill-drive-balances
+          fill-notes
+          fill-payment-links
+          economy-breaks
+          tags
+          fill-tags
+          payment-methods
+      ==
+    (weld rendered $(rows t.rows))
   =/  rows=tape  (render-rows ordered)
   ;:  weld
     "<section id=\"history-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER LOG</p><h1>HISTORY</h1></header>"
@@ -1447,6 +1613,7 @@
   =/  fill-payment-links  (rows-at commands 28)
   =/  payment-methods  (rows-at commands 29)
   =/  consumables  (rows-at commands 30)
+  =/  fill-tags  (rows-at commands 31)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -1493,15 +1660,13 @@
       starter-html
       "</select></label><label>Additional Energy Sources<select name=\"additionalEnergy\" multiple>"
       starter-html
-      "</select></label><label>Allowed Subtypes<select name=\"allowedSubtypes\" multiple>"
-      starter-subtype-html
       "</select></label><label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
       starter-subtype-html
       "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\"></label><label>Tank Unit<select name=\"tankUnit\"><option value=\"gal\">gal</option><option value=\"litre\">litre</option></select></label><label>Driving Modes<input name=\"drivingModes\" placeholder=\"Normal, Economy, Sport\"></label><label>Distance Display<select name=\"distanceUnit\"><option value=\"native\">Source-native</option><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Currency Display<select name=\"currency\"><option value=\"usd\">USD</option><option value=\"eur\">EUR</option></select></label><button type=\"submit\">Save Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
       "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
-      (history-screen vehicles fills fill-odometers stations subtypes driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links payment-methods)
+      (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods)
       (statistics-screen fills vehicles subtype-links fill-odometers economy-breaks)
       (settings-screen custom-definitions)
     ==

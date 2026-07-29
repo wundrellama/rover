@@ -958,9 +958,10 @@
           event.preventDefault();
           const verdict = editForm.querySelector('output');
           verdict.value = 'Saving…';
-          const payload = Object.fromEntries(new FormData(editForm));
-          payload.additives = [];
-          payload.tags = [];
+          const formData = new FormData(editForm);
+          const payload = Object.fromEntries(formData);
+          payload.additives = formData.getAll('additives');
+          payload.tags = formData.getAll('tags');
           const response = await fetch('/apps/rover/edit-fill', {
             method: 'POST',
             credentials: 'same-origin',

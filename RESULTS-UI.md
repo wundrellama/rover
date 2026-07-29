@@ -1673,19 +1673,96 @@ that would contradict the 62-relation contract.
 
 The authenticated response fragments are included verbatim as:
 
-- [Main hub](artifacts/served-hub.html)
-- [Add Fill](artifacts/served-add-fill.html)
+- [Vehicles screen](artifacts/served-vehicles.html)
+- [Fill-edit form](artifacts/served-fill-edit.html)
 
-They were captured from the same persisted real-pier state used by the final
-battery. Exact artifact verification:
+They were captured from the persisted real-pier state used by the final
+44-fixture battery. The fill-edit artifact is the actual Eyre response, not a
+template or mock. Exact artifact verification:
 
 ```console
-$ sha256sum artifacts/served-hub.html artifacts/served-add-fill.html
-6b811ab313e43f061b0e667f58ef36e0bd5271fa1bb83d4b739805f95e3c68b6  artifacts/served-hub.html
-2454ccb17cc80a200af918bf8601688cca13c2dbeb2a3c3439dad2d56c4de553  artifacts/served-add-fill.html
+$ sha256sum artifacts/served-vehicles.html artifacts/served-fill-edit.html
+872c6c466bb55f50019f6f9763432b7a1d4b5b2b134f5d6575106a4e32a41266  artifacts/served-vehicles.html
+63c68f05315e1f2ab7065aa835a3092c87e5a47c0d64fce5af9c98d2f258f255  artifacts/served-fill-edit.html
 
-$ wc -c artifacts/served-hub.html artifacts/served-add-fill.html
- 1695 artifacts/served-hub.html
-16629 artifacts/served-add-fill.html
-18324 total
+$ wc -c artifacts/served-vehicles.html artifacts/served-fill-edit.html
+1971 artifacts/served-vehicles.html
+4496 artifacts/served-fill-edit.html
+6467 total
 ```
+
+The first implementation represented most fill fields as hidden inputs. The
+strengthened fixture correctly failed that served HTML. It now rejects hidden
+placeholders and requires owner-visible controls:
+
+```console
+ui-test: fixture 38 field gate PASS - fill-edit screen exposes owner controls (not hidden inputs) for every editable field
+ui-test: fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact
+```
+
+The same fixture links `Octane Booster` and `Road Trip`, reads both child
+rows back from Obelisk, and requires both to re-render as checked editable
+controls. The follow-up odometer-only edit submits and preserves both lists.
+
+## Final complete battery and clean handoff pier
+
+The final full run began from a snapshot containing only the 62-relation pour
+and starter packs. Fixture 36 initially failed because the assertion expected
+a list item without first creating a vehicle. Its setup now creates a live
+vehicle through Eyre before asserting list/settings navigation. The complete
+run then passed:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+ui-test: fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens
+ui-test: fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render
+ui-test: fixture 38 field gate PASS - fill-edit screen exposes owner controls (not hidden inputs) for every editable field
+ui-test: fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact
+ui-test: fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg
+ui-test: fixture 40 PASS - manual station persists owner address parts and scale-7 coordinates while omitted parts create no rows
+ui-test: fixture 41 PASS - name-only manual station writes no empty address rows and no zero-coordinate row
+ui-test: fixture 42 PASS - DEF purchase uses snapshotted exact pricing and remains outside fuel-economy derivation
+ui-test: fixture 43 PASS - charge persists its electricity subtype through charging-session-subtype
+ui-test: fixture 44 PASS - payment method is descriptive; settlement mode and derived total are identical with or without its link
+ui-test: fixture 19 PASS - Chromium measured every source subtype selectable with only the default preselected: ...
+ui-test: fixture 26 PASS - Chromium measured Tow / Haul for Structure Vehicle and zero modes for Mode Scope Vehicle: ...
+ui-test: fixture 28 PASS - Chromium measured single-source as a vehicle property; live PHEV HTTP already exposed fill and charge: ...
+ui-test: fixture 31 PASS - Chromium measured 390px overflow, stacking, and touch targets: ...
+ui-test: fixture 18 PASS - live Obelisk report ties the selected subtype to rating 93
+ui-test: fixture 23 PASS - live Obelisk counts stayed equal for unset balance and report stored asserted 73
+ui-test: fixture 27 PASS - live Obelisk counts stayed equal for zero tags and linked existing plus inline tags
+ui-test: fixture 22 PASS - live Obelisk break and served HTML both contain missed-fill
+ui-test: fixture 30 PASS - live History default/detail measurement and Obelisk edit round-trip rendered 3.333 / $12.00
+ui-test: fixture 24 PASS - live hub says tank size is not recorded instead of storing or rendering a sentinel
+ui-test: fixture 29 PASS - live hub combines human odometer units with concrete unavailable reasons
+ui-test: fixture 25 PASS - live HTTP and Obelisk report prove typed values, mandatory validation, and immutable used type
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+The final exercised pier was preserved as
+`/home/michael/piers/rover-bel-ui44-final-2`. The final served pier was restored
+from the pre-fixture snapshot, restarted, and re-audited:
+
+```console
+$ bash bin/schema-test.sh "$HOME/piers/rover-bel"
+schema-test: PASS - DDL has 62 unique tables, 68 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 62 relations; all 68 FK constraints (70 column rows) are RESTRICT; zero cascade/set-default
+
+$ ROVER_FIXTURE_STOP=32 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+
+$ ss -lntp | grep 'pid=960982,'
+LISTEN 0 16 127.0.0.1:12322 0.0.0.0:* users:(("urbit",pid=960982,fd=120))
+LISTEN 0 16 0.0.0.0:8081 0.0.0.0:* users:(("urbit",pid=960982,fd=119))
+```
+
+All **14 previously fake fixtures were converted to real, failable
+assertions**. All numbered fixtures 18-44 are verified; none is left
+UNVERIFIED.

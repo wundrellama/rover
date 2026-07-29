@@ -106,7 +106,7 @@
       odometer=@ux
   ==
 +$  fill-edit-support-ids
-  [place=@ux station=@ux payment=@ux mode=@ux]
+  [place=@ux station=@ux payment=@ux mode=@ux additive=@ux tag=@ux]
 ::
 ++  rover-db  %rover
 ::
@@ -401,7 +401,15 @@
     (scow %ux vehicle-id)
     ", "
     (scow %ux mode.ids)
-    ", N);"
+    ", N); INSERT INTO additive-definitions VALUES ("
+    (scow %ux additive.ids)
+    ", 'Octane Booster', N, "
+    (scow %da now)
+    "); INSERT INTO tag-definitions VALUES ("
+    (scow %ux tag.ids)
+    ", 'Road Trip', N, "
+    (scow %da now)
+    ");"
   ==
 ::
 ++  fill-edit-report
@@ -453,6 +461,16 @@
     "' AND A.observed-start = "
     (scow %da observed-start)
     " SELECT P.label AS payment-method; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT D.label AS additive; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT T.label AS tag; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = '"
     (sql-quote vehicle-label)
     "' AND A.observed-start = "
@@ -1204,6 +1222,7 @@
     " FROM fuel-fill-payment-method L JOIN payment-method-definitions P ON L.method-id = P.method-id SELECT L.acquisition-id, P.label AS payment-method;"
     " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
     " FROM consumable-definitions C SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;"
+    " FROM fuel-fill-tags L JOIN tag-definitions T ON L.tag-id = T.tag-id SELECT L.acquisition-id, T.label AS tag;"
   ==
 ::
 ++  sql-quote
