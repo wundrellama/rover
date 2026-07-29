@@ -642,6 +642,27 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %seed-starters
+        =/  wir=path  /rover-starter-check/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover starter-check:act])
+        :_  this(pending (~(put by pending) wir 'seed-starters-check'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %rename-energy-source
+        =/  wir=path  /rover-energy-rename/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (energy-definition-lookup:act old-label.a)])
+        :_  this(pending (~(put by pending) wir new-label.a))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %starter-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover starter-report:act])
+        :_  this(pending (~(put by pending) wir 'starter-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %seed-pricing
         =/  base=@ux  (cut 7 [0 1] eny.bowl)
         =/  ids=pricing-ids:act
@@ -844,6 +865,61 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-starter-check *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this(last `res)
+      =/  definitions  (rows-at:view p.res 0)
+      ?^  definitions
+        `this(last `res, pending (~(del by pending) wire))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  write-wire=path  /rover/starter-write/(scot %da now.bowl)
+      =/  jon  !>([%tape %rover (seed-starters:act base now.bowl)])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) write-wire 'seed-starters-write')
+      :_  this(pending next-pending)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-energy-rename *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  new-label  (~(get by pending) wire)
+      ?:  ?|  ?=(%.n -.res)
+              ?=(~ new-label)
+          ==
+        `this(last `res)
+      =/  definitions  (rows-at:view p.res 0)
+      ?.  =(1 (lent definitions))
+        `this(last `res)
+      =/  write-wire=path  /rover/energy-rename/(scot %da now.bowl)
+      =/  jon
+        !>([%tape %rover (rename-energy-definition:act `@ux`(cell-atom:view %energy-definition-id (snag 0 definitions)) u.new-label)])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) write-wire 'rename-energy-source')
+      :_  this(pending next-pending)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-custom-create *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact

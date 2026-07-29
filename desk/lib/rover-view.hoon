@@ -223,6 +223,25 @@
     rest
   ==
 ::
+++  starter-definition-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  =/  rest  (starter-definition-options t.rows)
+  ?:  archived
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\" data-starter-source>"
+    label
+    "</option>"
+    rest
+  ==
+::
 ++  default-subtype-data
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1143,6 +1162,7 @@
   =/  app-default  (rows-at commands 20)
   =/  tank-sizes  (rows-at commands 21)
   =/  fill-odometers  (rows-at commands 22)
+  =/  starter-definitions  (rows-at commands 23)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  default-id=(unit @)
@@ -1180,7 +1200,7 @@
       (main-hub app-default definition-rows odometers tank-sizes)
       (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><div id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><form id=\"vehicle-add-form\"><label>Vehicle name<input name=\"label\" required></label><label>Energy Source<select name=\"energy\">"
-      definition-html
+      (starter-definition-options starter-definitions)
       "</select></label><button type=\"submit\">Add Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
       "</div></section>"

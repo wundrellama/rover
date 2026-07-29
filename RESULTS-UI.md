@@ -1357,6 +1357,67 @@ LISTEN 0 16 0.0.0.0:8082 0.0.0.0:* users:(("urbit",pid=824227,fd=77))
 Result: **PASS** - fresh 62-relation pour, 68 all-RESTRICT constraints,
 zero forward references, exact DDL/arm parity, and both agents compile.
 
+## Fixtures 32-35 - starter taxonomy and copy safety
+
+Fixture 32 was installed before the production seed. RED on the fresh live
+62-table pier:
+
+```console
+$ ROVER_FIXTURE_STOP=32 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: FAIL - fixture 32 starter sources mismatch; actual served source labels: <none>
+```
+
+The seed then copied eight source definitions and 32 market-aware subtypes
+into owner-controlled Obelisk rows. The write used one mutation-only atomic
+script; its real result ended at 8 energy definitions, 32 subtypes, 11
+octane rows, and 9 blend rows. Rover first reads `energy-definitions`; when
+any owner definitions exist, repeating the installation seed is a no-op.
+It never issues `UPSERT` or rewrites a copy.
+
+Fixture 35's owner rename action was deliberately absent for the first
+combined run. Fixtures 33 and 34 passed, then the live poke failed at the
+missing action:
+
+```console
+$ ROVER_FIXTURE_STOP=35 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: FAIL - fixture 35 owner rename failed: [0 %avow 1 %thread-fail ... %rename-energy-source ...]
+```
+
+GREEN, after adding the Rover-authorized lookup/update path:
+
+```console
+$ ROVER_FIXTURE_STOP=35 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+```
+
+Fixture 33 creates one live Gasoline vehicle and one live Diesel vehicle,
+loads Rover in headless Chromium, dispatches each vehicle selector change,
+and reads only non-hidden subtype options. Fixture 34 checks the served
+labels and separately reads `%aki`/`%ron` from
+`energy-subtype-octane`. Fixture 35 renames the owner row, repeats the seed,
+asserts exactly eight definitions and no duplicate `Gasoline`, then restores
+the label and deletes its temporary vehicles through Rover.
+
+```console
+$ click -k -i probes/compile-rover.hoon "$HOME/piers/rover-bel" | tail -1
+[0 %avow 0 %noun 0]
+```
+
+Result: fixtures 32-35 **PASS** against real Eyre, Chromium, Rover Gall,
+and stock Obelisk.
+
 ## Served HTML review artifacts
 
 The authenticated response fragments are included verbatim as:

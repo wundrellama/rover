@@ -116,6 +116,143 @@
     `@ux`(add ordinal 1)
   candidate
 ::
+++  starter-definition
+  |=  [base=@ux ordinal=@ud label=tape kind=@tas unit=@tas now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ("
+    (scow %ux (fixture-id base ordinal))
+    ", '"
+    label
+    "', "
+    (sql-term kind)
+    ", "
+    (sql-term unit)
+    ", N, "
+    (scow %da now)
+    "); "
+  ==
+::
+++  starter-subtype
+  |=  [base=@ux ordinal=@ud definition-ordinal=@ud label=tape now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO energy-definition-subtypes VALUES ("
+    (scow %ux (fixture-id base ordinal))
+    ", "
+    (scow %ux (fixture-id base definition-ordinal))
+    ", '"
+    label
+    "', N, "
+    (scow %da now)
+    "); "
+  ==
+::
+++  starter-octane
+  |=  [base=@ux ordinal=@ud rating=@ud method=@tas]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO energy-subtype-octane VALUES ("
+    (scow %ux (fixture-id base ordinal))
+    ", "
+    (sql-ud rating)
+    ", "
+    (sql-term method)
+    "); "
+  ==
+::
+++  starter-blend
+  |=  [base=@ux ordinal=@ud kind=@tas percent=@ud]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO energy-subtype-blend VALUES ("
+    (scow %ux (fixture-id base ordinal))
+    ", "
+    (sql-term kind)
+    ", "
+    (sql-ud percent)
+    ", 0); "
+  ==
+::
+++  seed-starters
+  |=  [base=@ux now=@da]
+  ^-  tape
+  ;:  weld
+    (starter-definition base 1 "Gasoline" %reservoir %gal now)
+    (starter-definition base 2 "Diesel" %reservoir %gal now)
+    (starter-definition base 3 "Electricity" %electricity %kwh now)
+    (starter-definition base 4 "Propane" %reservoir %gal now)
+    (starter-definition base 5 "Hydrogen" %reservoir %kg now)
+    (starter-definition base 6 "CNG" %reservoir %kg now)
+    (starter-definition base 7 "LNG" %reservoir %kg now)
+    (starter-definition base 8 "Ethanol" %reservoir %gal now)
+    (starter-subtype base 101 1 "85" now)
+    (starter-subtype base 102 1 "87" now)
+    (starter-subtype base 103 1 "88" now)
+    (starter-subtype base 104 1 "89" now)
+    (starter-subtype base 105 1 "90" now)
+    (starter-subtype base 106 1 "91" now)
+    (starter-subtype base 107 1 "92" now)
+    (starter-subtype base 108 1 "93" now)
+    (starter-subtype base 109 1 "95" now)
+    (starter-subtype base 110 1 "98" now)
+    (starter-subtype base 111 1 "100" now)
+    (starter-octane base 101 85 %aki)
+    (starter-octane base 102 87 %aki)
+    (starter-octane base 103 88 %aki)
+    (starter-octane base 104 89 %aki)
+    (starter-octane base 105 90 %aki)
+    (starter-octane base 106 91 %aki)
+    (starter-octane base 107 92 %aki)
+    (starter-octane base 108 93 %aki)
+    (starter-octane base 109 95 %ron)
+    (starter-octane base 110 98 %ron)
+    (starter-octane base 111 100 %ron)
+    (starter-blend base 103 %ethanol 15)
+    (starter-blend base 109 %ethanol 10)
+    (starter-blend base 110 %ethanol 5)
+    (starter-blend base 111 %ethanol 5)
+    (starter-subtype base 201 2 "#2" now)
+    (starter-subtype base 202 2 "#1" now)
+    (starter-subtype base 203 2 "Winter" now)
+    (starter-subtype base 204 2 "Off-road (dyed)" now)
+    (starter-subtype base 205 2 "B20" now)
+    (starter-subtype base 206 2 "R99" now)
+    (starter-subtype base 207 2 "B7" now)
+    (starter-subtype base 208 2 "Premium" now)
+    (starter-subtype base 209 2 "Arctic" now)
+    (starter-subtype base 210 2 "HVO100" now)
+    (starter-blend base 205 %biodiesel 20)
+    (starter-blend base 206 %biodiesel 99)
+    (starter-blend base 207 %biodiesel 7)
+    (starter-subtype base 301 3 "DC Fast" now)
+    (starter-subtype base 302 3 "AC Level 2" now)
+    (starter-subtype base 303 3 "AC Level 1" now)
+    (starter-subtype base 401 4 "HD-5" now)
+    (starter-subtype base 402 4 "Autogas" now)
+    (starter-subtype base 501 5 "H70" now)
+    (starter-subtype base 502 5 "H35" now)
+    (starter-subtype base 601 6 "CNG" now)
+    (starter-subtype base 701 7 "LNG" now)
+    (starter-subtype base 801 8 "E85" now)
+    (starter-subtype base 802 8 "E100 hydrous" now)
+    (starter-blend base 801 %ethanol 85)
+    (starter-blend base 802 %ethanol 100)
+  ==
+::
+++  starter-check
+  ^-  tape
+  "FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.archived;"
+::
+++  starter-report
+  ^-  tape
+  ;:  weld
+    "FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id SELECT E.label AS energy, S.label AS subtype, S.archived; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; "
+    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals;"
+  ==
+::
 ++  pow-ten
   |=  exponent=@ud
   ^-  @ud
@@ -833,6 +970,7 @@
     " FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE A.scope = %app SELECT V.vehicle-id, V.label, A.recorded-at;"
     " FROM vehicle-tank-size T SELECT T.vehicle-id, T.digits, T.decimals, T.size-unit;"
     " FROM fuel-fill-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.acquisition-id, O.value-digits, O.decimal-places, O.unit;"
+    " FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived;"
   ==
 ::
 ++  sql-quote
@@ -985,6 +1123,17 @@
     "FROM energy-definitions E WHERE E.label = '"
     (sql-quote label)
     "' SELECT E.energy-definition-id, E.label, E.archived;"
+  ==
+::
+++  rename-energy-definition
+  |=  [definition-id=@ux new-label=@t]
+  ^-  tape
+  ;:  weld
+    "UPDATE energy-definitions SET label = '"
+    (sql-quote new-label)
+    "' WHERE energy-definition-id = "
+    (scow %ux definition-id)
+    ";"
   ==
 ::
 ++  insert-vehicle

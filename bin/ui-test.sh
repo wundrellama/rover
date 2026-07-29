@@ -50,6 +50,17 @@ read_structure_report() {
 (pure:m !>(result))'
 }
 
+read_starter_report() {
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%starter-report ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))'
+}
+
 CODE="$(derive_code "$PIER")"
 [ -n "$CODE" ] || fail "could not derive +code"
 JAR="$(mktemp /tmp/rover-ui-cookie.XXXXXX)"
@@ -86,6 +97,146 @@ note "UA 571-C palette, fonts, glow control, and mobile rules served"
 
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
+starter_sources="$(
+  VIEW="$view" python3 - <<'PY'
+import html
+import os
+import re
+
+document = html.unescape(os.environ["VIEW"])
+labels = re.findall(r'<option[^>]+data-starter-source[^>]*>([^<]+)</option>', document)
+print("|".join(sorted(set(label.strip() for label in labels))))
+PY
+)"
+[ "$starter_sources" = 'CNG|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane' ] \
+  || fail "fixture 32 starter sources mismatch; actual served source labels: ${starter_sources:-<none>}"
+if grep -Eq '>(Structure |Pricing |Location Fixture )' <<<"$view"; then
+  fail "fixture 32 fixture-debris definition remains in served live data"
+fi
+note "fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels"
+if [ "${ROVER_FIXTURE_STOP:-}" = 32 ]; then
+  exit 0
+fi
+
+gas_vehicle="Starter Gasoline $(date +%s%N)"
+diesel_vehicle="Starter Diesel $(date +%s%N)"
+for vehicle_source in "$gas_vehicle:Gasoline" "$diesel_vehicle:Diesel"; do
+  vehicle="${vehicle_source%:*}"
+  source="${vehicle_source##*:}"
+  created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{"label":"%s","energy":"%s"}' "$vehicle" "$source")" \
+    "$URL/apps/rover/add-vehicle")"
+  [ "$created" = "Added vehicle - $vehicle"$'\n201' ] \
+    || fail "fixture 33 could not create $source vehicle: $created"
+done
+
+PLAYWRIGHT_ROOT="${PLAYWRIGHT_ROOT:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules}"
+CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
+cascade="$(
+  URL="$URL" JAR="$JAR" GAS_VEHICLE="$gas_vehicle" DIESEL_VEHICLE="$diesel_vehicle" \
+    CHROMIUM_BIN="$CHROMIUM_BIN" NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
+const {chromium} = require('playwright');
+const fs = require('fs');
+(async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROMIUM_BIN
+  });
+  const page = await browser.newPage({viewport: {width: 390, height: 844}});
+  const raw = fs.readFileSync(process.env.JAR, 'utf8');
+  const cookie = raw.match(/urbauth-~bel\s+([^\s]+)/);
+  await page.context().addCookies([{
+    name: 'urbauth-~bel', value: cookie[1], domain: 'localhost', path: '/'
+  }]);
+  await page.goto(`${process.env.URL}/apps/rover`);
+  await page.locator('#fill-form').waitFor({state: 'attached'});
+  const read = async vehicle => {
+    await page.locator('#fill-form [name="vehicle"]').evaluate((select, label) => {
+      const option = [...select.options].find(candidate => candidate.textContent === label);
+      if (!option) throw new Error(`vehicle option missing: ${label}`);
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', {bubbles: true}));
+    }, vehicle);
+    return page.locator('#fill-form [name="subtype"]').evaluate(select =>
+      [...select.options]
+        .filter(option => option.dataset.definition && !option.hidden)
+        .map(option => option.value)
+        .sort()
+        .join('|')
+    );
+  };
+  const gasoline = await read(process.env.GAS_VEHICLE);
+  const diesel = await read(process.env.DIESEL_VEHICLE);
+  console.log(`gasoline=${gasoline} diesel=${diesel}`);
+  await browser.close();
+})().catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+NODE
+)"
+[ "$cascade" = 'gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter' ] \
+  || fail "fixture 33 cascading subtype mismatch; actual Chromium measurement: $cascade"
+note "fixture 33 PASS - Chromium selection exposes only source-owned subtypes: $cascade"
+
+starter_report="$(read_starter_report)"
+grep -q '\[%rating 25717 87\] \[%method %tas %aki\]' <<<"$starter_report" \
+  || fail "fixture 34 cannot read 87 AKI metadata from energy-subtype-octane; actual: $starter_report"
+grep -q '\[%rating 25717 95\] \[%method %tas %ron\]' <<<"$starter_report" \
+  || fail "fixture 34 cannot read 95 RON metadata from energy-subtype-octane; actual: $starter_report"
+starter_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q '>87</option>' <<<"$starter_view" \
+  || fail "fixture 34 human subtype label 87 is absent from live HTML"
+grep -q '>95</option>' <<<"$starter_view" \
+  || fail "fixture 34 human subtype label 95 is absent from live HTML"
+if grep -Eq '<option[^>]*>[^<]*(AKI|RON)[^<]*</option>' <<<"$starter_view"; then
+  fail "fixture 34 leaked AKI/RON into a subtype label"
+fi
+note "fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata"
+
+rename_result="$(click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%rename-energy-source (crip "Gasoline") (crip "Owner Gasoline Custom")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))')"
+grep -q '%noun 0' <<<"$rename_result" \
+  || fail "fixture 35 owner rename failed: $rename_result"
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s3)
+(pure:m !>(~))' >/dev/null
+renamed_report="$(read_starter_report)"
+[ "$(grep -o '\[%physical-kind ' <<<"$renamed_report" | wc -l)" -eq 8 ] \
+  || fail "fixture 35 re-seed changed owner source count; actual: $renamed_report"
+grep -q "\\[%label 116 'Owner Gasoline Custom'\\]" <<<"$renamed_report" \
+  || fail "fixture 35 re-seed overwrote owner rename; actual: $renamed_report"
+if grep -q "\\[%label 116 'Gasoline'\\]" <<<"$renamed_report"; then
+  fail "fixture 35 re-seed inserted a duplicate Gasoline owner row"
+fi
+note "fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite"
+
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%rename-energy-source (crip "Owner Gasoline Custom") (crip "Gasoline")]))
+;<  ~  bind:m  (sleep ~s2)
+(pure:m !>(~))' >/dev/null
+for vehicle in "$gas_vehicle" "$diesel_vehicle"; do
+  removed="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{"vehicle":"%s"}' "$vehicle")" \
+    "$URL/apps/rover/remove-vehicle")"
+  [ "$removed" = $'Removed vehicle\n201' ] \
+    || fail "fixture 33 cleanup failed for $vehicle: $removed"
+done
+if [ "${ROVER_FIXTURE_STOP:-}" = 35 ]; then
+  exit 0
+fi
+
 grep -q '<section id="main-hub"' <<<"$view" || fail "main hub is missing"
 grep -Eq 'DEFAULT VEHICLE NOT SET|Structure Vehicle|Mode Scope Vehicle' <<<"$view" ||
   fail "hub does not name its default state"
