@@ -1125,6 +1125,7 @@
       form.elements.observed.value = local.toISOString().slice(0, 16);
       form.elements.zone.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
       vehicle.addEventListener('change', () => {
+        subtype.value = '';
         syncDefinitions();
         syncDrivingModes();
       });

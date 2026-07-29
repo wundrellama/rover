@@ -1631,6 +1631,44 @@ served projections. Payment method remains descriptive; charge subtype is a
 charge-only link; consumables remain structurally outside energy acquisition
 and fuel-economy relations.
 
+## Complete legacy battery after 62-relation re-pour
+
+The fresh re-pour invalidated an old harness assumption: fixtures 18-31
+expected real support records but did not create them. The harness now pokes
+each required dataset through Rover, checks the returned live noun, and
+re-fetches the view from Eyre. No in-memory or HTTP mock was introduced.
+
+The complete legacy-only diagnostic command finished GREEN:
+
+```console
+$ ROVER_LEGACY_ONLY=1 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: fixture 19 PASS - Chromium measured every source subtype selectable with only the default preselected: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: fixture 26 PASS - Chromium measured Tow / Haul for Structure Vehicle and zero modes for Mode Scope Vehicle: ...
+ui-test: fixture 28 PASS - Chromium measured single-source as a vehicle property; live PHEV HTTP already exposed fill and charge: ...
+ui-test: fixture 31 PASS - Chromium measured 390px overflow, stacking, and touch targets: ...
+ui-test: fixture 18 PASS - live Obelisk report ties the selected subtype to rating 93
+ui-test: fixture 23 PASS - live Obelisk counts stayed equal for unset balance and report stored asserted 73
+ui-test: fixture 27 PASS - live Obelisk counts stayed equal for zero tags and linked existing plus inline tags
+ui-test: fixture 22 PASS - live Obelisk break and served HTML both contain missed-fill
+ui-test: fixture 30 PASS - live History default/detail measurement and Obelisk edit round-trip rendered 3.333 / $12.00
+ui-test: fixture 24 PASS - live hub says tank size is not recorded instead of storing or rendering a sentinel
+ui-test: fixture 29 PASS - live hub combines human odometer units with concrete unavailable reasons
+ui-test: fixture 25 PASS - live HTTP and Obelisk report prove typed values, mandatory validation, and immutable used type
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Fixtures 20 and 21 also report their live singleton and RESTRICT checks
+immediately before the Chromium measurement. Thus all **14 previously fake
+fixtures (18-31) now contain real assertions that can fail**. None is left
+UNVERIFIED.
+
+The ratified app-structure ruling says there is deliberately **no
+vehicle-level subtype narrowing**: every subtype of an allowed energy source
+must remain selectable, with only the per-vehicle default configurable.
+Accordingly Rover does not implement or claim an “allowed subtype” filter
+that would contradict the 62-relation contract.
+
 ## Served HTML review artifacts
 
 The authenticated response fragments are included verbatim as:

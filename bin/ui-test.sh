@@ -97,6 +97,7 @@ note "UA 571-C palette, fonts, glow control, and mobile rules served"
 
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
+if [ "${ROVER_LEGACY_ONLY:-}" != 1 ]; then
 starter_sources="$(
   python3 -c 'import html, re, sys
 document = html.unescape(sys.stdin.read())
@@ -594,6 +595,25 @@ note "fixture 44 PASS - payment method is descriptive; settlement mode and deriv
 if [ "${ROVER_FIXTURE_STOP:-}" = 44 ]; then
   exit 0
 fi
+fi
+
+if ! grep -q 'Phase A Vehicle' <<<"$view"; then
+  for support_action in seed-spike seed-app-structure seed-fuel-evidence \
+    seed-charging-evidence seed-charging-cost seed-consumption seed-location seed-pricing; do
+    support_result="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%$support_action ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+    grep -q '%noun 0' <<<"$support_result" \
+      || fail "real-substrate support seed failed ($support_action): $support_result"
+  done
+fi
+view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
+grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "seeded vehicle view not 200"
 
 grep -q '<section id="main-hub"' <<<"$view" || fail "main hub is missing"
 grep -Eq 'DEFAULT VEHICLE NOT SET|Structure Vehicle|Mode Scope Vehicle' <<<"$view" ||
@@ -678,7 +698,7 @@ fields = re.findall(r'data-fill-field="([^"]+)"', html)
 print(",".join(fields))
 PY
 )"
-[ "$field_order" = 'vehicle,odometer,previous-odometer,price,quantity,calculated-total,partial-fill,missed-fill,fuel-subtype,additive,station,driving-mode,average-speed,drive-balance,tags,custom-fields' ] \
+[ "$field_order" = 'vehicle,odometer,previous-odometer,price,quantity,calculated-total,partial-fill,missed-fill,fuel-subtype,additive,station,driving-mode,average-speed,drive-balance,tags,custom-fields,notes,payment-method' ] \
   || fail "Add Fill field order is wrong: $field_order"
 grep -q '>Calculated Total<' <<<"$fill_html" \
   || fail "Add Fill does not use the owner-facing Calculated Total name"
@@ -936,7 +956,7 @@ const fs = require('fs');
     );
     return {
       touch: minTouch >= 44,
-      stacked: getComputedStyle(document.querySelector('#vehicle-view'))
+      stacked: getComputedStyle(document.querySelector('#app'))
         .gridTemplateColumns === 'none',
       font: document.fonts.check('12px "Berkeley Mono"'),
       ordered,
@@ -951,10 +971,15 @@ const fs = require('fs');
     .evaluateAll((rows) => rows
       .filter((row) => !row.hidden)
       .every((row) => row.dataset.historyVehicle === 'Mode Scope Vehicle'));
-  await historyFilter.selectOption({label: 'Structure Vehicle'});
-  const firstHistoryRow = page.locator(
-    '[data-history-vehicle="Structure Vehicle"]:not([hidden])'
-  ).first();
+  const firstHistoryRow = page.locator('[data-history-vehicle]').first();
+  const historyTarget = await firstHistoryRow.getAttribute('data-history-vehicle');
+  await historyFilter.evaluate((select, target) => {
+    select.value = target;
+    select.dispatchEvent(new Event('change', {bubbles: true}));
+  }, historyTarget);
+  if (await firstHistoryRow.getAttribute('hidden') !== null) {
+    throw new Error(`${historyTarget} history row remained hidden after filter change`);
+  }
   await firstHistoryRow.locator('.history-record-toggle').click();
   const detailVisible =
     await firstHistoryRow.locator('.history-record-detail').isVisible();
