@@ -789,3 +789,38 @@ $ for probe in fuel-evidence-report location-report content-report; do
 Result: **PASS** - all 16 carried-forward browser fixtures remain green after
 the re-pour, and every existing subtype evidence/read path uses the new
 subtype layer.
+
+### Slice 3 - main hub
+
+The navigation/readout assertions were added before the hub renderer. RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: FAIL - main hub is missing
+```
+
+The served fragment now opens on `MAIN`; Vehicles, History, Statistics,
+Settings, Add Fill, Add Charge, and Add Odometer are separate hidden screens.
+Every screen that returns to the hub has an `&lsaquo; MAIN` control. On this
+fresh-install fixture, where `app-default-vehicle` is intentionally absent,
+all six readouts say `Unavailable` with `No default vehicle is set`, and the
+primary area explains how to choose or set one instead of guessing.
+
+GREEN is the full real-Eyre command recorded in Slice 2 above, with these
+additional assertions passing before the carried-forward checks:
+
+```console
+main hub: present
+secondary destinations: add-odometer, vehicles-screen, history-screen,
+                        statistics-screen, settings-screen
+readouts: MOST RECENT ODOMETER, ECONOMY - LAST FILL, ECONOMY - LIFETIME,
+          ESTIMATED DISTANCE TO NEXT FILL, BEST ECONOMY, WORST ECONOMY
+back destination label: &lsaquo; MAIN
+```
+
+Result: **PASS** - the hub is the initial screen, purpose-built destinations
+are one tap away, all back controls name `MAIN`, and unavailable fresh-state
+derivations carry human reasons.

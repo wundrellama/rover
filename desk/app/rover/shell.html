@@ -308,6 +308,67 @@
       color: var(--rv-warn);
     }
 
+    .app-screen[hidden] {
+      display: none;
+    }
+
+    .hub-header {
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--rv-olive);
+    }
+
+    .hub-primary,
+    .hub-readouts article {
+      position: relative;
+      padding: 1rem;
+      border: 1px solid var(--rv-olive);
+      background: var(--rv-bg-raised);
+    }
+
+    .hub-primary {
+      margin-bottom: 1rem;
+      border-color: var(--rv-amber);
+    }
+
+    .hub-primary p {
+      margin: 0;
+    }
+
+    .hub-actions,
+    .hub-readouts {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .hub-actions {
+      margin-bottom: 1rem;
+    }
+
+    .hub-readouts article {
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    .hub-readouts span,
+    .hub-readouts small {
+      color: var(--rv-amber-dim);
+    }
+
+    .hub-readouts span {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+    }
+
+    .hub-readouts strong {
+      color: var(--rv-warn);
+    }
+
+    .back-control {
+      width: auto;
+      margin-bottom: 1rem;
+      padding-inline: 0.75rem;
+    }
+
     .action-bar {
       display: grid;
       grid-template-columns: 1fr;
@@ -623,7 +684,7 @@
     }
 
     function bindEntryScreens() {
-      const screens = [...app.querySelectorAll('.entry-screen')];
+      const screens = [...app.querySelectorAll('.app-screen')];
       app.querySelectorAll('[data-open-screen]').forEach((button) => {
         button.addEventListener('click', () => {
           screens.forEach((screen) => {
@@ -634,7 +695,10 @@
       });
       app.querySelectorAll('[data-close-screen]').forEach((button) => {
         button.addEventListener('click', () => {
-          button.closest('.entry-screen').hidden = true;
+          screens.forEach((screen) => {
+            screen.hidden = screen.id !== 'main-hub';
+          });
+          document.getElementById('main-hub')?.scrollIntoView();
         });
       });
 

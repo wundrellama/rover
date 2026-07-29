@@ -75,6 +75,18 @@ note "UA 571-C palette, fonts, glow control, and mobile rules served"
 
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
+grep -q '<section id="main-hub"' <<<"$view" || fail "main hub is missing"
+grep -q 'DEFAULT VEHICLE NOT SET' <<<"$view" ||
+  fail "hub does not explain its fresh-install default state"
+for destination in add-odometer vehicles-screen history-screen statistics-screen settings-screen; do
+  grep -q "data-open-screen=\"$destination\"" <<<"$view" ||
+    fail "hub navigation is missing $destination"
+done
+for readout in 'MOST RECENT ODOMETER' 'ECONOMY - LAST FILL' 'ECONOMY - LIFETIME' \
+  'ESTIMATED DISTANCE TO NEXT FILL' 'BEST ECONOMY' 'WORST ECONOMY'; do
+  grep -q "$readout" <<<"$view" || fail "hub readout missing: $readout"
+done
+grep -q '&lsaquo; MAIN' <<<"$view" || fail "screens do not name MAIN in back controls"
 grep -q 'Phase A Vehicle' <<<"$view" || fail "vehicle view has no seeded vehicle"
 grep -Eq '[0-9]{1,3}(,[0-9]{3})+\.[0-9]+ (mi|km)' <<<"$view" \
   || fail "current odometer is not human-formatted"

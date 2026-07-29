@@ -194,6 +194,29 @@
     rest
   ==
 ::
+++  main-hub
+  ^-  tape
+  ;:  weld
+    "<section id=\"main-hub\" class=\"app-screen\">"
+    "<header class=\"hub-header\"><p class=\"eyebrow\">ROVER VEHICLE LOG</p><h1>MAIN</h1></header>"
+    "<section class=\"hub-primary\"><button type=\"button\" data-open-screen=\"add-fill\">Add Fill</button><p class=\"unavailable\">DEFAULT VEHICLE NOT SET - CHOOSE A VEHICLE ON THE ENTRY SCREEN OR SET ONE IN VEHICLES</p></section>"
+    "<nav class=\"hub-actions\" aria-label=\"Main actions\">"
+    "<button type=\"button\" data-open-screen=\"add-odometer\">Add Odometer Entry</button>"
+    "<button type=\"button\" data-open-screen=\"vehicles-screen\">Vehicles</button>"
+    "<button type=\"button\" data-open-screen=\"history-screen\">History</button>"
+    "<button type=\"button\" data-open-screen=\"statistics-screen\">Statistics</button>"
+    "<button type=\"button\" data-open-screen=\"settings-screen\">Settings</button>"
+    "</nav>"
+    "<section class=\"hub-readouts\" aria-label=\"Default vehicle readouts\">"
+    "<article><span>MOST RECENT ODOMETER</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
+    "<article><span>ECONOMY - LAST FILL</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
+    "<article><span>ECONOMY - LIFETIME</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
+    "<article><span>ESTIMATED DISTANCE TO NEXT FILL</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
+    "<article><span>BEST ECONOMY</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
+    "<article><span>WORST ECONOMY</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
+    "</section></section>"
+  ==
+::
 ++  entry-screens
   |=  $:  vehicles=(list vector:ast)
           definitions=(list vector:ast)
@@ -206,12 +229,8 @@
   =/  station-html  (station-options stations)
   =/  additive-html  (additive-options additives)
   ;:  weld
-    "<nav class=\"action-bar\" aria-label=\"Record actions\">"
-    "<button type=\"button\" data-open-screen=\"add-fill\">Add fill</button>"
-    "<button type=\"button\" data-open-screen=\"add-charge\">Add charge</button>"
-    "<button type=\"button\" data-open-screen=\"add-odometer\">Add odometer</button>"
-    "</nav>"
-    "<section id=\"add-fill\" class=\"entry-screen\" hidden>"
+    "<section id=\"add-fill\" class=\"entry-screen app-screen\" hidden>"
+    "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW ACQUISITION</p><h2>Add fill</h2></header>"
     "<form id=\"fill-form\">"
     "<label>Vehicle<select name=\"vehicle\" required>"
@@ -244,7 +263,8 @@
     "<div class=\"form-actions\"><button type=\"submit\">Save fill</button><button type=\"button\" data-close-screen>Cancel</button></div>"
     "<output id=\"fill-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
     "</form></section>"
-    "<section id=\"add-charge\" class=\"entry-screen\" hidden>"
+    "<section id=\"add-charge\" class=\"entry-screen app-screen\" hidden>"
+    "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW ACQUISITION</p><h2>Add charge</h2></header>"
     "<form id=\"charge-form\">"
     "<label>Vehicle<select name=\"vehicle\" required>"
@@ -265,7 +285,8 @@
     "<div class=\"form-actions\"><button type=\"submit\">Save charge</button><button type=\"button\" data-close-screen>Cancel</button></div>"
     "<output id=\"charge-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
     "</form></section>"
-    "<section id=\"add-odometer\" class=\"entry-screen\" hidden>"
+    "<section id=\"add-odometer\" class=\"entry-screen app-screen\" hidden>"
+    "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header>"
     "<form id=\"odometer-form\">"
     "<label>Vehicle<select name=\"vehicle\" required>"
@@ -624,10 +645,14 @@
     (weld card rest)
   =/  html=tape
     ;:  weld
+      main-hub
       (entry-screens vehicles definition-rows stations additives)
-      "<section id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header>"
+      "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><div id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
-      "</section>"
+      "</div></section>"
+      "<section id=\"history-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER LOG</p><h1>HISTORY</h1></header><p class=\"empty\">Select a vehicle to review its records.</p></section>"
+      "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header><p class=\"empty\">Statistics become available as eligible intervals are recorded.</p></section>"
+      "<section id=\"settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER CONFIGURATION</p><h1>SETTINGS</h1></header><p class=\"empty\">Theme, default vehicle, and custom fields.</p></section>"
     ==
   (crip html)
 --
