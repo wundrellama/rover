@@ -1,5 +1,5 @@
--- Rover M0 schema — full pour, 53 relations.
--- Adopted 2026-07-28 (Gate 6 + schema Q1-11 + app-structure Q1-7).
+-- Rover M0 schema — full pour, 62 relations.
+-- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -450,4 +450,89 @@ CREATE TABLE rover..custom-field-values-boolean
   (field-id @ux, parent-id @ux, value @f)
   PRIMARY KEY (field-id, parent-id)
   FOREIGN KEY (field-id) REFERENCES custom-field-definitions (field-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ============================================================
+-- IMPORT + CONSUMABLES ADDITIONS (ratified 2026-07-29)
+-- See ~/brain/projects/rover/import-format.md and app-structure.md
+-- ============================================================
+
+-- Payment method is DESCRIPTIVE and kept out of the arithmetic.
+-- settlement-mode (%standard/%cash) drives cash rounding; this does not.
+CREATE TABLE rover..payment-method-definitions
+  (method-id @ux, label @t, archived @f, recorded-at @da)
+  PRIMARY KEY (method-id);
+
+CREATE TABLE rover..fuel-fill-payment-method
+  (acquisition-id @ux, method-id @ux)
+  PRIMARY KEY (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (method-id) REFERENCES payment-method-definitions (method-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Present only when non-empty, so no empty-string sentinel.
+CREATE TABLE rover..fill-notes
+  (acquisition-id @ux, note @t)
+  PRIMARY KEY (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Electricity subtypes (DC Fast / AC L2 / AC L1) need a link too; the fuel
+-- link keys to fuel-fills and cannot serve a charge.
+CREATE TABLE rover..charging-session-subtype
+  (acquisition-id @ux, subtype-id @ux)
+  PRIMARY KEY (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES charging-sessions (acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (subtype-id) REFERENCES energy-definition-subtypes (subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- CONSUMABLES: DEF, washer fluid, oil, coolant. Bought by volume and priced
+-- per unit like fuel, but NOT energy - energy-acquisitions carries a mandatory
+-- energy-definition-id, so a consumable there would have to name an energy
+-- definition it does not have. Separate parent keeps consumables permanently
+-- out of every fuel-economy derivation.
+CREATE TABLE rover..consumable-definitions
+  (consumable-id @ux, label @t, quantity-unit @tas, archived @f, recorded-at @da)
+  PRIMARY KEY (consumable-id);
+
+CREATE TABLE rover..consumable-acquisitions
+  (consumable-acquisition-id @ux, vehicle-id @ux, consumable-id @ux,
+   observed-start @da, observed-end @da, observed-precision @tas,
+   source-zone @t, recorded-at @da)
+  PRIMARY KEY (consumable-acquisition-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (consumable-id) REFERENCES consumable-definitions (consumable-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Pricing columns deliberately mirror fuel-fills rather than sharing a table:
+-- sharing would put consumables back in the fuel path. Rounding rules are
+-- snapshotted per purchase so a later profile change cannot re-render history.
+CREATE TABLE rover..consumable-purchases
+  (consumable-acquisition-id @ux, quantity-milli @ud, quantity-unit @tas,
+   unit-price-mills @ud, currency @tas, settlement-mode @tas, price-profile @tas,
+   minor-unit-decimals @ud, cash-increment-mills @ud)
+  PRIMARY KEY (consumable-acquisition-id)
+  FOREIGN KEY (consumable-acquisition-id)
+    REFERENCES consumable-acquisitions (consumable-acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..consumable-acquisition-stations
+  (consumable-acquisition-id @ux, station-id @ux)
+  PRIMARY KEY (consumable-acquisition-id)
+  FOREIGN KEY (consumable-acquisition-id)
+    REFERENCES consumable-acquisitions (consumable-acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (station-id) REFERENCES stations (station-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..consumable-acquisition-odometers
+  (consumable-acquisition-id @ux, odometer-id @ux)
+  PRIMARY KEY (consumable-acquisition-id)
+  FOREIGN KEY (consumable-acquisition-id)
+    REFERENCES consumable-acquisitions (consumable-acquisition-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (odometer-id) REFERENCES odometer-observations (odometer-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
