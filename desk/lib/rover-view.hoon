@@ -946,6 +946,92 @@
     "</div><p id=\"history-empty\" class=\"empty\" hidden>No fill history for this vehicle.</p></section>"
   ==
 ::
+++  statistic-fill-rows
+  |=  $:  fills=(list vector:ast)
+          vehicles=(list vector:ast)
+          subtype-links=(list vector:ast)
+          mode=@tas
+      ==
+  ^-  tape
+  ?~  fills
+    ~
+  =/  row  i.fills
+  =/  acquisition  (cell-atom %acquisition-id row)
+  =/  subtype  (rows-by %acquisition-id acquisition subtype-links)
+  =/  date  (trip (format-da:render `@da`(cell-atom %observed-start row)))
+  =/  vehicle  (vehicle-label (cell-atom %vehicle-id row) vehicles)
+  =/  proof
+    %:  derive-fill-total:act
+        (cell-atom %quantity-milli row)
+        (cell-atom %unit-price-mills row)
+        (cell-atom %minor-unit-decimals row)
+        (cell-atom %cash-increment-mills row)
+        ;;(settlement-mode:rover (cell-term %settlement-mode row))
+    ==
+  =/  total
+    %:  format-total:render
+        total-mills.proof
+        (cell-term %currency row)
+        (cell-atom %minor-unit-decimals row)
+    ==
+  =/  price
+    (format-unit-price:render (cell-atom %unit-price-mills row) (cell-term %currency row))
+  =/  rendered=tape
+    ?+  mode  ~
+      %economy
+        ;:  weld
+          "<tr><td>"
+          date
+          "</td><td>"
+          ?:(?=(~ subtype) "Not recorded" (escape (cell-text %subtype i.subtype)))
+          "</td><td>Unavailable</td><td>An eligible adjacent full-fill interval is required.</td></tr>"
+        ==
+      %cost
+        ;:  weld
+          "<tr><td>"
+          date
+          "</td><td>"
+          (escape vehicle)
+          "</td><td>"
+          (escape total)
+          "</td></tr>"
+        ==
+      %price
+        ;:  weld
+          "<tr><td>"
+          date
+          "</td><td>"
+          (escape vehicle)
+          "</td><td>"
+          (escape price)
+          "</td></tr>"
+        ==
+    ==
+  (weld rendered $(fills t.fills))
+::
+++  statistics-screen
+  |=  $:  fills=(list vector:ast)
+          vehicles=(list vector:ast)
+          subtype-links=(list vector:ast)
+      ==
+  ^-  tape
+  =/  recent  (scag 12 (order-vectors:act %observed-start %.n fills))
+  ;:  weld
+    "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header>"
+    "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"
+    (statistic-fill-rows recent vehicles subtype-links %economy)
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"fuel-costs\"><h2>Fuel costs</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Total cost</th></tr></thead><tbody>"
+    (statistic-fill-rows recent vehicles subtype-links %cost)
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"distance-between-fills\"><h2>Distance between fills</h2><table><tbody><tr><td>Unavailable</td><td>Adjacent odometer-linked full fills are required.</td></tr></tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><tbody><tr><td>Unavailable</td><td>Two eligible ordered fills are required for the selected vehicle.</td></tr></tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Observed unit price</th></tr></thead><tbody>"
+    (statistic-fill-rows recent vehicles subtype-links %price)
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><tbody><tr><td>Unavailable</td><td>Tank size and an eligible economy interval are required; Rover never guesses tank size.</td></tr></tbody></table></section></section>"
+  ==
+::
 ++  page
   |=  commands=(list cmd-result:ast)
   ^-  @t
@@ -1012,7 +1098,7 @@
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
       "</div></section>"
       (history-screen vehicles fills fill-odometers)
-      "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header><p class=\"empty\">Statistics become available as eligible intervals are recorded.</p></section>"
+      (statistics-screen fills vehicles subtype-links)
       "<section id=\"settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER CONFIGURATION</p><h1>SETTINGS</h1></header><p class=\"empty\">Theme, default vehicle, and custom fields.</p></section>"
     ==
   (crip html)

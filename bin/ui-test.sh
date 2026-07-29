@@ -108,6 +108,16 @@ grep -q 'class="history-record-detail"' <<<"$view" \
   || fail "History rows do not open a record detail"
 grep -q 'class="history-edit-form"' <<<"$view" \
   || fail "History record detail lacks edit"
+for statistic in economy-by-subtype fuel-costs distance-between-fills \
+  time-between-fills average-price-per-unit distance-per-tank; do
+  grep -q "data-statistic=\"$statistic\"" <<<"$view" ||
+    fail "Statistics screen lacks table: $statistic"
+done
+statistics_html="${view#*id=\"statistics-screen\"}"
+statistics_html="${statistics_html%%id=\"settings-screen\"*}"
+if grep -Eqi '<(canvas|svg)|chart' <<<"$statistics_html"; then
+  fail "Statistics contains charting in the tables-only milestone"
+fi
 grep -q 'id="vehicle-add-form"' <<<"$view" \
   || fail "Vehicles screen lacks Add Vehicle"
 grep -q 'data-set-default-vehicle' <<<"$view" \

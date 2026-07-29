@@ -1074,3 +1074,45 @@ ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no g
 
 Result: **PASS** - Add Charge and Add Odometer are dedicated, named-back
 screens with default-vehicle initialization and real Obelisk write/readback.
+
+### Slice 8 - Statistics tables
+
+The six-table assertion ran against the placeholder first. RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: FAIL - Statistics screen lacks table: economy-by-subtype
+```
+
+Statistics now contains exactly the milestone's tabular families:
+
+- economy per fill by fuel subtype;
+- fuel costs;
+- distance between fills;
+- time between fills;
+- average price per unit; and
+- distance per tank.
+
+Recent real fills contribute human dates, vehicle labels, subtype labels,
+calculated totals, and unit prices. Ineligible distance/economy figures remain
+`Unavailable` beside their concrete requirements. Tank-dependent output says
+that Rover never guesses a tank size. No canvas, SVG, chart library, or chart
+markup is served.
+
+GREEN used the exact full command/output recorded in Slice 6, with all six
+`data-statistic` table assertions and the no-chart assertion passing before
+the write fixtures:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+...
+ui-test: History defaults to the app vehicle; row detail opens and edit round-trips through Obelisk
+...
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS** - Statistics is tables-only, uses real human-unit figures
+where available, and explains every unavailable derivation.
