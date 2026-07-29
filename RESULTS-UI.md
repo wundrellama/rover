@@ -1766,3 +1766,22 @@ LISTEN 0 16 0.0.0.0:8081 0.0.0.0:* users:(("urbit",pid=960982,fd=119))
 All **14 previously fake fixtures were converted to real, failable
 assertions**. All numbered fixtures 18-44 are verified; none is left
 UNVERIFIED.
+
+## Remaining non-fixture scope - UNVERIFIED
+
+Two vehicle-configuration requirements are not covered by fixtures 32-44 and
+are not complete in this tree:
+
+- changing a vehicle's linked energy-source set after creation;
+- creating or changing that vehicle's driving-mode membership.
+
+The settings paths for label, tank size, default subtype, and display
+preference are live and verified. The Add Vehicle HTML presents additional
+energy and driving-mode fields, but the current `add-vehicle` decoder persists
+only label and primary energy, so those two fields must not be reported as
+working. This is an honest **UNVERIFIED / NOT IMPLEMENTED** result, not a
+decorative pass.
+
+Vehicle-level subtype narrowing is different: it is intentionally absent
+under ratified app-structure ruling 8. Every subtype belonging to an allowed
+energy source remains selectable; only the default subtype is configurable.
