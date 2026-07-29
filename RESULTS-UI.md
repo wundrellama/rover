@@ -1,5 +1,65 @@
 # Rover UI milestone results
 
+## 2026-07-29 dev re-pin — Part 1 gate
+
+The Obelisk compatibility unit is now pinned to upstream `dev`
+`2b72856e9fc0ca50391eb653540edf6574bffd04`. The first source check was
+intentionally red against the old master mold:
+
+```console
+$ bash bin/dev-pin-test.sh
+dev-pin-test: FAIL - Rover AST SHA is c2507e65d513747a161c3f351ddb4d8582bfc98b3dccb3221519764b9e8ebddb (want c74bf1c911b61b7abb4de8c98b28b30d684e5e3c0b10a0c65f759f64ee9f93dd)
+```
+
+After copying the dev mold and porting Rover's exhaustive result variants:
+
+```console
+$ bash bin/dev-pin-test.sh
+dev-pin-test: PASS - fixture 55 source gate - dev commit and compatibility mold SHA match
+
+$ sha256sum desk/sur/obelisk-ast.hoon \
+> /tmp/rover-obelisk-2b72856e/desk/sur/obelisk-ast.hoon
+c74bf1c911b61b7abb4de8c98b28b30d684e5e3c0b10a0c65f759f64ee9f93dd  desk/sur/obelisk-ast.hoon
+c74bf1c911b61b7abb4de8c98b28b30d684e5e3c0b10a0c65f759f64ee9f93dd  /tmp/rover-obelisk-2b72856e/desk/sur/obelisk-ast.hoon
+```
+
+The dev reference-doc audit found no DDL grammar drift from master.
+`dml-insert.md` adds query-backed `INSERT`/`INSERT FORCE`; `scry.md` is new;
+`security-permissions.md` adds design notes. The 64-relation pour itself
+empirically exercises the multi-FK comma continuation grammar.
+
+The disposable gate ship is `~wanbel`, pier
+`~/piers/rover-wanbel`, Ames port `31361`, Eyre public port `8084`.
+The dojo proves the dev desk is live on zuse 408:
+
+```console
+> =ob -build-file /=obelisk=/app/obelisk/hoon
+> ?=(^ ob)
+%.y
+> +vats %obelisk
+%obelisk
+  /sys/kelvin:            [%zuse 408] [%zuse 409] [%zuse 410] [%zuse 411]
+  %cz hash ends in:       hujs5
+  essential desk:         no
+  app status:             running
+  source ship:            ~
+  pending updates:        ~
+  /desk/bill:             ~[%obelisk]
+> .^(@uv %cz /=obelisk=)
+0v4.g40be.9nhgs.tcmcf.7005e.knv1v.p931t.dl45l.1gham.s38hq.hujs5
+```
+
+The one atomic mutation-only script created all 64 relations on dev. The
+post-pour live metadata gate passed:
+
+```console
+$ bash bin/schema-test.sh "$HOME/piers/rover-wanbel"
+schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
+```
+
+Fixtures 55–56: **PASS**. Part 1's hard gate is closed.
+
 All browser fixtures use the real `~bel` pier at
 `~/piers/rover-bel`, real Eyre cookies, and the pinned stock
 `%obelisk`. No browser response is mocked.

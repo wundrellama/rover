@@ -61,13 +61,12 @@ renders as unavailable *with a reason*, never as zero or an estimate.
 | | |
 |---|---|
 | Pill | `brass-408k-1` (zuse 408) |
-| Obelisk | `master` @ `eecab1b` |
+| Obelisk | `dev` @ `2b72856e` |
 | Development ships | `~bel` and children, disposable |
 
-Obelisk's `dev` branch is the upstream-recommended source, but at commit `2b72856e` it
-requires `strandio`, which the 408 pill does not ship. `master` @ `eecab1b` compiles and
-runs on this pill. `AGENTS.md` records the checklist for returning to `dev` once the
-runtime allows it.
+Obelisk's upstream-recommended `dev` commit `2b72856e` compiles and runs on the
+brass-408k pill. The matching copied `sur/obelisk-ast.hoon` is verified by SHA-256;
+the agent and copied mold are treated as one compatibility unit.
 
 Because Rover embeds none of Obelisk's engine, changing that pin is a desk swap plus a
 mold re-copy plus a fixture run — no application logic changes.

@@ -2725,13 +2725,15 @@
   ?-  -.item
     %result-set  [%result-set (order-vectors key descending +.item)]
     %action      item
-    %relation    item
+    %relation-name  item
     %message     item
     %vector-count  item
     %server-time  item
     %security-time  item
     %schema-time  item
     %data-time   item
+    %relations   item
+    %select-relation  item
   ==
 ::
 ++  order-command-results
@@ -2752,12 +2754,14 @@
       [%result-set ?~(ordered ~ ~[i.ordered])]
     %vector-count  [%vector-count 1]
     %action      item
-    %relation    item
+    %relation-name  item
     %message     item
     %server-time  item
     %security-time  item
     %schema-time  item
     %data-time   item
+    %relations   item
+    %select-relation  item
   ==
 ::
 ++  latest-command-results

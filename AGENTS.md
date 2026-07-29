@@ -22,43 +22,23 @@ this order before writing or changing any code:
    and fail-closed reconciliation.
 
 Then the substrate docs (audit the exact checked-out commit, never "the dev
-branch"): master is the working pin on zuse 408. The dev commit `2b72856e`
-needs 409+ stdlib and does not compile on the brass-408k pill — see "Substrate
-pin" below. Docs: `/tmp/rover-obelisk-master/desk/doc/usr/reference/*` and
-`/tmp/rover-obelisk-master/desk/sur/obelisk-ast.hoon`.
+branch"): `/tmp/rover-obelisk-2b72856e/desk/doc/usr/reference/*` and
+`/tmp/rover-obelisk-2b72856e/desk/sur/obelisk-ast.hoon`.
 
 ## Substrate pin
 
-- **Working pin: Obelisk `master` @ `eecab1b8`** — the highest commit that
-  compiles on the brass-408k pill (zuse 408). Verified live on `~bel`.
-- The originally-targeted dev pin `2b72856e` imports `strandio` (409+) and
-  fails to compile on 408. Do **not** move to 409+ to chase it (user ruling).
-- Re-pin to a newer Obelisk only when the dev runtime itself moves past 408.
+- **Working pin: Obelisk `dev` @ `2b72856e`** — verified to compile and run on
+  the brass-408k pill (zuse 408). The matching copied
+  `sur/obelisk-ast.hoon` SHA-256 is
+  `c74bf1c911b61b7abb4de8c98b28b30d684e5e3c0b10a0c65f759f64ee9f93dd`.
+- The 2026-07-28 downgrade to `master` @ `eecab1b8` was based on a false
+  diagnosis. `strandio` is present on brass-408k; the actual `gall: failed`
+  came from an empty directory under `app/`.
 - Piers run `%base`'s bundled-claim conflict away by starting the agent with an
   explicit desk: `|start %obelisk %obelisk`.
-
-### Returning to `dev` (do this when 409+ becomes acceptable)
-
-The dev pin is the preferred substrate — it is what the creator recommends and it
-carries a single-table-query fast path master lacks. Rover is deliberately built so
-the switch is cheap. When the runtime moves past 408:
-
-1. Boot a pier on a pill whose zuse matches dev's requirement (dev needs `strandio`,
-   absent from brass-408k).
-2. `git -C /tmp/rover-obelisk-master fetch origin dev` and check out the intended
-   commit into a fresh worktree; re-audit `desk/doc/usr/reference/*` for grammar or
-   capability changes at that commit.
-3. Re-copy `desk/sur/obelisk-ast.hoon` into `desk/sur/` and SHA-verify it against the
-   checked-out commit. **The installed agent and Rover's copied molds are one
-   compatibility unit** — never mix a master `sur` with a dev agent.
-4. Re-run the full fixture battery in `RESULTS.md` before trusting the pin. The
-   creator intends releases to be non-breaking; verify rather than assume.
-5. Re-check the multi-FK continuation grammar — Rover's DDL depends on
-   `FOREIGN KEY (a) REFERENCES t (a) ..., (b) REFERENCES u (b) ...` parsing, which was
-   discovered empirically against master's parser.
-
-Nothing in Rover embeds Obelisk, so no Rover logic changes: the switch is a desk swap
-plus a mold re-copy plus re-running fixtures.
+- Before every desk commit, remove empty directories:
+  `find <pier>/<desk> -type d -empty -delete`. In particular, a stale empty
+  `app/debug/` makes Gall try to compile `/app//hoon`.
 
 ## Obelisk stays standalone
 
