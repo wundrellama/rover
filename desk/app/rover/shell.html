@@ -900,7 +900,7 @@
 
       app.querySelectorAll('[data-remove-vehicle]').forEach((button) => {
         button.addEventListener('click', async () => {
-          if (!confirm(`Remove ${button.dataset.vehicle}?`)) return;
+          if (!confirm(`Archive ${button.dataset.vehicle}? Its history will remain available.`)) return;
           const response = await fetch('/apps/rover/remove-vehicle', {
             method: 'POST',
             credentials: 'same-origin',
@@ -908,9 +908,60 @@
             body: JSON.stringify({vehicle: button.dataset.vehicle})
           });
           if (response.ok) await loadView();
+          else alert(await response.text());
         });
       });
       app.querySelectorAll('.vehicle-settings-form').forEach((settingsForm) => {
+        const defaultEnergy = settingsForm.elements.defaultEnergy;
+        const syncDefaultEnergy = () => {
+          if (!defaultEnergy) return;
+          const allowed = new Set(
+            [...settingsForm.querySelectorAll('[name="energySources"]:checked')]
+              .map((input) => input.value)
+          );
+          [...defaultEnergy.options].forEach((option) => {
+            if (!option.value) return;
+            option.hidden = !allowed.has(option.value);
+          });
+          if (defaultEnergy.selectedOptions[0]?.hidden) defaultEnergy.value = '';
+        };
+        settingsForm.querySelectorAll('[name="energySources"]').forEach((input) => {
+          input.addEventListener('change', syncDefaultEnergy);
+        });
+        syncDefaultEnergy();
+        settingsForm.querySelector('[data-add-energy-source]')?.addEventListener('click', async () => {
+          const label = prompt('Energy source label');
+          if (!label?.trim()) return;
+          const physicalKind =
+            confirm('Is this an electricity source? Choose Cancel for a reservoir fuel.')
+              ? 'electricity'
+              : 'reservoir';
+          const quantityUnit = prompt(
+            'Quantity unit: gal, litre, kg, or kwh',
+            physicalKind === 'electricity' ? 'kwh' : 'gal'
+          );
+          if (!quantityUnit?.trim()) return;
+          const response = await fetch('/apps/rover/add-energy-source-type', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({label: label.trim(), physicalKind, quantityUnit: quantityUnit.trim()})
+          });
+          settingsForm.querySelector('output').value = await response.text();
+          if (response.ok) await loadView();
+        });
+        settingsForm.querySelector('[data-add-driving-mode]')?.addEventListener('click', async () => {
+          const label = prompt('Driving mode label');
+          if (!label?.trim()) return;
+          const response = await fetch('/apps/rover/add-driving-mode-type', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({label: label.trim()})
+          });
+          settingsForm.querySelector('output').value = await response.text();
+          if (response.ok) await loadView();
+        });
         settingsForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = settingsForm.querySelector('output');
@@ -1004,6 +1055,12 @@
       });
 
       app.querySelectorAll('.history-edit-form').forEach((editForm) => {
+        const partial = editForm.elements.partialFill;
+        const syncTank = () => {
+          editForm.elements.tank.value = partial.checked ? 'partial' : 'full';
+        };
+        partial.addEventListener('change', syncTank);
+        syncTank();
         editForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = editForm.querySelector('output');
@@ -1096,6 +1153,7 @@
       const driveBalanceState = app.querySelector('#fill-drive-balance-state');
       const tagsToggle = app.querySelector('#fill-tags-toggle');
       const tagsPicker = app.querySelector('#fill-tags-picker');
+      const previousOdometer = app.querySelector('#fill-previous-odometer');
       if (defaultVehicle) vehicle.value = defaultVehicle;
 
       const syncDefinitions = () => {
@@ -1150,6 +1208,21 @@
         if (drivingMode.selectedOptions[0]?.hidden) drivingMode.value = '';
       };
 
+      const syncPreviousOdometer = () => {
+        const observed = form.elements.observed.value;
+        const prior = [...app.querySelectorAll('[data-odometer-observation]')]
+          .filter((marker) =>
+            marker.dataset.vehicle === vehicle.value &&
+            marker.dataset.observed < observed
+          )
+          .sort((left, right) =>
+            right.dataset.observed.localeCompare(left.dataset.observed)
+          )[0];
+        previousOdometer.value = prior
+          ? prior.dataset.reading
+          : 'Unavailable - this vehicle has no earlier odometer observation';
+      };
+
       const updatePreview = () => {
         const quantityMilli = parseScaled(quantity.value, 3);
         const priceMills = completedPrice(price.value, profile.value);
@@ -1179,7 +1252,9 @@
         subtype.value = '';
         syncDefinitions();
         syncDrivingModes();
+        syncPreviousOdometer();
       });
+      form.elements.observed.addEventListener('change', syncPreviousOdometer);
       definition.addEventListener('change', syncDefinitions);
       [quantity, price, profile, settlement].forEach((field) => {
         field.addEventListener('input', updatePreview);
@@ -1187,6 +1262,7 @@
       });
       syncDefinitions();
       syncDrivingModes();
+      syncPreviousOdometer();
       partialFill.addEventListener('change', () => {
         form.elements.tank.value = partialFill.checked ? 'partial' : 'full';
       });

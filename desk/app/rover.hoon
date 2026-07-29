@@ -379,6 +379,56 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ?:  ?|  =('/apps/rover/add-energy-source-type' url.request.req)
+            =('/apps/rover/add-driving-mode-type' url.request.req)
+        ==
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: configuration-type')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  object  (json-object:entry body-text)
+      ?~  object
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: configuration-type')) sat]
+      =/  label  (json-string:entry 'label' u.object)
+      ?:  ?|  ?=(~ label)
+              !(nonempty:entry u.label)
+          ==
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: configuration-type.label')) sat]
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  type=@tas
+        ?:  =('/apps/rover/add-energy-source-type' url.request.req)
+          %energy
+        %mode
+      =/  script=tape
+        ?:  =(%mode type)
+          (insert-driving-mode-type:act (fixture-id:act base 602) u.label now.bowl)
+        =/  kind-text  (json-string:entry 'physicalKind' u.object)
+        =/  unit-text  (json-string:entry 'quantityUnit' u.object)
+        ?:  ?|  ?=(~ kind-text)
+                ?=(~ unit-text)
+            ==
+          ~
+        =/  kind  (slaw %tas u.kind-text)
+        =/  unit  (slaw %tas u.unit-text)
+        ?:  ?|  ?=(~ kind)
+                ?=(~ unit)
+                !?=(?(%reservoir %electricity) u.kind)
+                !?=(?(%gal %litre %kg %kwh) u.unit)
+            ==
+          ~
+        (insert-energy-source-type:act (fixture-id:act base 601) u.label u.kind u.unit now.bowl)
+      ?~  script
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: configuration-type')) sat]
+      =/  wir=wire  /rover-type-create/[type]/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%tape %rover script])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir body-text)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  ?|  =('/apps/rover/archive-custom-field' url.request.req)
             =('/apps/rover/change-custom-field-type' url.request.req)
         ==
@@ -484,7 +534,7 @@
       ?:  ?=(%| -.decoded)
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
       =/  wir=wire  /rover-remove-lookup/(scot %da now.bowl)/[eyre-id]
-      =/  jon  !>([%tape %rover (vehicle-lookup:act vehicle-label.p.decoded)])
+      =/  jon  !>([%tape %rover (archive-vehicle-lookup:act vehicle-label.p.decoded)])
       =/  new-sat
         %_  sat
           pending  (~(put by pending.sat) wir 'remove-vehicle')
@@ -1497,6 +1547,23 @@
         ?~  energy-labels.p.decoded
           ~
         `(unique-ids:act p.energy-result)
+      =/  default-energy-id=(unit @ux)
+        ?~  default-energy.p.decoded
+          ~
+        =/  found
+          (row-by-text:view %label u.default-energy.p.decoded (rows-at:view p.res 3))
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %energy-definition-id u.found)
+      ?:  ?&  ?=(^ default-energy.p.decoded)
+              ?|  ?=(~ default-energy-id)
+                  ?&  ?=(^ resolved-energy-ids)
+                      !(has-id:act u.default-energy-id u.resolved-energy-ids)
+                  ==
+              ==
+          ==
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-allowed: vehicle.default-energy-source'))
       =/  current-mode-ids=(list @ux)
         %+  turn  (rows-at:view p.res 4)
         |=  row=vector:ast
@@ -1529,7 +1596,7 @@
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.consumable.DEF'))
       =/  write-wire=path  /rover-edit-vehicle-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
-        !>([%tape %rover (update-vehicle-settings:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) p.decoded subtype-id current-energy-ids resolved-energy-ids current-mode-ids resolved-mode-ids current-def def-consumable-id now.bowl)])
+        !>([%tape %rover (update-vehicle-settings:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) p.decoded subtype-id current-energy-ids resolved-energy-ids default-energy-id current-mode-ids resolved-mode-ids current-def def-consumable-id now.bowl)])
       =/  new-state
         %_  state
           pending  (~(put by (~(del by pending) wire)) write-wire u.body)
@@ -1615,6 +1682,32 @@
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
       :_  this
       (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs 'Created custom field'))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-type-create *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: configuration-type'))
+      =/  type=@tas
+        ?~  t.wire
+          %unknown
+        `@tas`i.t.wire
+      =/  message
+        ?:(=(%energy type) 'Created energy source type' 'Created driving mode type')
+      :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs message))
     ::
         %kick
       `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
@@ -1948,9 +2041,16 @@
       ?.  =(1 (lent vehicles))
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: remove-vehicle'))
+      =/  vehicle-id  `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+      =/  defaults  (rows-at:view p.res 1)
+      ?:  ?&  ?=(^ defaults)
+              =(vehicle-id (cell-atom:view %vehicle-id i.defaults))
+          ==
+        :_  this
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%default-vehicle: choose a new default before archiving'))
       =/  write-wire=path  /rover-remove-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
-        !>([%tape %rover (delete-vehicle:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)))])
+        !>([%tape %rover (archive-vehicle:act vehicle-id)])
       =/  new-state
         %_  state
           pending
@@ -1979,9 +2079,9 @@
         `this
       ?:  ?=(%.n -.res)
         :_  this
-        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%restricted: remove-vehicle'))
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%database-refused: archive-vehicle'))
       :_  this
-      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs 'Removed vehicle'))
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs 'Archived vehicle'))
     ::
         %kick
       `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))

@@ -907,6 +907,13 @@
     ?.  (nonempty u.subtype-text)
       ~
     `u.subtype-text
+  =/  energy-text  (json-string 'defaultEnergy' u.object)
+  =/  default-energy=(unit @t)
+    ?~  energy-text
+      ~
+    ?.  (nonempty u.energy-text)
+      ~
+    `u.energy-text
   =/  energy-labels  (json-strings 'energySources' u.object)
   =/  mode-labels  (json-strings 'drivingModes' u.object)
   ?.  ?&  ?~(energy-labels %.y (levy u.energy-labels nonempty))
@@ -943,7 +950,7 @@
           ?=(~ def-tank-size)
       ==
     [%| %bad-shape 'vehicle.def-tank-size']
-  [%& u.vehicle u.label tank-size default-subtype energy-labels mode-labels def-enabled def-tank-size]
+  [%& u.vehicle u.label tank-size default-subtype default-energy energy-labels mode-labels def-enabled def-tank-size]
 ::
 ++  decode-custom-definition
   |=  body=@t

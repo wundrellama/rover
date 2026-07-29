@@ -155,6 +155,7 @@
       label=@t
       tank-size=(unit scaled-entry)
       default-subtype=(unit @t)
+      default-energy=(unit @t)
       energy-labels=(unit (list @t))
       driving-mode-labels=(unit (list @t))
       def-enabled=(unit ?)

@@ -221,6 +221,207 @@ schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero for
 schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
 ```
 
+## 2026-07-29 statistics correctness, fill screen, and vehicle settings
+
+This slice started from the requested `master` HEAD `88b1cf3`. Stock Obelisk
+remains on the pinned `dev` commit `2b72856e`; no Obelisk engine source or pill
+changed.
+
+### Part 0: fixture isolation and owner recovery
+
+The contamination cause was in `bin/ui-test.sh`: scenario fixtures used the
+owner-facing `%rover` database. The battery now performs a synchronous,
+verified database swap before any fixture mutation:
+
+1. rename owner `%rover` to the private temporary `%rovertestowner`;
+2. create a fresh `%rover`, pour the real schema, and seed starters;
+3. execute every fixture against that disposable database;
+4. force-drop only the disposable `%rover` and rename `%rovertestowner` back;
+5. refuse cleanup if the backup database is absent.
+
+Both database transitions are checked through real
+`sys.sys.databases` queries. The `%tape` action is awaited through Obelisk's
+`/server` subscription; a failed rename cannot silently fall through into the
+owner database.
+
+The already-polluted owner database was preserved as a recovery database,
+`%roverfailed2`, and a clean owner `%rover` was rebuilt from the ratified
+schema, starters, and demo seed. The earlier measured polluted database is
+also preserved as `%rover-polluted-20260729`; neither recovery database is
+served by Rover. The final owner query was:
+
+```console
+[%vector [%label 116 'Rover Demo Gasoline'] [%archived 102 1] 0]
+[%vector [%label 116 'Rover Demo Diesel'] [%archived 102 1] 0]
+[%vector-count 2]
+```
+
+Fixture 75 then performed the complete battery and checked the restored
+owner-facing HTML:
+
+```console
+ui-test: fixture 75 PASS - after the full disposable battery the owner database serves only the two demo vehicles
+```
+
+### Parts 1 and 2: diagnosis against real rows
+
+The demo seed was not the economy defect. `Rover Demo Gasoline` has six full
+fills, every one linked through `fuel-fill-odometers`. In observed order, the
+real rows served during fixture 76 were:
+
+| Observed | Stored tank state | Odometer link |
+|---|---:|---:|
+| 2026-07-01 12:00:00 | full | 10,000 mi |
+| 2026-07-02 12:00:00 | full | 10,300 mi |
+| 2026-07-03 12:00:00 | full | 10,608 mi |
+| 2026-07-04 12:00:00 | full | 10,908 mi |
+| 2026-07-05 12:00:00 | full | 11,232 mi |
+| 2026-07-06 12:00:00 | full | 11,522 mi |
+
+Therefore eligible full-to-full intervals do exist. One interval is
+deliberately refused because its separate `%missed-fill` economy-break row
+makes it ineligible; the other intervals remain eligible. The defect was the
+hub derivation/presentation path: five fuel readouts were placeholders rather
+than calculations. The fix preserves every refusal rule and derives last,
+lifetime, best, worst, and distance-to-next-fill values from eligible linked
+intervals with integer arithmetic.
+
+Real output:
+
+```console
+ui-test: fixture 58 PASS - six full fills per demo vehicle render real interval economy: gas=27.000 mpg|28.000 mpg|29.000 mpg|30.000 mpg diesel=30.000 mpg|32.000 mpg|32.000 mpg|32.500 mpg|32.800 mpg
+ui-test: fixture 76 PASS - observed-order gasoline rows are odometer-linked full fills: 2026-07-01 12:00:00|full|10,000 mi;2026-07-02 12:00:00|full|10,300 mi;2026-07-03 12:00:00|full|10,608 mi;2026-07-04 12:00:00|full|10,908 mi;2026-07-05 12:00:00|full|11,232 mi;2026-07-06 12:00:00|full|11,522 mi;ELIGIBLE=yes;
+ui-test: fixture 77 PASS - every gasoline hub readout computes; DEF alone refuses with its factual no-purchase reason
+```
+
+For the tank-state disagreement, the stored rows are `%full`, and History's
+`Full` rendering matched that stored fact. The vehicle-settings rendering was
+the lying surface in the reported behavior. Both readers now render the same
+underlying `tank-state` as a `Partial fill` checkbox: unchecked for `%full`,
+checked for `%partial`. The edit form uses the same checkbox and maps it back
+to the existing column; there was no schema change.
+
+```console
+ui-test: fixture 78 PASS - History and vehicle settings both render the stored full state as an unchecked Partial fill checkbox
+```
+
+### Parts 3 through 7
+
+Part 3 derives Previous odometer reading from the selected vehicle's
+`odometer-observations`, choosing the most recent observation strictly before
+the fill timestamp. It does not depend on a form selection.
+
+```console
+ui-test: fixture 79 PASS - Add Fill derives 11,522 mi from the preceding gasoline observation and gives the factual no-earlier-observation refusal
+```
+
+Part 4 implements archive-only vehicle removal. Rover writes literal `Y`,
+never `DEFAULT`. Archived vehicles are removed from entry, History,
+Statistics, and default selectors, but appear under `View archived vehicles`
+with intact history. Archiving the app default is refused until the owner
+chooses another default. No outright-delete path was added.
+
+```console
+ui-test: fixture 80 PASS - literal-Y archive hides selectors, preserves history, and refuses the app default until redesignation
+```
+
+Part 5 replaces both multi-select list boxes with mobile-first checkbox groups
+and functional add-type buttons. The Chromium check measures the actual
+rendered controls at 390 px.
+
+```console
+ui-test: fixture 81 PASS - vehicle energy sources and driving modes are checkbox groups with add controls
+ui-test: fixture 81 PASS - at 390px checkbox/add controls have no horizontal overflow and every target is at least 44px
+ui-test: fixture 81 PASS - add controls persist new source/mode types and expose them as checkbox choices
+```
+
+Part 6 adds Default energy source to vehicle settings. Only currently allowed,
+active sources are offered. Rover validates membership before submitting the
+mutation; the existing composite FK remains the database backstop.
+
+```console
+ui-test: fixture 82 PASS - settings persists Gasoline as the default and rejects/offers no disallowed Diesel default
+```
+
+Part 7 replaces the per-fill price list titled as an average with one
+explicitly labelled lifetime aggregate per vehicle. The six snapshotted demo
+prices sum to 20,984 mills. Exact half-up division by six yields 3,497 mills,
+rendered `$3.497`. Mixed currency or quantity-unit contexts refuse rather than
+silently averaging incompatible prices.
+
+```console
+ui-test: fixture 83 PASS - one lifetime row reports the exact half-up mean $3.497 from six fills
+```
+
+The other aggregate-labelled statistics were audited. Economy and
+distance-per-tank remain interval tables and are labelled as such; fuel costs,
+distance-between-fills, and time-between-fills are factual per-event/per-
+interval tables rather than claims of an aggregate.
+
+### Served HTML
+
+The full authenticated Eyre/Chromium run wrote the exact served fragments:
+
+- `artifacts/served-statistics.html` — 13,039 bytes; includes the scoped
+  Statistics screen and the single lifetime `$3.497` aggregate.
+- `artifacts/served-vehicle-settings.html` — 9,511 bytes; includes checkbox
+  memberships, add controls, Default energy source, Archive, the odometer
+  projection, and checkbox tank-state history.
+
+These are final owner-facing served DOM fragments, not source templates. They
+contain only `Rover Demo Gasoline` and `Rover Demo Diesel` as vehicle options;
+no fixture vehicle label is present.
+
+### Complete real-pier battery and coverage
+
+Command:
+
+```console
+$ ROVER_DEMO_ONLY=1 \
+    ROVER_STATISTICS_ARTIFACT="$PWD/artifacts/served-statistics.html" \
+    ROVER_SETTINGS_ARTIFACT="$PWD/artifacts/served-vehicle-settings.html" \
+    bin/ui-test.sh ~/piers/rover-binbel
+```
+
+Final required fixture output:
+
+```console
+ui-test: fixture 75 PASS - after the full disposable battery the owner database serves only the two demo vehicles
+ui-test: fixture 76 PASS - observed-order gasoline rows are odometer-linked full fills: 2026-07-01 12:00:00|full|10,000 mi;2026-07-02 12:00:00|full|10,300 mi;2026-07-03 12:00:00|full|10,608 mi;2026-07-04 12:00:00|full|10,908 mi;2026-07-05 12:00:00|full|11,232 mi;2026-07-06 12:00:00|full|11,522 mi;ELIGIBLE=yes;
+ui-test: fixture 77 PASS - every gasoline hub readout computes; DEF alone refuses with its factual no-purchase reason
+ui-test: fixture 78 PASS - History and vehicle settings both render the stored full state as an unchecked Partial fill checkbox
+ui-test: fixture 79 PASS - Add Fill derives 11,522 mi from the preceding gasoline observation and gives the factual no-earlier-observation refusal
+ui-test: fixture 80 PASS - literal-Y archive hides selectors, preserves history, and refuses the app default until redesignation
+ui-test: fixture 81 PASS - vehicle energy sources and driving modes are checkbox groups with add controls
+ui-test: fixture 81 PASS - at 390px checkbox/add controls have no horizontal overflow and every target is at least 44px
+ui-test: fixture 81 PASS - add controls persist new source/mode types and expose them as checkbox choices
+ui-test: fixture 82 PASS - settings persists Gasoline as the default and rejects/offers no disallowed Diesel default
+ui-test: fixture 83 PASS - one lifetime row reports the exact half-up mean $3.497 from six fills
+ui-test: COVERAGE - all 64 defined fixtures executed
+```
+
+Nothing was skipped.
+
+The schema/live-metadata battery also passed:
+
+```console
+$ bin/schema-test.sh ~/piers/rover-binbel
+schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
+```
+
+Pure Hoon test cores and source hygiene:
+
+```console
+[0 %avow 0 %noun %entry-tests-pass]
+[0 %avow 0 %noun %pricing-tests-pass]
+[0 %avow 0 %noun %render-tests-pass]
+ASCII PASS - all Hoon source is pure ASCII
+```
+
+The final live listener check matched `rover-binbel` PID `1581177` to HTTP
+`0.0.0.0:8085`.
+
 Fixtures 55–56: **PASS**. Part 1's hard gate is closed.
 
 ## 2026-07-29 fresh ship — Part 2 gate

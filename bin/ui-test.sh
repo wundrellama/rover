@@ -128,7 +128,56 @@ CODE="$(derive_code "$PIER")"
 JAR="$(mktemp /tmp/rover-ui-cookie.XXXXXX)"
 HDRS="$(mktemp /tmp/rover-ui-headers.XXXXXX)"
 ASSET="$(mktemp /tmp/rover-ui-asset.XXXXXX)"
-cleanup() { rm -f "$JAR" "$HDRS" "$ASSET"; }
+ROVER_TEST_BACKUP_DB="rovertestowner"
+ROVER_TEST_DB_SWAPPED=0
+
+obelisk_mutate() {
+  local database="$1" query="$2"
+  click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+=/  wire  /rover-ui-test-mutation
+;<  ~  bind:m  (watch wire [our %obelisk] /server)
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %$database \"$query\"]))
+;<  [mark =vase]  bind:m  (take-fact wire)
+;<  ~  bind:m  (take-kick wire)
+(pure:m vase)"
+}
+
+read_database_report() {
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+=/  wire  /rover-ui-test-databases
+;<  ~  bind:m  (watch wire [our %obelisk] /server)
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %sys "FROM sys.sys.databases SELECT database;"]))
+;<  [mark =vase]  bind:m  (take-fact wire)
+;<  ~  bind:m  (take-kick wire)
+(pure:m vase)'
+}
+
+database_exists() {
+  local report="$1" database="$2"
+  grep -Fq "[%database %tas %$database]" <<<"$report"
+}
+
+restore_test_database() {
+  local database_report
+  [ "$ROVER_TEST_DB_SWAPPED" -eq 1 ] || return 0
+  database_report="$(read_database_report)"
+  if ! database_exists "$database_report" "$ROVER_TEST_BACKUP_DB"; then
+    echo "ui-test: cleanup refused: owner backup database is absent" >&2
+    return 1
+  fi
+  if database_exists "$database_report" rover; then
+    obelisk_mutate sys "DROP DATABASE FORCE rover" >/dev/null || return 1
+  fi
+  obelisk_mutate sys "ALTER DATABASE $ROVER_TEST_BACKUP_DB RENAME TO rover" >/dev/null || return 1
+  ROVER_TEST_DB_SWAPPED=0
+}
+
+cleanup() {
+  restore_test_database
+  rm -f "$JAR" "$HDRS" "$ASSET"
+}
 trap cleanup EXIT
 
 response="$(curl -s -o /dev/null -w '%{http_code} %{size_download} %{redirect_url}' "$URL/apps/rover")"
@@ -140,6 +189,33 @@ note "logged-out browser receives login redirect with no Rover body"
 
 curl -s -c "$JAR" -o /dev/null "$URL/~/login" --data-raw "password=$CODE"
 grep -q urbauth "$JAR" || fail "login with +code did not yield urbauth cookie"
+
+if [ "${ROVER_NO_FIXTURE_ISOLATION:-}" != 1 ]; then
+  database_report="$(read_database_report)"
+  if database_exists "$database_report" "$ROVER_TEST_BACKUP_DB"; then
+    fail "fixture isolation backup database already exists: $ROVER_TEST_BACKUP_DB"
+  fi
+  rename_result="$(obelisk_mutate sys "ALTER DATABASE rover RENAME TO $ROVER_TEST_BACKUP_DB")"
+  database_report="$(read_database_report)"
+  database_exists "$database_report" "$ROVER_TEST_BACKUP_DB" \
+    || fail "fixture isolation could not verify the renamed owner database: $rename_result"
+  if database_exists "$database_report" rover; then
+    fail "fixture isolation still sees rover after renaming the owner database"
+  fi
+  ROVER_TEST_DB_SWAPPED=1
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%init-db ~]))
+;<  ~  bind:m  (sleep ~s8)
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s8)
+(pure:m !>(~))' >/dev/null
+  database_report="$(read_database_report)"
+  database_exists "$database_report" rover \
+    || fail "fixture isolation did not create the disposable rover database"
+  database_exists "$database_report" "$ROVER_TEST_BACKUP_DB" \
+    || fail "fixture isolation lost the renamed owner database"
+fi
 
 body="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "authenticated GET /apps/rover not 200"
@@ -420,9 +496,9 @@ const fs = require('fs');
   }]);
   await page.goto(`${process.env.URL}/apps/rover`);
   await page.locator('[data-open-screen="statistics-screen"]').click();
-  const empty = page.locator('#statistics-empty');
+  const empty = page.locator('#statistics-screen [data-statistics-state="no-data"]');
   const visible = await empty.isVisible();
-  const text = (await empty.textContent() || '').trim();
+  const text = (await empty.innerText()).replace(/\s+/g, ' ').trim();
   const rows = await page.locator('section.stat-table tbody tr:visible').count();
   console.log(`${visible}|${text}|${rows}`);
   await browser.close();
@@ -432,7 +508,7 @@ const fs = require('fs');
 });
 NODE
   )" || fail "fixture 62 Chromium no-fill statistics check failed"
-  [ "$settings_no_data_summary" = 'true|No statistics are recorded for this vehicle.|0' ] \
+  [ "$settings_no_data_summary" = 'true|No data yet Add a fill to begin tracking economy.|0' ] \
     || fail "fixture 62 no-fill scoped statistics state is not empty: $settings_no_data_summary"
   note "fixture 62 PASS - a scoped no-fill vehicle shows an explicit no-data state with zero visible interval rows"
 fi
@@ -628,6 +704,82 @@ print("yes" if "data-economy-break=\"%missed-fill\"" in document else "no")' <<<
   [ "$(tr '|' '\n' <<<"${demo_parts[1]:-}" | grep -c ' mpg$')" -ge 5 ] ||
     fail "fixture 58 diesel demo has fewer than five computed human-unit intervals: ${demo_parts[1]:-<none>}"
   note "fixture 58 PASS - six full fills per demo vehicle render real interval economy: gas=${demo_parts[0]} diesel=${demo_parts[1]}"
+  demo_fill_truth="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+rows = []
+for article in re.findall(r"<article class=\"history-table-row\" data-history-vehicle=\"Rover Demo Gasoline\">.*?</article>", document, re.S):
+    date = re.search(r"data-history-column=\"DATE\">([^<]+)", article)
+    odo = re.search(r"data-history-column=\"ODOMETER\">([^<]+)", article)
+    partial = re.search(r"<dt>Partial fill</dt><dd><label[^>]*><input type=\"checkbox\" disabled( checked)?", article)
+    if date and odo and partial:
+        rows.append((date.group(1).strip(), "partial" if partial.group(1) else "full", odo.group(1).strip()))
+rows.sort()
+for row in rows:
+    print("|".join(row))
+print("ELIGIBLE=" + ("yes" if len(rows) >= 2 and all(state == "full" and odo != "Not recorded" for _, state, odo in rows) else "no"))' <<<"$demo_before_def"
+  )"
+  grep -q '^ELIGIBLE=yes$' <<<"$demo_fill_truth" \
+    || fail "fixture 76 demo gasoline lacks a genuine linked full-to-full interval: $demo_fill_truth"
+  note "fixture 76 PASS - observed-order gasoline rows are odometer-linked full fills: $(tr '\n' ';' <<<"$demo_fill_truth")"
+
+  hub_truth="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+hub = document.split("<section id=\"main-hub\"", 1)[1].split("<section id=\"add-fill\"", 1)[0]
+rows = []
+for article in re.findall(r"<article[^>]*>(.*?)</article>", hub, re.S):
+    label = re.search(r"<span>(.*?)</span>", article, re.S)
+    value = re.search(r"<strong>(.*?)</strong>", article, re.S)
+    reason = re.search(r"<small>(.*?)</small>", article, re.S)
+    if label and value and reason:
+        clean = lambda text: re.sub(r"<[^>]+>", "", text).strip()
+        rows.append((clean(label.group(1)), clean(value.group(1)), clean(reason.group(1))))
+for row in rows:
+    print("|".join(row))
+required = rows[:6]
+print("COMPUTED=" + ("yes" if len(required) == 6 and all(value != "Unavailable" for _, value, _ in required) else "no"))
+print("DEF_REASON=" + ("yes" if len(rows) > 6 and rows[6][1] == "Unavailable" and "purchase" in rows[6][2].lower() else "no"))' <<<"$demo_before_def"
+  )"
+  grep -q '^COMPUTED=yes$' <<<"$hub_truth" \
+    || fail "fixture 77 default-vehicle hub still has a non-computing readout: $hub_truth"
+  grep -q '^DEF_REASON=yes$' <<<"$hub_truth" \
+    || fail "fixture 77 genuinely unavailable DEF readout lacks a factual reason: $hub_truth"
+  note "fixture 77 PASS - every gasoline hub readout computes; DEF alone refuses with its factual no-purchase reason"
+
+  tank_honesty="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+history = re.findall(r"<article class=\"history-table-row\" data-history-vehicle=\"Rover Demo Gasoline\">.*?</article>", document, re.S)
+panel = re.search(r"<article class=\"vehicle-card\" data-vehicle-settings-panel data-vehicle=\"Rover Demo Gasoline\".*?</article>", document, re.S)
+history_partial = bool(history and re.search(r"<dt>Partial fill</dt>.*?<input type=\"checkbox\" disabled checked", history[0], re.S))
+settings_partial = bool(panel and re.search(r"<dt>PARTIAL FILL</dt>.*?<input type=\"checkbox\" disabled checked", panel.group(0), re.S))
+print(f"{history_partial}|{settings_partial}")' <<<"$demo_before_def"
+  )"
+  [ "$tank_honesty" = 'False|False' ] \
+    || fail "fixture 78 History and vehicle settings disagree about the same stored full fill: $tank_honesty"
+  note "fixture 78 PASS - History and vehicle settings both render the stored full state as an unchecked Partial fill checkbox"
+
+  grep -q 'name="energySources" value="Gasoline" checked' <<<"$demo_before_def" \
+    || fail "fixture 81 energy sources are not checkbox controls"
+  grep -q 'name="drivingModes" value=' <<<"$demo_before_def" \
+    || fail "fixture 81 driving modes are not checkbox controls"
+  grep -q 'data-add-energy-source' <<<"$demo_before_def" \
+    || fail "fixture 81 energy-source add control is missing"
+  grep -q 'data-add-driving-mode' <<<"$demo_before_def" \
+    || fail "fixture 81 driving-mode add control is missing"
+  note "fixture 81 PASS - vehicle energy sources and driving modes are checkbox groups with add controls"
+
+  average_truth="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+section = document.split("data-statistic=\"average-price-per-unit\"", 1)[1].split("</section>", 1)[0]
+rows = re.findall(r"<tr data-statistics-vehicle=\"Rover Demo Gasoline\"[^>]*data-average-price=\"([^\"]+)\"[^>]*>(.*?)</tr>", section, re.S)
+print(f"{len(rows)}|" + (rows[0][0] if rows else ""))' <<<"$demo_before_def"
+  )"
+  [ "$average_truth" = '1|$3.497' ] \
+    || fail "fixture 83 lifetime mean is not the hand-checked 20,984 mills / 6 = 3,497 mills: $average_truth"
+  note "fixture 83 PASS - one lifetime row reports the exact half-up mean \$3.497 from six fills"
   [ "${demo_parts[2]:-}" = 'economy|cost|distance|time|price|tank' ] ||
     fail "fixture 59 pre-DEF computed statistics mismatch: ${demo_parts[2]:-<none>}"
   [ "${demo_parts[3]:-}" = yes ] ||
@@ -688,6 +840,85 @@ print(match.group(1).strip() if match else "")' <<<"$statistics_html"
 
   PLAYWRIGHT_ROOT="${PLAYWRIGHT_ROOT:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules}"
   CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
+  fill_context="$(
+    URL="$URL" JAR="$JAR" EMPTY_VEHICLE="$settings_label_second" CHROMIUM_BIN="$CHROMIUM_BIN" NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
+const {chromium} = require('playwright');
+const fs = require('fs');
+(async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROMIUM_BIN
+  });
+  const page = await browser.newPage({viewport: {width: 390, height: 844}});
+  const raw = fs.readFileSync(process.env.JAR, 'utf8');
+  const cookie = raw.match(/\s(urbauth-[^\s]+)\s+([^\s]+)/);
+  await page.context().addCookies([{
+    name: cookie[1], value: cookie[2], domain: 'localhost', path: '/'
+  }]);
+  await page.goto(`${process.env.URL}/apps/rover`);
+  const form = page.locator('#fill-form');
+  await form.waitFor({state: 'attached'});
+  await page.locator('[data-open-screen="add-fill"]').click();
+  await form.locator('[name="vehicle"]').selectOption({label: 'Rover Demo Gasoline'});
+  await form.locator('[name="observed"]').evaluate((input) => {
+    input.value = '2026-07-07T12:00';
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  const prior = await page.locator('#fill-previous-odometer').evaluate((output) => output.value);
+  await form.locator('[name="vehicle"]').selectOption({label: process.env.EMPTY_VEHICLE || 'Fixture 70 Settings'});
+  const unavailable = await page.locator('#fill-previous-odometer').evaluate((output) => output.value);
+  await page.locator('#add-fill .back-control').click();
+  await page.locator('[data-open-screen="vehicles-screen"]').first().click();
+  await page.locator('[data-open-vehicle-settings][data-vehicle="Rover Demo Gasoline"]').click();
+  const panel = page.locator('[data-vehicle-settings-panel][data-vehicle="Rover Demo Gasoline"]');
+  if (process.env.ROVER_SETTINGS_ARTIFACT) {
+    const fragment = await panel.evaluate((article) =>
+      `<!-- Authenticated Eyre DOM for Rover Demo Gasoline settings. -->\n${article.outerHTML}\n`
+    );
+    fs.writeFileSync(process.env.ROVER_SETTINGS_ARTIFACT, fragment);
+  }
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+  const targets = await panel.locator(
+    '.membership-checks .check-option, [data-add-energy-source], [data-add-driving-mode]'
+  ).evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
+  console.log(JSON.stringify({prior, unavailable, overflow, minTarget: Math.min(...targets)}));
+  await browser.close();
+})().catch((error) => {
+  console.error(error.stack || error);
+  process.exit(1);
+});
+NODE
+  )" || fail "fixtures 79/81 Chromium check failed"
+  fill_context_summary="$(
+    python3 -c 'import json, sys
+d=json.loads(sys.stdin.read())
+print("|".join([d["prior"], d["unavailable"], str(d["overflow"]).lower(), str(d["minTarget"] >= 44)]))' \
+      <<<"$fill_context"
+  )"
+  case "$fill_context_summary" in
+    '11,522 mi|Unavailable - this vehicle has no earlier odometer observation|false|True') ;;
+    *) fail "fixtures 79/81 previous odometer or mobile controls mismatch: $fill_context_summary" ;;
+  esac
+  note "fixture 79 PASS - Add Fill derives 11,522 mi from the preceding gasoline observation and gives the factual no-earlier-observation refusal"
+  note "fixture 81 PASS - at 390px checkbox/add controls have no horizontal overflow and every target is at least 44px"
+
+  invalid_default_energy="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline","label":"Rover Demo Gasoline","tankSize":"15","tankUnit":"gal","defaultSubtype":"87","defaultEnergy":"Diesel","energySources":["Gasoline"],"drivingModes":["Normal"],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' \
+    "$URL/apps/rover/edit-vehicle")"
+  [ "$invalid_default_energy" = $'%not-allowed: vehicle.default-energy-source\n422' ] \
+    || fail "fixture 82 accepted a default energy source outside the allowed set: $invalid_default_energy"
+  valid_default_energy="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline","label":"Rover Demo Gasoline","tankSize":"15","tankUnit":"gal","defaultSubtype":"87","defaultEnergy":"Gasoline","energySources":["Gasoline"],"drivingModes":["Normal"],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' \
+    "$URL/apps/rover/edit-vehicle")"
+  [ "$valid_default_energy" = $'Saved vehicle settings\n201' ] \
+    || fail "fixture 82 could not persist the allowed default energy source: $valid_default_energy"
+  default_energy_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  grep -q '<select name="defaultEnergy"><option value="">Not set</option><option value="Gasoline" selected>' \
+    <<<"$default_energy_view" \
+    || fail "fixture 82 saved default energy is not selected in vehicle settings"
+  note "fixture 82 PASS - settings persists Gasoline as the default and rejects/offers no disallowed Diesel default"
   statistics_switch="$(
     URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
 const {chromium} = require('playwright');
@@ -843,22 +1074,21 @@ print("|".join([data["selected"], data["header"], str(data["visible"])]))' \
   demo_starter_check="$(
     python3 -c 'import re, sys
 report = sys.stdin.read()
-definition_rows = re.findall(
-    r"\[%vehicle 116 \x27([^\x27]+)\x27\].*?"
-    r"\[%demo-energy-definition-id [0-9]+ ([^ ]+)\].*?"
-    r"\[%starter-energy-definition-id [0-9]+ ([^ ]+)\].*?"
-    r"\[%starter-energy 116 \x27([^\x27]+)\x27\]",
-    report,
-)
-subtype_rows = re.findall(
-    r"\[%vehicle 116 \x27([^\x27]+)\x27\].*?"
-    r"\[%demo-energy-definition-id [0-9]+ ([^ ]+)\].*?"
-    r"\[%subtype-parent-definition-id [0-9]+ ([^ ]+)\].*?"
-    r"\[%demo-subtype-id [0-9]+ ([^ ]+)\].*?"
-    r"\[%starter-subtype-id [0-9]+ ([^ ]+)\].*?"
-    r"\[%starter-subtype 116 (\x27[^\x27]+\x27|[0-9]+)\]",
-    report,
-)
+vectors = re.findall(r"\[%vector (.*?) 0\]", report)
+def field(vector, name):
+    match = re.search(rf"\[%{re.escape(name)} [^ ]+ (\x27[^\x27]*\x27|[^ \]]+)\]", vector)
+    return match.group(1).strip(chr(39)) if match else None
+definition_rows = [
+    (field(v, "vehicle"), field(v, "demo-energy-definition-id"),
+     field(v, "starter-energy-definition-id"), field(v, "starter-energy"))
+    for v in vectors if field(v, "starter-energy") is not None
+]
+subtype_rows = [
+    (field(v, "vehicle"), field(v, "demo-energy-definition-id"),
+     field(v, "subtype-parent-definition-id"), field(v, "demo-subtype-id"),
+     field(v, "starter-subtype-id"), field(v, "starter-subtype"))
+    for v in vectors if field(v, "starter-subtype") is not None
+]
 definitions = {(vehicle, energy, demo == starter)
                for vehicle, demo, starter, energy in definition_rows}
 cords = {"14136": "87", "13113": "93", "12835": "#2"}
@@ -1044,7 +1274,7 @@ for vehicle in "$gas_vehicle" "$diesel_vehicle"; do
     -H 'content-type: application/json' \
     --data-raw "$(printf '{"vehicle":"%s"}' "$vehicle")" \
     "$URL/apps/rover/remove-vehicle")"
-  [ "$removed" = $'Removed vehicle\n201' ] \
+  [ "$removed" = $'Archived vehicle\n201' ] \
     || fail "fixture 33 cleanup failed for $vehicle: $removed"
 done
 if [ "${ROVER_FIXTURE_STOP:-}" = 35 ]; then
@@ -1111,7 +1341,7 @@ removed_edit_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
   --data-raw "$(printf '{"vehicle":"%s"}' "$edited_vehicle")" \
   "$URL/apps/rover/remove-vehicle")"
-[ "$removed_edit_vehicle" = $'Removed vehicle\n201' ] \
+[ "$removed_edit_vehicle" = $'Archived vehicle\n201' ] \
   || fail "fixture 37 cleanup failed: $removed_edit_vehicle"
 if [ "${ROVER_FIXTURE_STOP:-}" = 37 ]; then
   exit 0
@@ -1140,7 +1370,7 @@ fill_edit_setup="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   || fail "fixture 38 setup fill failed: $fill_edit_setup"
 fill_edit_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 fill_edit_html="$(html_slice 'class="history-edit-form"' '</form>' <<<"$fill_edit_view")"
-for field in quantity price observed tank subtype station drivingMode averageSpeed \
+for field in quantity price observed partialFill subtype station drivingMode averageSpeed \
   driveBalance notes paymentMethod mileage; do
   grep -Eq "name=\"$field\"" <<<"$fill_edit_html" \
     || fail "fixture 38 fill-edit screen lacks editable $field; actual form HTML: $fill_edit_html"
@@ -1148,7 +1378,7 @@ for field in quantity price observed tank subtype station drivingMode averageSpe
     fail "fixture 38 fill-edit screen hides $field instead of exposing an owner control; actual form HTML: $fill_edit_html"
   fi
 done
-note "fixture 38 field gate PASS - fill-edit screen exposes owner controls (not hidden inputs) for every editable field"
+note "fixture 38 field gate PASS - fill-edit screen exposes owner controls, including Partial fill, for every editable field"
 fill_edit_support="$(click_file "=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-fill-edit-support (crip \"$fill_edit_vehicle\")]))
@@ -1544,8 +1774,8 @@ document = html.unescape(sys.stdin.read())
 vehicle = re.escape(os.environ["MODE_VEHICLE"])
 match = re.search(rf"<article[^>]+data-vehicle=\"{vehicle}\".*?</article>", document, re.S)
 panel = match.group(0) if match else ""
-options = re.findall(r"<option value=\"([^\"]+)\"[^>]*selected", panel)
-print("|".join(options))' <<<"$mode_view"
+modes = re.findall(r"<input type=\"checkbox\" name=\"drivingModes\" value=\"([^\"]+)\" checked", panel)
+print("|".join(modes))' <<<"$mode_view"
 )"
 grep -q 'Mixed Driving' <<<"$mode_options" \
   || fail "fixture 48 edited member mode is not selected in settings: $mode_options"
@@ -1797,7 +2027,7 @@ grep -q 'id="vehicle-add-form"' <<<"$view" \
 grep -q 'data-set-default-vehicle' <<<"$view" \
   || fail "Vehicles screen lacks Set Default"
 grep -q 'data-remove-vehicle' <<<"$view" \
-  || fail "Vehicles screen lacks Remove"
+  || fail "Vehicles screen lacks Archive"
 for setting in 'ENERGY SOURCE' 'FUEL SUBTYPES' 'TANK SIZE' 'DRIVING MODES' \
   'DISPLAY PREFERENCE'; do
   grep -q "$setting" <<<"$view" ||
@@ -1941,9 +2171,9 @@ remove_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
   --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
   "$URL/apps/rover/remove-vehicle")"
-[ "$remove_default" = $'%restricted: remove-vehicle\n409' ] \
-  || fail "fixture 21 app-default vehicle deletion was not RESTRICTed; actual HTTP response: $remove_default"
-note "fixture 21 PASS - live HTTP delete returned %restricted / 409 for the app-default vehicle"
+[ "$remove_default" = $'%default-vehicle: choose a new default before archiving\n409' ] \
+  || fail "fixture 21 app-default vehicle archive was not refused; actual HTTP response: $remove_default"
+note "fixture 21 PASS - live HTTP refused archiving the app-default vehicle until redesignation"
 default_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -q 'data-vehicle="Mode Scope Vehicle"' <<<"$default_view" \
   || fail "entry surfaces do not receive the app default vehicle"
@@ -2171,10 +2401,10 @@ for cleanup_vehicle in "$browser_scope_vehicle" "$temporary_vehicle"; do
     -H 'content-type: application/json' \
     --data-raw "$(printf '{"vehicle":"%s"}' "$cleanup_vehicle")" \
     "$URL/apps/rover/remove-vehicle")"
-  [ "$removed_vehicle" = $'Removed vehicle\n201' ] \
-    || fail "removing browser fixture vehicle failed ($cleanup_vehicle): $removed_vehicle"
+  [ "$removed_vehicle" = $'Archived vehicle\n201' ] \
+    || fail "archiving browser fixture vehicle failed ($cleanup_vehicle): $removed_vehicle"
 done
-note "app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips"
+note "app default inserts once, changes via UPDATE, refuses archive, and Vehicles add/archive round-trips"
 
 before_structure_report="$(read_structure_report)"
 before_balance_count="$(grep -o '\[%highway-percent ' <<<"$before_structure_report" | wc -l)"
@@ -2527,9 +2757,106 @@ charge="$(click_file '=/  m  (strand ,vase)
 (pure:m !>(charges))')"
 case "$charge" in
   *"%rover"*"[%site %apps %rover 0]"*"'/apps/rover/assets/tile.png'"*)
-    note "PASS - docket charge is site /apps/rover with same-origin tile and no glob"
+note "PASS - docket charge is site /apps/rover with same-origin tile and no glob"
     ;;
   *) fail "Rover site/tile docket charge not found: $charge" ;;
 esac
+
+type_suffix="$(date +%s%N)"
+added_energy_type="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"Fixture Energy %s","physicalKind":"reservoir","quantityUnit":"gal"}' "$type_suffix")" \
+  "$URL/apps/rover/add-energy-source-type")"
+[ "$added_energy_type" = $'Created energy source type\n201' ] \
+  || fail "fixture 81 add-energy-source control endpoint failed: $added_energy_type"
+added_mode_type="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"Fixture Mode %s"}' "$type_suffix")" \
+  "$URL/apps/rover/add-driving-mode-type")"
+[ "$added_mode_type" = $'Created driving mode type\n201' ] \
+  || fail "fixture 81 add-driving-mode control endpoint failed: $added_mode_type"
+added_type_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q "name=\"energySources\" value=\"Fixture Energy $type_suffix\"" <<<"$added_type_view" \
+  || fail "fixture 81 newly added energy source is absent from checkbox choices"
+grep -q "name=\"drivingModes\" value=\"Fixture Mode $type_suffix\"" <<<"$added_type_view" \
+  || fail "fixture 81 newly added driving mode is absent from checkbox choices"
+note "fixture 81 PASS - add controls persist new source/mode types and expose them as checkbox choices"
+if [ "${ROVER_FIXTURE_STOP:-}" = 83 ]; then
+  exit 0
+fi
+
+default_archive_refusal="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$default_archive_refusal" = $'Saved default vehicle\n201' ] \
+  || fail "fixture 80 could not designate its refusal subject: $default_archive_refusal"
+default_archive_refusal="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
+  "$URL/apps/rover/remove-vehicle")"
+[ "$default_archive_refusal" = $'%default-vehicle: choose a new default before archiving\n409' ] \
+  || fail "fixture 80 app-default archive was not refused with a human reason: $default_archive_refusal"
+curl -s -b "$JAR" -o /dev/null \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Rover Demo Gasoline"}' \
+  "$URL/apps/rover/set-default-vehicle"
+archive_history_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Fuel Evidence Vehicle"}' \
+  "$URL/apps/rover/remove-vehicle")"
+[ "$archive_history_vehicle" = $'Archived vehicle\n201' ] \
+  || fail "fixture 80 could not archive a non-default vehicle with history: $archive_history_vehicle"
+archived_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+if grep -Eq '<option value="Fuel Evidence Vehicle"[^>]*>' <<<"$archived_view"; then
+  fail "fixture 80 archived vehicle remains in a default selector"
+fi
+grep -q '<summary>View archived vehicles</summary>.*data-vehicle="Fuel Evidence Vehicle"' \
+  <<<"$(tr '\n' ' ' <<<"$archived_view")" \
+  || fail "fixture 80 archived vehicle is absent from the archived-vehicle view"
+grep -q 'data-vehicle-settings-panel data-vehicle="Fuel Evidence Vehicle".*ARCHIVED.*ORDERED HISTORY.*history-card fill' \
+  <<<"$(tr '\n' ' ' <<<"$archived_view")" \
+  || fail "fixture 80 archived vehicle history is not intact and viewable"
+note "fixture 80 PASS - literal-Y archive hides selectors, preserves history, and refuses the app default until redesignation"
+
+restore_test_database
+owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+python3 -c 'import sys
+document = sys.stdin.read()
+statistics_path, settings_path = sys.argv[1:3]
+if statistics_path:
+    start = document.find("<section id=\"statistics-screen\"")
+    end = document.find("<section id=\"settings-screen\"", start)
+    if start < 0 or end < 0:
+        raise SystemExit("final owner statistics screen is absent")
+    with open(statistics_path, "w", encoding="utf-8") as artifact:
+        artifact.write("<!-- Authenticated final owner Eyre HTML. -->\n")
+        artifact.write(document[start:end])
+if settings_path:
+    marker = "data-vehicle-settings-panel data-vehicle=\"Rover Demo Gasoline\""
+    marker_at = document.find(marker)
+    start = document.rfind("<article class=\"vehicle-card\"", 0, marker_at)
+    end = document.find("<article class=\"vehicle-card\"", marker_at + len(marker))
+    if marker_at < 0 or start < 0 or end < 0:
+        raise SystemExit("final owner gasoline settings panel is absent")
+    with open(settings_path, "w", encoding="utf-8") as artifact:
+        artifact.write("<!-- Authenticated final owner Eyre HTML. -->\n")
+        artifact.write(document[start:end])' \
+  "${ROVER_STATISTICS_ARTIFACT:-}" "${ROVER_SETTINGS_ARTIFACT:-}" <<<"$owner_view" \
+  || fail "final owner served-HTML artifact capture failed"
+owner_vehicles="$(
+  python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+screen = document.split("<section id=\"vehicles-screen\"", 1)[1].split("</section>", 1)[0]
+active = screen.split("<details class=\"archived-vehicles\"", 1)[0]
+labels = sorted(set(re.findall(r"data-open-vehicle-settings data-vehicle=\"([^\"]+)\"", active)))
+print("|".join(labels))' <<<"$owner_view"
+)"
+[ "$owner_vehicles" = 'Rover Demo Diesel|Rover Demo Gasoline' ] \
+  || fail "fixture 75 owner database was contaminated by the disposable battery, or was not a fresh demo-only owner: ${owner_vehicles:-<none>}"
+if grep -Eq 'data-vehicle="(Fixture |History Vehicle |Fill Edit Vehicle |Charge Subtype Vehicle |Pricing Fixture Vehicle)' <<<"$owner_view"; then
+  fail "fixture 75 a named scenario artefact is served after disposable-database restoration"
+fi
+note "fixture 75 PASS - after the full disposable battery the owner database serves only the two demo vehicles"
 
 . "$(dirname "$0")/coverage-gate.sh"

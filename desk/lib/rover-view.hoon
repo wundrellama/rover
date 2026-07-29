@@ -120,6 +120,9 @@
   ^-  tape
   ?~  rows
     ~
+  =/  rest  $(rows t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
   =/  label  (escape (cell-text %label i.rows))
   =/  option
     ;:  weld
@@ -129,7 +132,7 @@
       label
       "</option>"
     ==
-  (weld option $(rows t.rows))
+  (weld option rest)
 ::
 ++  definition-options
   |=  [rows=(list vector:ast) vehicles=(list vector:ast)]
@@ -282,6 +285,24 @@
     rest
   ==
 ::
+++  archived-vehicle-list-items
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  !=(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<li><button type=\"button\" data-open-vehicle-settings data-vehicle=\""
+    label
+    "\">"
+    label
+    "</button></li>"
+    rest
+  ==
+::
 ++  default-subtype-data
   |=  rows=(list vector:ast)
   ^-  tape
@@ -294,6 +315,30 @@
     (escape (cell-text %subtype i.rows))
     "\"></span>"
     (default-subtype-data t.rows)
+  ==
+::
+++  odometer-series-data
+  |=  [rows=(list vector:ast) vehicles=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  vehicle  (vehicle-label (cell-atom %vehicle-id i.rows) vehicles)
+  =/  display
+    %:  format-distance:render
+        (cell-atom %value-digits i.rows)
+        (cell-atom %decimal-places i.rows)
+        (cell-term %unit i.rows)
+        %.n
+    ==
+  ;:  weld
+    "<span hidden data-odometer-observation data-vehicle=\""
+    (escape vehicle)
+    "\" data-observed=\""
+    (input-da `@da`(cell-atom %observed-start i.rows))
+    "\" data-reading=\""
+    (escape display)
+    "\"></span>"
+    $(rows t.rows)
   ==
 ::
 ++  vehicle-subtype-options
@@ -374,6 +419,31 @@
     rest
   ==
 ::
+++  vehicle-energy-source-checks
+  |=  [rows=(list vector:ast) linked=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (cell-text %label i.rows)
+  =/  selected-row  (row-by-text %energy label linked)
+  =/  selected
+    ?~  selected-row
+      %.n
+    !=(0 (cell-atom %link-archived u.selected-row))
+  ;:  weld
+    "<label class=\"check-option\"><input type=\"checkbox\" name=\"energySources\" value=\""
+    (escape label)
+    "\""
+    ?:(selected " checked" "")
+    "><span>"
+    (escape label)
+    "</span></label>"
+    rest
+  ==
+::
 ++  vehicle-mode-membership-options
   |=  [rows=(list vector:ast) linked=(list vector:ast)]
   ^-  tape
@@ -393,6 +463,57 @@
     (escape label)
     "\""
     ?:(selected " selected" "")
+    ">"
+    (escape label)
+    "</option>"
+    rest
+  ==
+::
+++  vehicle-mode-membership-checks
+  |=  [rows=(list vector:ast) linked=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (cell-text %label i.rows)
+  =/  selected-row  (row-by-text %label label linked)
+  =/  selected
+    ?~  selected-row
+      %.n
+    !=(0 (cell-atom %link-archived u.selected-row))
+  ;:  weld
+    "<label class=\"check-option\"><input type=\"checkbox\" name=\"drivingModes\" value=\""
+    (escape label)
+    "\""
+    ?:(selected " checked" "")
+    "><span>"
+    (escape label)
+    "</span></label>"
+    rest
+  ==
+::
+++  default-energy-options
+  |=  [rows=(list vector:ast) selected=(unit @t)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  ?|  =(0 (cell-atom %energy-archived i.rows))
+          =(0 (cell-atom %link-archived i.rows))
+      ==
+    rest
+  =/  label  (cell-text %energy i.rows)
+  ;:  weld
+    "<option value=\""
+    (escape label)
+    "\""
+    ?:  ?&  ?=(^ selected)
+            =(label u.selected)
+        ==
+      " selected"
+    ""
     ">"
     (escape label)
     "</option>"
@@ -707,11 +828,64 @@
     rest
   ==
 ::
+++  economy-values
+  |=  $:  vehicle-id=@
+          fills=(list vector:ast)
+          all-fills=(list vector:ast)
+          odometers=(list vector:ast)
+          breaks=(list vector:ast)
+      ==
+  ^-  (list [milli=@ud unit=@t])
+  ?~  fills
+    ~
+  =/  rest  $(fills t.fills)
+  ?.  =(vehicle-id (cell-atom %vehicle-id i.fills))
+    rest
+  =/  value  (economy-for-fill i.fills all-fills odometers breaks)
+  ?~  value
+    rest
+  [u.value rest]
+::
+++  sum-economies
+  |=  rows=(list [milli=@ud unit=@t])
+  ^-  @ud
+  ?~(rows 0 (add milli.i.rows $(rows t.rows)))
+::
+++  best-economy
+  |=  rows=(list [milli=@ud unit=@t])
+  ^-  @ud
+  ?~  rows
+    0
+  ?~  t.rows
+    milli.i.rows
+  (max milli.i.rows $(rows t.rows))
+::
+++  worst-economy
+  |=  rows=(list [milli=@ud unit=@t])
+  ^-  @ud
+  ?~  rows
+    0
+  ?~  t.rows
+    milli.i.rows
+  (min milli.i.rows $(rows t.rows))
+::
+++  economy-display
+  |=  [milli=@ud unit=@t]
+  ^-  tape
+  ;:  weld
+    (trip (format-scaled:render milli 3 %.n))
+    " "
+    (trip unit)
+  ==
+::
 ++  main-hub
   |=  $:  app-default=(list vector:ast)
           definition-rows=(list vector:ast)
           odometers=(list vector:ast)
           tank-sizes=(list vector:ast)
+          fills=(list vector:ast)
+          fill-odometers=(list vector:ast)
+          economy-breaks=(list vector:ast)
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
       ==
@@ -746,6 +920,28 @@
     (rows-for u.default-id definition-rows)
   =/  has-fill  (has-term %physical-kind %reservoir sources)
   =/  has-charge  (has-term %physical-kind %electricity sources)
+  =/  ordered-fills  (order-vectors:act %observed-start %.n fills)
+  =/  economies=(list [milli=@ud unit=@t])
+    ?~  default-id
+      ~
+    (economy-values u.default-id ordered-fills fills fill-odometers economy-breaks)
+  =/  last-economy=tape
+    ?~  economies
+      "Unavailable"
+    (economy-display milli.i.economies unit.i.economies)
+  =/  lifetime-economy=tape
+    ?~  economies
+      "Unavailable"
+    =/  mean  (div (add (sum-economies economies) (div (lent economies) 2)) (lent economies))
+    (economy-display mean unit.i.economies)
+  =/  best=tape
+    ?~  economies
+      "Unavailable"
+    (economy-display (best-economy economies) unit.i.economies)
+  =/  worst=tape
+    ?~  economies
+      "Unavailable"
+    (economy-display (worst-economy economies) unit.i.economies)
   =/  odometer=tape
     ?~  default-id
       "Unavailable"
@@ -756,6 +952,26 @@
     ?:  ?=(~ (rows-for u.default-id tank-sizes))
       "Tank size is not recorded for this vehicle."
     "An eligible economy interval is required."
+  =/  next-distance=tape
+    ?:  ?|  ?=(~ default-id)
+            ?=(~ economies)
+        ==
+      "Unavailable"
+    =/  tanks  (rows-for u.default-id tank-sizes)
+    ?.  =(1 (lent tanks))
+      "Unavailable"
+    =/  tank-row  (snag 0 tanks)
+    =/  places  (cell-atom %decimals tank-row)
+    ?:  (gth places 3)
+      "Unavailable"
+    =/  tank-milli
+      (mul (cell-atom %digits tank-row) (pow-ten:render (sub 3 places)))
+    =/  distance-milli
+      (div (add (mul milli.i.economies tank-milli) 500) 1.000)
+    ;:  weld
+      (trip (format-scaled:render distance-milli 3 %.n))
+      ?:(=('mpg' unit.i.economies) " mi" " km")
+    ==
   =/  def-status=[available=? display=@t reason=@t]
     ?~  default-id
       [%.n 'Unavailable' 'No default vehicle is set']
@@ -788,21 +1004,39 @@
     "</small></article>"
     "<article"
     hub-stat-scope
-    "><span>ECONOMY - LAST FILL</span><strong>Unavailable</strong><small>An eligible full-fill interval is required.</small></article>"
+    "><span>ECONOMY - LAST FILL</span><strong>"
+    last-economy
+    "</strong><small>"
+    ?:(?=(~ economies) "An eligible odometer-linked full-fill interval is required." "Latest eligible full-fill interval.")
+    "</small></article>"
     "<article"
     hub-stat-scope
-    "><span>ECONOMY - LIFETIME</span><strong>Unavailable</strong><small>No eligible lifetime interval is recorded.</small></article>"
+    "><span>ECONOMY - LIFETIME</span><strong>"
+    lifetime-economy
+    "</strong><small>"
+    ?:(?=(~ economies) "No eligible lifetime interval is recorded." "Mean of eligible full-fill intervals.")
+    "</small></article>"
     "<article"
     hub-stat-scope
-    "><span>ESTIMATED DISTANCE TO NEXT FILL</span><strong>Unavailable</strong><small>"
+    "><span>ESTIMATED DISTANCE TO NEXT FILL</span><strong>"
+    next-distance
+    "</strong><small>"
     tank-reason
     "</small></article>"
     "<article"
     hub-stat-scope
-    "><span>BEST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
+    "><span>BEST ECONOMY</span><strong>"
+    best
+    "</strong><small>"
+    ?:(?=(~ economies) "No eligible economy intervals are recorded." "Best eligible full-fill interval.")
+    "</small></article>"
     "<article"
     hub-stat-scope
-    "><span>WORST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
+    "><span>WORST ECONOMY</span><strong>"
+    worst
+    "</strong><small>"
+    ?:(?=(~ economies) "No eligible economy intervals are recorded." "Worst eligible full-fill interval.")
+    "</small></article>"
     "<article><span>DEF ECONOMY - LAST INTERVAL</span><strong>"
     (escape display.def-status)
     "</strong><small>"
@@ -813,6 +1047,7 @@
 ::
 ++  entry-screens
   |=  $:  vehicles=(list vector:ast)
+          odometers=(list vector:ast)
           definitions=(list vector:ast)
           stations=(list vector:ast)
           additives=(list vector:ast)
@@ -837,6 +1072,7 @@
   =/  payment-html  (payment-options payment-methods)
   =/  consumable-html  (consumable-options consumables)
   ;:  weld
+    (odometer-series-data odometers vehicles)
     "<section id=\"add-fill\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW ACQUISITION</p><h2>Add fill</h2></header>"
@@ -848,7 +1084,7 @@
     definition-html
     "</select></label>"
     "<label data-fill-field=\"odometer\">Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"10012.5\"></label>"
-    "<div class=\"read-only-row\" data-fill-field=\"previous-odometer\"><span>Previous odometer reading</span><output id=\"fill-previous-odometer\">Unavailable - no prior reading selected</output></div>"
+    "<div class=\"read-only-row\" data-fill-field=\"previous-odometer\"><span>Previous odometer reading</span><output id=\"fill-previous-odometer\">Unavailable - this vehicle has no earlier odometer observation</output></div>"
     "<div data-fill-field=\"price\"><label>Fuel price<input name=\"price\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$3.49\" required></label><div class=\"preview-row\"><span>Completed price</span><output id=\"fill-price-completed\">&mdash;</output></div></div>"
     "<label data-fill-field=\"quantity\">Quantity<div class=\"input-unit\"><input name=\"quantity\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"12.345\" required><output id=\"fill-unit\">unit</output></div></label>"
     "<div class=\"preview-row derived-preview\" data-fill-field=\"calculated-total\"><span>Calculated Total</span><output id=\"fill-derived-total\" aria-live=\"polite\">&mdash;</output><small>Calculated from quantity and completed unit price</small></div>"
@@ -1090,9 +1326,9 @@
     (escape quantity)
     "</dd></div><div><dt>UNIT PRICE</dt><dd>"
     (escape unit-price)
-    "</dd></div><div><dt>TANK</dt><dd>"
-    (escape (scot %tas (cell-term %tank-state row)))
-    "</dd></div><div class=\"derived\"><dt>CALCULATED TOTAL</dt><dd>"
+    "</dd></div><div><dt>PARTIAL FILL</dt><dd><label class=\"check-option read-only-check\"><input type=\"checkbox\" disabled"
+    ?:(=(%partial (cell-term %tank-state row)) " checked" "")
+    "><span>Partial fill</span></label></dd></div><div class=\"derived\"><dt>CALCULATED TOTAL</dt><dd>"
     (escape total)
     "</dd></div><div><dt>ECONOMY</dt><dd>"
     ?:  ?=(~ breaks)
@@ -1271,9 +1507,16 @@
   =/  subtype-controls
     (vehicle-subtype-options subtypes vehicle-definitions selected-subtype)
   =/  energy-controls
-    (vehicle-energy-source-options available-definitions vehicle-definitions)
+    (vehicle-energy-source-checks available-definitions vehicle-definitions)
   =/  mode-controls
-    (vehicle-mode-membership-options available-modes modes)
+    (vehicle-mode-membership-checks available-modes modes)
+  =/  current-default-energy=(unit @t)
+    =/  selected  (rows-for id default-rows)
+    ?~  selected
+      ~
+    `(cell-text %default-energy i.selected)
+  =/  default-energy-controls
+    (default-energy-options vehicle-definitions current-default-energy)
   =/  can-fill  (active-energy-kind %reservoir vehicle-definitions)
   =/  can-charge  (active-energy-kind %electricity vehicle-definitions)
   =/  def-link  (row-by-text %consumable 'DEF' (rows-for id vehicle-consumables))
@@ -1329,7 +1572,7 @@
     (escape (cell-text %label row))
     "\">Set Default</button><button type=\"button\" data-remove-vehicle data-vehicle=\""
     (escape (cell-text %label row))
-    "\">Remove</button></div><div class=\"vehicle-entry-actions\">"
+    "\">Archive</button></div><div class=\"vehicle-entry-actions\">"
     ?:  can-fill
       ;:  weld
         "<button type=\"button\" data-vehicle-action=\"fill\" data-vehicle=\""
@@ -1350,11 +1593,13 @@
     (escape label)
     "\"><label>Vehicle name<input name=\"label\" value=\""
     (escape label)
-    "\" required></label><label>Energy Sources<select name=\"energySources\" multiple required>"
+    "\" required></label><fieldset class=\"membership-checks\" data-energy-source-checks><legend>Energy sources</legend><div class=\"check-grid\">"
     energy-controls
-    "</select></label><label>Driving Modes<select name=\"drivingModes\" multiple>"
+    "</div><button type=\"button\" data-add-energy-source>Add energy source type</button></fieldset><label>Default energy source<select name=\"defaultEnergy\"><option value=\"\">Not set</option>"
+    default-energy-controls
+    "</select></label><fieldset class=\"membership-checks\" data-driving-mode-checks><legend>Driving modes</legend><div class=\"check-grid\">"
     mode-controls
-    "</select></label>"
+    "</div><button type=\"button\" data-add-driving-mode>Add driving mode type</button></fieldset>"
     ?:  show-def
       ;:  weld
         "<fieldset data-def-configuration><legend>DEF configuration</legend><label><input type=\"checkbox\" name=\"defEnabled\" value=\"yes\""
@@ -1504,9 +1749,9 @@
     (escape vehicle)
     "</dd></div><div><dt>Energy Source</dt><dd>"
     (escape (cell-text %energy row))
-    "</dd></div><div><dt>Tank state</dt><dd>"
-    (escape (scot %tas (cell-term %tank-state row)))
-    "</dd></div></dl><form class=\"history-edit-form\">"
+    "</dd></div><div><dt>Partial fill</dt><dd><label class=\"check-option read-only-check\"><input type=\"checkbox\" disabled"
+    ?:(=(%partial (cell-term %tank-state row)) " checked" "")
+    "><span>Partial fill</span></label></dd></div></dl><form class=\"history-edit-form\">"
     "<input type=\"hidden\" name=\"vehicle\" value=\""
     (escape vehicle)
     "\"><input type=\"hidden\" name=\"originalObserved\" value=\""
@@ -1559,11 +1804,11 @@
     (escape (format-scaled:render (cell-atom %quantity-milli row) 3 %.n))
     "\"></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" value=\""
     (escape (format-unit-price:render (cell-atom %unit-price-mills row) (cell-term %currency row)))
-    "\"></label><label>Tank state<select name=\"tank\"><option value=\"full\""
-    ?:(=(%full (cell-term %tank-state row)) " selected" "")
-    ">Full</option><option value=\"partial\""
-    ?:(=(%partial (cell-term %tank-state row)) " selected" "")
-    ">Partial</option></select></label><input type=\"hidden\" name=\"profile\" value=\""
+    "\"></label><label class=\"check-option\"><input type=\"checkbox\" name=\"partialFill\""
+    ?:(=(%partial (cell-term %tank-state row)) " checked" "")
+    "><span>Partial fill</span></label><input type=\"hidden\" name=\"tank\" value=\""
+    ?:(=(%partial (cell-term %tank-state row)) "partial" "full")
+    "\"><input type=\"hidden\" name=\"profile\" value=\""
     (escape (scot %tas (cell-term %price-profile row)))
     "\"><input type=\"hidden\" name=\"settlement\" value=\""
     (escape (scot %tas (cell-term %settlement-mode row)))
@@ -2039,6 +2284,66 @@
     ==
   (weld rendered $(fills t.fills))
 ::
+++  sum-unit-prices
+  |=  rows=(list vector:ast)
+  ^-  @ud
+  ?~(rows 0 (add (cell-atom %unit-price-mills i.rows) $(rows t.rows)))
+::
+++  same-price-context
+  |=  [currency=@tas quantity-unit=@tas rows=(list vector:ast)]
+  ^-  ?
+  ?~  rows
+    %.y
+  ?&  =(currency (cell-term %currency i.rows))
+      =(quantity-unit (cell-term %quantity-unit i.rows))
+      $(rows t.rows)
+  ==
+::
+++  average-price-stat-rows
+  |=  [vehicles=(list vector:ast) fills=(list vector:ast)]
+  ^-  tape
+  ?~  vehicles
+    ~
+  =/  rest  $(vehicles t.vehicles)
+  ?:  =(0 (cell-atom %archived i.vehicles))
+    rest
+  =/  vehicle-id  (cell-atom %vehicle-id i.vehicles)
+  =/  scoped  (rows-for vehicle-id fills)
+  ?~  scoped
+    rest
+  =/  vehicle  (cell-text %label i.vehicles)
+  =/  currency  (cell-term %currency i.scoped)
+  =/  quantity-unit  (cell-term %quantity-unit i.scoped)
+  =/  compatible  (same-price-context currency quantity-unit scoped)
+  =/  count  (lent scoped)
+  =/  display=@t
+    ?.  compatible
+      'Unavailable'
+    =/  mean
+      (div (add (sum-unit-prices scoped) (div count 2)) count)
+    (format-unit-price:render mean currency)
+  ;:  weld
+    "<tr data-statistics-vehicle=\""
+    (escape vehicle)
+    "\" data-average-price=\""
+    (escape display)
+    "\"><td>Lifetime</td><td>"
+    (scow %ud count)
+    "</td><td>"
+    (escape display)
+    "</td><td>"
+    ?:  compatible
+      ;:  weld
+        (escape (scot %tas currency))
+        " per "
+        (escape (scot %tas quantity-unit))
+        "; exact half-up mean."
+      ==
+    "Incompatible currencies or quantity units are not averaged."
+    "</td></tr>"
+    rest
+  ==
+::
 ++  statistics-screen
   |=  $:  fills=(list vector:ast)
           vehicles=(list vector:ast)
@@ -2099,8 +2404,8 @@
     "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><thead><tr><th>Date</th><th>Elapsed time</th><th>Eligibility</th></tr></thead><tbody>"
     (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %time)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit</h2><table><thead><tr><th>Date</th><th>Observed unit price</th></tr></thead><tbody>"
-    (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %price)
+    "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit - lifetime</h2><table><thead><tr><th>Period</th><th>Fills</th><th>Mean unit price</th><th>Basis</th></tr></thead><tbody>"
+    (average-price-stat-rows vehicles fills)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><thead><tr><th>Date</th><th>Estimated distance</th><th>Eligibility</th></tr></thead><tbody>"
     (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %tank)
@@ -2191,10 +2496,13 @@
     (weld card rest)
   =/  html=tape
     ;:  weld
-      (main-hub app-default definition-rows odometers tank-sizes def-purchases def-odometers)
-      (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables)
+      (main-hub app-default definition-rows odometers tank-sizes fills fill-odometers economy-breaks def-purchases def-odometers)
+      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
+      "<details class=\"archived-vehicles\"><summary>View archived vehicles</summary><ul class=\"vehicle-list\">"
+      (archived-vehicle-list-items vehicles)
+      "</ul></details>"
       "</section>"
       "<section id=\"vehicle-create-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button><header class=\"view-header\"><p class=\"eyebrow\">NEW VEHICLE</p><h1>ADD VEHICLE</h1></header><form id=\"vehicle-add-form\"><label>Vehicle name<input name=\"label\" required></label><label>Primary Energy Source<select name=\"energy\">"
       starter-html

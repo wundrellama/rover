@@ -1849,6 +1849,14 @@
     " FROM app-default-vehicle A SELECT A.scope, A.vehicle-id, A.recorded-at;"
   ==
 ::
+++  archive-vehicle-lookup
+  |=  vehicle-label=@t
+  ^-  tape
+  ;:  weld
+    (vehicle-lookup vehicle-label)
+    " FROM app-default-vehicle A WHERE A.scope = %app SELECT A.vehicle-id;"
+  ==
+::
 ++  write-app-default
   |=  [vehicle-id=@ux exists=? recorded-at=@da]
   ^-  tape
@@ -1890,6 +1898,15 @@
     ";"
   ==
 ::
+++  archive-vehicle
+  |=  vehicle-id=@ux
+  ^-  tape
+  ;:  weld
+    "UPDATE vehicles SET archived = Y WHERE vehicle-id = "
+    (scow %ux vehicle-id)
+    ";"
+  ==
+::
 ++  energy-definition-lookup
   |=  label=@t
   ^-  tape
@@ -1927,6 +1944,36 @@
     ";"
   ==
 ::
+++  insert-energy-source-type
+  |=  [definition-id=@ux label=@t physical-kind=@tas quantity-unit=@tas now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ("
+    (scow %ux definition-id)
+    ", '"
+    (sql-quote label)
+    "', "
+    (sql-term physical-kind)
+    ", "
+    (sql-term quantity-unit)
+    ", N, "
+    (scow %da now)
+    ");"
+  ==
+::
+++  insert-driving-mode-type
+  |=  [mode-id=@ux label=@t now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO driving-mode-definitions VALUES ("
+    (scow %ux mode-id)
+    ", '"
+    (sql-quote label)
+    "', N, "
+    (scow %da now)
+    ");"
+  ==
+::
 ++  rename-consumable-definition
   |=  [consumable-id=@ux new-label=@t]
   ^-  tape
@@ -1962,7 +2009,10 @@
     "' AND C.label = 'DEF' SELECT C.consumable-id, C.label, L.archived AS link-archived; "
     "FROM vehicles V JOIN vehicle-consumable-tank-size T ON V.vehicle-id = T.vehicle-id JOIN consumable-definitions C ON T.consumable-id = C.consumable-id WHERE V.label = '"
     (sql-quote vehicle-label)
-    "' AND C.label = 'DEF' SELECT C.consumable-id, T.digits, T.decimals, T.unit;"
+    "' AND C.label = 'DEF' SELECT C.consumable-id, T.digits, T.decimals, T.unit; "
+    "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT D.energy-definition-id;"
   ==
 ::
 ++  has-id
@@ -2059,6 +2109,7 @@
           subtype-id=(unit @ux)
           current-energy-ids=(list @ux)
           energy-ids=(unit (list @ux))
+          default-energy-id=(unit @ux)
           current-mode-ids=(list @ux)
           mode-ids=(unit (list @ux))
           current-def=?
@@ -2106,6 +2157,18 @@
     ;:  weld
       (sync-mode-current vehicle-id current-mode-ids u.mode-ids)
       (add-mode-missing vehicle-id current-mode-ids u.mode-ids)
+    ==
+  =/  default-energy-script=tape
+    ?~  default-energy-id
+      ~
+    ;:  weld
+      "DELETE FROM vehicle-default-energy-definitions WHERE vehicle-id = "
+      id
+      "; INSERT INTO vehicle-default-energy-definitions VALUES ("
+      id
+      ", "
+      (scow %ux u.default-energy-id)
+      "); "
     ==
   =/  def-delete=tape
     ?~  def-enabled.input
@@ -2184,6 +2247,7 @@
     tank-script
     subtype-script
     energy-script
+    default-energy-script
     mode-script
     def-membership
     def-tank-insert
@@ -2213,7 +2277,10 @@
     "' AND C.label = 'DEF' SELECT C.label AS consumable, L.archived AS link-archived; "
     "FROM vehicles V JOIN vehicle-consumable-tank-size T ON V.vehicle-id = T.vehicle-id JOIN consumable-definitions C ON T.consumable-id = C.consumable-id WHERE V.label = '"
     (sql-quote label)
-    "' AND C.label = 'DEF' SELECT T.digits, T.decimals, T.unit;"
+    "' AND C.label = 'DEF' SELECT T.digits, T.decimals, T.unit; "
+    "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id WHERE V.label = '"
+    (sql-quote label)
+    "' SELECT E.label AS default-energy;"
   ==
 ::
 ++  insert-energy-links
