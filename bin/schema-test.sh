@@ -2,7 +2,24 @@
 # Rover M0 schema contract checks. Live checks use the owned real Obelisk pier.
 set -euo pipefail
 
-PIER="${1:-$HOME/piers/rover-bel}"
+PIER="${1:-${ROVER_PIER:-}}"
+
+if [ -z "$PIER" ]; then
+  cat >&2 <<'USAGE'
+schema-test: no pier given.
+
+  usage: bin/schema-test.sh <pier>      e.g. bin/schema-test.sh ~/piers/rover-binbel
+     or: ROVER_PIER=<pier> bin/schema-test.sh
+
+There is deliberately no default; a hardcoded one silently tests a retired pier.
+
+Candidate piers with a live conn.sock:
+USAGE
+  for p in "$HOME"/piers/*/; do
+    [ -S "$p/.urb/conn.sock" ] && printf '  %s\n' "${p%/}" >&2
+  done
+  exit 2
+fi
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PATH="$HOME/workspace/urbit/bin:$PATH"
 

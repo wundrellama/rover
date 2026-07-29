@@ -2,11 +2,39 @@
 # Rover browser-half fixtures over real Eyre. No loopback auto-auth and no mocks.
 set -uo pipefail
 
-PIER="${1:-$HOME/piers/rover-bel}"
+PIER="${1:-${ROVER_PIER:-}}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
+if [ -z "$PIER" ]; then
+  cat >&2 <<'USAGE'
+ui-test: no pier given.
+
+  usage: bin/ui-test.sh <pier>          e.g. bin/ui-test.sh ~/piers/rover-binbel
+     or: ROVER_PIER=<pier> bin/ui-test.sh
+
+There is deliberately no default. A hardcoded default silently tested a retired
+pier and reported an app failure that did not exist (2026-07-29). Name the pier.
+
+Candidate piers with a live conn.sock:
+USAGE
+  for p in "$HOME"/piers/*/; do
+    [ -S "$p/.urb/conn.sock" ] && printf '  %s\n' "${p%/}" >&2
+  done
+  exit 2
+fi
+
 fail() { echo "ui-test: FAIL - $*" >&2; exit 1; }
-note() { echo "ui-test: $*"; }
+
+# Every fixture reports through note(), so record which ones actually ran.
+# See the coverage gate at the end of this file.
+_ROVER_RAN=""
+note() {
+  case "$*" in
+    fixture\ [0-9]*)
+      _ROVER_RAN="$_ROVER_RAN $(printf '%s' "$*" | awk '{print $2}')" ;;
+  esac
+  echo "ui-test: $*"
+}
 
 [ -S "$PIER/.urb/conn.sock" ] || { echo "no conn.sock under $PIER" >&2; exit 2; }
 command -v click >/dev/null 2>&1 || PATH="$HOME/workspace/urbit/bin:$PATH"
@@ -2151,3 +2179,5 @@ case "$charge" in
     ;;
   *) fail "Rover site/tile docket charge not found: $charge" ;;
 esac
+
+. "$(dirname "$0")/coverage-gate.sh"
