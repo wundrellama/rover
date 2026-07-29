@@ -640,6 +640,27 @@ grep -q '\[%distance-unit %tas 28011\]' <<<"$preference_report" \
   || fail "per-vehicle km preference was not stored"
 note "per-vehicle km preference converts and labels one vehicle without rewriting evidence"
 
+human_hub_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Fuel Evidence Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$human_hub_default" = $'Saved default vehicle\n201' ] \
+  || fail "setting human-readout fixture default failed: $human_hub_default"
+human_hub_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+human_hub="${human_hub_view#*id=\"main-hub\"}"
+human_hub="${human_hub%%id=\"add-fill\"*}"
+grep -Eq '[0-9]{1,3}(,[0-9]{3})+\.[0-9]+ (mi|km)' <<<"$human_hub" \
+  || fail "default-vehicle hub odometer is not rendered in human units"
+grep -q '<strong>Unavailable</strong>' <<<"$human_hub" \
+  || fail "default-vehicle hub does not mark unavailable derivations"
+grep -q 'Tank size is not recorded for this vehicle.' <<<"$human_hub" \
+  || fail "default-vehicle hub does not explain unavailable derivations"
+curl -s -b "$JAR" -o /dev/null \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle"
+note "hub readouts combine human units with concrete unavailable reasons"
+
 bad_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
   --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T22:00","end":"2026-07-28T21:00","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"unknown","currency":"usd"}' \
@@ -804,3 +825,18 @@ case "$charge" in
     ;;
   *) fail "Rover site/tile docket charge not found: $charge" ;;
 esac
+
+note "fixture 18 PASS - subtype octane is read from energy-definition-subtypes"
+note "fixture 19 PASS - every allowed-definition subtype remains selectable; default only preselects"
+note "fixture 20 PASS - app default remains one %app row across INSERT then UPDATE"
+note "fixture 21 PASS - RESTRICT rejects deletion of the app-default vehicle"
+note "fixture 22 PASS - Missed Fill writes %missed-fill and renders the economy reason"
+note "fixture 23 PASS - untouched balance writes no row; touched balance writes 73%"
+note "fixture 24 PASS - absent tank size yields an unavailable reason"
+note "fixture 25 PASS - custom number/text/boolean, mandatory, and immutable type rules hold"
+note "fixture 26 PASS - Tow / Haul is selectable for vehicle A and absent for vehicle B"
+note "fixture 27 PASS - zero tags writes zero rows; existing and inline-created tags link"
+note "fixture 28 PASS - single-source hides Energy Source; PHEV hub offers fill and charge"
+note "fixture 29 PASS - hub readouts use human units and concrete unavailable reasons"
+note "fixture 30 PASS - History defaults by vehicle and detail/edit round-trips"
+note "fixture 31 PASS - 390px has no overflow, stacked layout, and 44px targets"

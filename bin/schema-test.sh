@@ -79,4 +79,4 @@ restrict_update="$(grep -o '\[%on-update %tas %restrict\]' <<<"$live" | wc -l)"
 [ "$restrict_update" -eq 58 ] ||
   fail "live metadata has $restrict_update RESTRICT updates (want 58)"
 
-pass "live Obelisk has 53 relations; all 56 FK constraints (58 column rows) are RESTRICT"
+pass "fixture 17 - live Obelisk has 53 relations; all 56 FK constraints (58 column rows) are RESTRICT; zero cascade/set-default"

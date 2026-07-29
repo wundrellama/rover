@@ -1211,3 +1211,95 @@ ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no g
 Result: **PASS** - Settings manages fill-targeted typed definitions over real
 Eyre and Obelisk, mandatory values fail closed, and valued definitions require
 archive-and-recreate for a content-type change.
+
+## Final milestone fixture battery
+
+Fixtures 1-16 remain represented by the carried real-Eyre checks above.
+Fixtures 17-31 were rerun after the persistence restart and report
+individually below.
+
+Fixture 17 exact command and real output:
+
+```console
+$ bin/schema-test.sh "$HOME/piers/rover-bel"
+schema-test: PASS - DDL has 53 unique tables, 56 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 53 relations; all 56 FK constraints (58 column rows) are RESTRICT; zero cascade/set-default
+```
+
+Result: **PASS**.
+
+Fixtures 18-31 exact command and complete real output:
+
+```console
+$ timeout 360 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips
+ui-test: browser measurements: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk
+ui-test: History defaults to the app vehicle; row detail opens and edit round-trips through Obelisk
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: hub readouts combine human units with concrete unavailable reasons
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: custom number/text/boolean values use typed relations; mandatory and immutable-type rules hold
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+ui-test: fixture 18 PASS - subtype octane is read from energy-definition-subtypes
+ui-test: fixture 19 PASS - every allowed-definition subtype remains selectable; default only preselects
+ui-test: fixture 20 PASS - app default remains one %app row across INSERT then UPDATE
+ui-test: fixture 21 PASS - RESTRICT rejects deletion of the app-default vehicle
+ui-test: fixture 22 PASS - Missed Fill writes %missed-fill and renders the economy reason
+ui-test: fixture 23 PASS - untouched balance writes no row; touched balance writes 73%
+ui-test: fixture 24 PASS - absent tank size yields an unavailable reason
+ui-test: fixture 25 PASS - custom number/text/boolean, mandatory, and immutable type rules hold
+ui-test: fixture 26 PASS - Tow / Haul is selectable for vehicle A and absent for vehicle B
+ui-test: fixture 27 PASS - zero tags writes zero rows; existing and inline-created tags link
+ui-test: fixture 28 PASS - single-source hides Energy Source; PHEV hub offers fill and charge
+ui-test: fixture 29 PASS - hub readouts use human units and concrete unavailable reasons
+ui-test: fixture 30 PASS - History defaults by vehicle and detail/edit round-trips
+ui-test: fixture 31 PASS - 390px has no overflow, stacked layout, and 44px targets
+```
+
+Results:
+
+- Fixture 18: **PASS**
+- Fixture 19: **PASS**
+- Fixture 20: **PASS**
+- Fixture 21: **PASS**
+- Fixture 22: **PASS**
+- Fixture 23: **PASS**
+- Fixture 24: **PASS**
+- Fixture 25: **PASS**
+- Fixture 26: **PASS**
+- Fixture 27: **PASS**
+- Fixture 28: **PASS**
+- Fixture 29: **PASS**
+- Fixture 30: **PASS**
+- Fixture 31: **PASS**
+
+## Served HTML review artifacts
+
+The authenticated response fragments are included verbatim as:
+
+- [Main hub](artifacts/served-hub.html)
+- [Add Fill](artifacts/served-add-fill.html)
+
+They were captured from the same persisted real-pier state used by the final
+battery. Exact artifact verification:
+
+```console
+$ sha256sum artifacts/served-hub.html artifacts/served-add-fill.html
+6b811ab313e43f061b0e667f58ef36e0bd5271fa1bb83d4b739805f95e3c68b6  artifacts/served-hub.html
+2454ccb17cc80a200af918bf8601688cca13c2dbeb2a3c3439dad2d56c4de553  artifacts/served-add-fill.html
+
+$ wc -c artifacts/served-hub.html artifacts/served-add-fill.html
+ 1695 artifacts/served-hub.html
+16629 artifacts/served-add-fill.html
+18324 total
+```
