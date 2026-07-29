@@ -211,6 +211,25 @@
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?:  =(%'POST' method.request.req)
+    ?:  =('/apps/rover/edit-fill' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-fill')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  decoded  (decode-fill:entry body-text)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  wir=wire  /rover-edit-fill-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%tape %rover (edit-fill-lookup:act vehicle-label.p.decoded observed-start.p.decoded)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir body-text)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/set-default-vehicle' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: vehicle')) sat]
@@ -754,6 +773,92 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-edit-fill-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ body)
+          ==
+        `this
+      =/  decoded  (decode-fill:entry u.body)
+      ?:  ?=(%| -.decoded)
+        :_  this
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-fill'))
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-fill'))
+      ?~  p.res
+        :_  this
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill'))
+      =/  rows  (result-rows:view i.p.res)
+      ?.  =(1 (lent rows))
+        :_  this
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%ambiguous: edit-fill'))
+      =/  write-wire=path  /rover-edit-fill-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  jon
+        !>([%tape %rover (update-fill:act `@ux`(cell-atom:view %acquisition-id (snag 0 rows)) p.decoded)])
+      =/  new-state
+        %_  state
+          pending  (~(put by (~(del by pending) wire)) write-wire u.body)
+          http-pending
+            (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+        ==
+      :_  this(state new-state)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-edit-fill-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ body)
+          ==
+        `this
+      =/  decoded  (decode-fill:entry u.body)
+      ?:  ?=(%| -.decoded)
+        :_  this
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-fill'))
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-fill'))
+      =/  proof
+        %:  derive-fill-total:act
+            quantity-milli.p.decoded
+            unit-price-mills.p.decoded
+            minor-unit-decimals.p.decoded
+            cash-increment-mills.p.decoded
+            settlement-mode.p.decoded
+        ==
+      =/  total
+        %:  format-total:render
+            total-mills.proof
+            currency.p.decoded
+            minor-unit-decimals.p.decoded
+        ==
+      :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs (cat 3 'Saved fill changes - ' total)))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-default-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact

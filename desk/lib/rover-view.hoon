@@ -840,6 +840,112 @@
     "</section></article>"
   ==
 ::
+++  input-da
+  |=  value=@da
+  ^-  tape
+  =/  text  (trip (format-da:render value))
+  ;:(weld (scag 10 text) "T" (scag 5 (slag 11 text)))
+::
+++  history-row
+  |=  $:  row=vector:ast
+          vehicles=(list vector:ast)
+          odometer-links=(list vector:ast)
+      ==
+  ^-  tape
+  =/  vehicle  (vehicle-label (cell-atom %vehicle-id row) vehicles)
+  =/  acquisition  (cell-atom %acquisition-id row)
+  =/  odometer  (rows-by %acquisition-id acquisition odometer-links)
+  =/  quantity
+    (format-quantity:render (cell-atom %quantity-milli row) (cell-term %quantity-unit row))
+  =/  proof
+    %:  derive-fill-total:act
+        (cell-atom %quantity-milli row)
+        (cell-atom %unit-price-mills row)
+        (cell-atom %minor-unit-decimals row)
+        (cell-atom %cash-increment-mills row)
+        ;;(settlement-mode:rover (cell-term %settlement-mode row))
+    ==
+  =/  total
+    %:  format-total:render
+        total-mills.proof
+        (cell-term %currency row)
+        (cell-atom %minor-unit-decimals row)
+    ==
+  =/  date  (trip (format-da:render `@da`(cell-atom %observed-start row)))
+  =/  observed-input  (input-da `@da`(cell-atom %observed-start row))
+  =/  odometer-text=@t
+    ?~  odometer
+      'Not recorded'
+    %:  format-distance:render
+        (cell-atom %value-digits i.odometer)
+        (cell-atom %decimal-places i.odometer)
+        (cell-term %unit i.odometer)
+        %.n
+    ==
+  ;:  weld
+    "<article class=\"history-table-row\" data-history-vehicle=\""
+    (escape vehicle)
+    "\"><button type=\"button\" class=\"history-record-toggle\" aria-expanded=\"false\">"
+    "<span data-history-column=\"DATE\">"
+    date
+    "</span><span data-history-column=\"ODOMETER\">"
+    (escape odometer-text)
+    "</span><span data-history-column=\"GALLONS\">"
+    (escape quantity)
+    "</span><span data-history-column=\"TOTAL COST\">"
+    (escape total)
+    "</span></button><div class=\"history-record-detail\" hidden><dl>"
+    "<div><dt>Vehicle</dt><dd>"
+    (escape vehicle)
+    "</dd></div><div><dt>Energy Source</dt><dd>"
+    (escape (cell-text %energy row))
+    "</dd></div><div><dt>Tank state</dt><dd>"
+    (escape (scot %tas (cell-term %tank-state row)))
+    "</dd></div></dl><form class=\"history-edit-form\">"
+    "<input type=\"hidden\" name=\"vehicle\" value=\""
+    (escape vehicle)
+    "\"><input type=\"hidden\" name=\"observed\" value=\""
+    observed-input
+    "\"><input type=\"hidden\" name=\"definition\" value=\""
+    (escape (cell-text %energy row))
+    "\"><input type=\"hidden\" name=\"zone\" value=\""
+    (escape (cell-text %source-zone row))
+    "\"><input type=\"hidden\" name=\"mileage\" value=\"\"><input type=\"hidden\" name=\"mileageUnit\" value=\"mi\"><input type=\"hidden\" name=\"station\" value=\"none\"><input type=\"hidden\" name=\"newStationLabel\" value=\"\"><input type=\"hidden\" name=\"newPlaceLabel\" value=\"\"><input type=\"hidden\" name=\"newStationKind\" value=\"private\"><input type=\"hidden\" name=\"subtype\" value=\"\"><input type=\"hidden\" name=\"missedFill\" value=\"no\"><input type=\"hidden\" name=\"drivingMode\" value=\"\"><input type=\"hidden\" name=\"averageSpeed\" value=\"\"><input type=\"hidden\" name=\"speedUnit\" value=\"mph\"><input type=\"hidden\" name=\"driveBalance\" value=\"\"><input type=\"hidden\" name=\"newTag\" value=\"\"><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" value=\""
+    (escape (format-scaled:render (cell-atom %quantity-milli row) 3 %.n))
+    "\"></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" value=\""
+    (escape (format-unit-price:render (cell-atom %unit-price-mills row) (cell-term %currency row)))
+    "\"></label><input type=\"hidden\" name=\"profile\" value=\""
+    (escape (scot %tas (cell-term %price-profile row)))
+    "\"><input type=\"hidden\" name=\"tank\" value=\""
+    (escape (scot %tas (cell-term %tank-state row)))
+    "\"><input type=\"hidden\" name=\"settlement\" value=\""
+    (escape (scot %tas (cell-term %settlement-mode row)))
+    "\"><button type=\"submit\">Save changes</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></div></article>"
+  ==
+::
+++  history-screen
+  |=  $:  vehicles=(list vector:ast)
+          fills=(list vector:ast)
+          odometer-links=(list vector:ast)
+      ==
+  ^-  tape
+  =/  ordered  (order-vectors:act %observed-start %.n fills)
+  =/  render-rows
+    |=  rows=(list vector:ast)
+    ^-  tape
+    ?~  rows
+      ~
+    (weld (history-row i.rows vehicles odometer-links) $(rows t.rows))
+  =/  rows=tape  (render-rows ordered)
+  ;:  weld
+    "<section id=\"history-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER LOG</p><h1>HISTORY</h1></header>"
+    "<label>Vehicle<select id=\"history-vehicle-filter\">"
+    (vehicle-options vehicles)
+    "</select></label><div class=\"history-table-head\"><span>DATE</span><span>ODOMETER</span><span>GALLONS</span><span>TOTAL COST</span></div><div id=\"history-table\">"
+    rows
+    "</div><p id=\"history-empty\" class=\"empty\" hidden>No fill history for this vehicle.</p></section>"
+  ==
+::
 ++  page
   |=  commands=(list cmd-result:ast)
   ^-  @t
@@ -864,6 +970,7 @@
   =/  economy-breaks  (rows-at commands 19)
   =/  app-default  (rows-at commands 20)
   =/  tank-sizes  (rows-at commands 21)
+  =/  fill-odometers  (rows-at commands 22)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  default-id=(unit @)
     ?~  app-default
@@ -904,7 +1011,7 @@
       "</select></label><button type=\"submit\">Add Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
       "</div></section>"
-      "<section id=\"history-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER LOG</p><h1>HISTORY</h1></header><p class=\"empty\">Select a vehicle to review its records.</p></section>"
+      (history-screen vehicles fills fill-odometers)
       "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header><p class=\"empty\">Statistics become available as eligible intervals are recorded.</p></section>"
       "<section id=\"settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER CONFIGURATION</p><h1>SETTINGS</h1></header><p class=\"empty\">Theme, default vehicle, and custom fields.</p></section>"
     ==

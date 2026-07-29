@@ -361,6 +361,41 @@
       text-transform: uppercase;
     }
 
+    .history-table-head,
+    .history-record-toggle {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem;
+      width: 100%;
+      text-align: left;
+    }
+
+    .history-table-head {
+      margin-top: 1rem;
+      padding: 0.5rem;
+      color: var(--rv-amber-dim);
+      font-size: 0.68rem;
+    }
+
+    .history-table-row {
+      border: 1px solid var(--rv-olive);
+    }
+
+    .history-record-detail {
+      padding: 0.8rem;
+      border-top: 1px dashed var(--rv-olive);
+    }
+
+    .history-record-detail[hidden] {
+      display: none;
+    }
+
+    .history-edit-form {
+      display: grid;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
     .hub-actions {
       margin-bottom: 1rem;
     }
@@ -838,6 +873,48 @@
             target.dispatchEvent(new Event('change', {bubbles: true}));
           }
           document.getElementById(screenId)?.scrollIntoView();
+        });
+      });
+
+      const historyFilter = app.querySelector('#history-vehicle-filter');
+      if (historyFilter) {
+        if (defaultVehicle) historyFilter.value = defaultVehicle;
+        const syncHistory = () => {
+          let visible = 0;
+          app.querySelectorAll('[data-history-vehicle]').forEach((row) => {
+            row.hidden = row.dataset.historyVehicle !== historyFilter.value;
+            if (!row.hidden) visible += 1;
+          });
+          app.querySelector('#history-empty').hidden = visible !== 0;
+        };
+        historyFilter.addEventListener('change', syncHistory);
+        syncHistory();
+      }
+
+      app.querySelectorAll('.history-record-toggle').forEach((button) => {
+        button.addEventListener('click', () => {
+          const detail = button.nextElementSibling;
+          detail.hidden = !detail.hidden;
+          button.setAttribute('aria-expanded', String(!detail.hidden));
+        });
+      });
+
+      app.querySelectorAll('.history-edit-form').forEach((editForm) => {
+        editForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = editForm.querySelector('output');
+          verdict.value = 'Saving…';
+          const payload = Object.fromEntries(new FormData(editForm));
+          payload.additives = [];
+          payload.tags = [];
+          const response = await fetch('/apps/rover/edit-fill', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(payload)
+          });
+          verdict.value = await response.text();
+          if (response.ok) await loadView();
         });
       });
 

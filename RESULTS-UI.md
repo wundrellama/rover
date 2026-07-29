@@ -987,3 +987,54 @@ The same run proves:
 Result: **PASS** - vehicle add/remove, default selection, per-vehicle entry
 actions and configuration summaries are live, while singleton and FK
 restrictions remain enforced by the real database.
+
+### Slice 6 - History filter, detail, and edit
+
+The History structure assertions ran before the placeholder was replaced.
+RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: FAIL - History screen lacks vehicle filter
+```
+
+History is now a separate screen. Each row presents Date, Odometer, Gallons,
+and Total Cost; selecting a row opens its full record and edit form. The
+filter initializes from the `%app` default, and the browser asserts that every
+initially visible row belongs to that vehicle before switching to Structure
+Vehicle and opening a detail.
+
+The edit fixture creates a uniquely labelled vehicle through the real Vehicles
+endpoint, writes a fill for it, edits that record from 3.000 gallons at
+`$3.499` to 3.333 gallons at `$3.599`, and reads back both the edited source
+quantity and the recalculated `$12.00` total. The boundary identifies the
+record with owner-visible vehicle/date context; no acquisition ID enters the
+HTML or POST.
+
+GREEN, exact command and real output:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips
+ui-test: browser measurements: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk
+ui-test: History defaults to the app vehicle; row detail opens and edit round-trips through Obelisk
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS** - default filtering, four-column rows, detail expansion, and
+edit/readback all execute over authenticated Eyre and real Obelisk state.

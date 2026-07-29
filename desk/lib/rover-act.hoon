@@ -802,7 +802,7 @@
     "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id SELECT V.vehicle-id, O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.source-zone, O.recorded-at; "
     "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS energy, E.physical-kind, E.quantity-unit, E.archived AS energy-archived, L.archived AS link-archived; "
     "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, E.label AS default-energy; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, A.acquisition-id, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end, A.source-zone, A.recorded-at;"
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id SELECT V.vehicle-id, A.acquisition-id, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end, A.source-zone, A.recorded-at;"
     " FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id JOIN charging-costs K ON C.acquisition-id = K.acquisition-id SELECT V.vehicle-id, C.acquisition-id, E.label AS energy, A.observed-start, A.observed-end, A.source-zone, A.recorded-at, K.cost-state, K.currency;"
     " FROM charging-energy-measurements M SELECT M.acquisition-id, M.quantity, M.decimals, M.measure-unit, M.point, M.evidence;"
     " FROM charging-session-batteries L JOIN battery-observation-percent P ON L.battery-observation-id = P.battery-observation-id SELECT L.acquisition-id, L.endpoint, P.value-digits, P.value-decimals;"
@@ -820,6 +820,7 @@
     " FROM economy-breaks B SELECT B.acquisition-id, B.reason;"
     " FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE A.scope = %app SELECT V.vehicle-id, V.label, A.recorded-at;"
     " FROM vehicle-tank-size T SELECT T.vehicle-id, T.digits, T.decimals, T.size-unit;"
+    " FROM fuel-fill-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.acquisition-id, O.value-digits, O.decimal-places, O.unit;"
   ==
 ::
 ++  sql-quote
@@ -868,6 +869,42 @@
     (sql-quote vehicle-label)
     "' SELECT D.mode-id, D.label, D.archived AS mode-archived, L.archived AS link-archived;"
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
+  ==
+::
+++  edit-fill-lookup
+  |=  [vehicle-label=@t observed-start=@da]
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT A.acquisition-id;"
+  ==
+::
+++  update-fill
+  |=  [acquisition-id=@ux input=fill-entry:rover]
+  ^-  tape
+  ;:  weld
+    "UPDATE fuel-fills SET quantity-milli = "
+    (sql-ud quantity-milli.input)
+    ", tank-state = "
+    (sql-term tank-state.input)
+    ", unit-price-mills = "
+    (sql-ud unit-price-mills.input)
+    ", currency = "
+    (sql-term currency.input)
+    ", settlement-mode = "
+    (sql-term settlement-mode.input)
+    ", price-profile = "
+    (sql-term price-profile.input)
+    ", minor-unit-decimals = "
+    (sql-ud minor-unit-decimals.input)
+    ", cash-increment-mills = "
+    (sql-ud cash-increment-mills.input)
+    " WHERE acquisition-id = "
+    (scow %ux acquisition-id)
+    ";"
   ==
 ::
 ++  vehicle-lookup

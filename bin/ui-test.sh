@@ -98,6 +98,16 @@ for readout in 'MOST RECENT ODOMETER' 'ECONOMY - LAST FILL' 'ECONOMY - LIFETIME'
   grep -q "$readout" <<<"$view" || fail "hub readout missing: $readout"
 done
 grep -q '&lsaquo; MAIN' <<<"$view" || fail "screens do not name MAIN in back controls"
+grep -q 'id="history-vehicle-filter"' <<<"$view" \
+  || fail "History screen lacks vehicle filter"
+for column in 'DATE' 'ODOMETER' 'GALLONS' 'TOTAL COST'; do
+  grep -q "data-history-column=\"$column\"" <<<"$view" ||
+    fail "History table lacks $column"
+done
+grep -q 'class="history-record-detail"' <<<"$view" \
+  || fail "History rows do not open a record detail"
+grep -q 'class="history-edit-form"' <<<"$view" \
+  || fail "History record detail lacks edit"
 grep -q 'id="vehicle-add-form"' <<<"$view" \
   || fail "Vehicles screen lacks Add Vehicle"
 grep -q 'data-set-default-vehicle' <<<"$view" \
@@ -398,6 +408,21 @@ const fs = require('fs');
       stable: JSON.stringify(first) === JSON.stringify(second)
     };
   });
+  await page.locator('#add-fill .back-control').click();
+  await page.locator('#main-hub [data-open-screen="history-screen"]').click();
+  const historyFilter = page.locator('#history-vehicle-filter');
+  const historyDefault = await historyFilter.inputValue();
+  const defaultRowsHonest = await page.locator('[data-history-vehicle]')
+    .evaluateAll((rows) => rows
+      .filter((row) => !row.hidden)
+      .every((row) => row.dataset.historyVehicle === 'Mode Scope Vehicle'));
+  await historyFilter.selectOption({label: 'Structure Vehicle'});
+  const firstHistoryRow = page.locator(
+    '[data-history-vehicle="Structure Vehicle"]:not([hidden])'
+  ).first();
+  await firstHistoryRow.locator('.history-record-toggle').click();
+  const detailVisible =
+    await firstHistoryRow.locator('.history-record-detail').isVisible();
   console.log(
     `${price} standard=${standard} quantity=${afterQuantity} price=${afterPrice} ` +
     `after-tank=${afterTank} ` +
@@ -408,6 +433,7 @@ const fs = require('fs');
     `default=${initialVehicle} ` +
     `subtypes=${subtypeState.selected}/${subtypeState.visible.join('|')} ` +
     `modes=${structureModes.join('|')}/${otherModes} ` +
+    `history=${historyDefault}/${defaultRowsHonest}/${detailVisible} ` +
     `overflow=${overflow} touch=${mobile.touch} stacked=${mobile.stacked} ` +
     `font=${mobile.font} ordered=${mobile.ordered} stable=${mobile.stable}`
   );
@@ -418,7 +444,7 @@ const fs = require('fs');
 });
 NODE
 )"
-[ "$preview" = '$3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 overflow=false touch=true stacked=true font=true ordered=true stable=true' ] \
+[ "$preview" = '$3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true' ] \
   || fail "browser fill preview mismatch: $preview"
 note "browser measurements: $preview"
 note "browser completes \$3.49 to \$3.499 and derives an exact non-editable total"
@@ -474,6 +500,39 @@ note "subtypes, missed-fill break, scoped mode, exact speed, unset/asserted bala
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -Eq 'Unavailable - %?missed-fill' <<<"$view" \
   || fail "missed-fill economy interval did not render unavailable with its reason"
+
+history_vehicle="History Vehicle $(date +%s%N)"
+history_vehicle_payload="$(
+  printf '{"label":"%s","energy":"Structure Gasoline"}' "$history_vehicle"
+)"
+history_vehicle_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-raw "$history_vehicle_payload" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$history_vehicle_result" = "Added vehicle - $history_vehicle"$'\n201' ] \
+  || fail "History vehicle setup failed: $history_vehicle_result"
+history_observed='2026-07-30T12:34'
+history_fill_payload="$(
+  printf '{"vehicle":"%s","definition":"Structure Gasoline","quantity":"3.000","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$history_vehicle" "$history_observed"
+)"
+history_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-raw "$history_fill_payload" \
+  "$URL/apps/rover/add-fill")"
+[ "$history_fill" = $'Saved fill - $3.499 - derived $10.50\n201' ] \
+  || fail "History setup fill failed: $history_fill"
+history_edit_payload="$(
+  printf '{"vehicle":"%s","definition":"Structure Gasoline","quantity":"3.333","price":"$3.59","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$history_vehicle" "$history_observed"
+)"
+history_edit="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-raw "$history_edit_payload" \
+  "$URL/apps/rover/edit-fill")"
+[ "$history_edit" = $'Saved fill changes - $12.00\n201' ] \
+  || fail "History edit failed: $history_edit"
+view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q 'value="3.333"' <<<"$view" ||
+  fail "edited History quantity did not render back"
+grep -q '\$12\.00' <<<"$view" ||
+  fail "edited History calculated total did not render back"
+note "History defaults to the app vehicle; row detail opens and edit round-trips through Obelisk"
 
 saved_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
