@@ -1116,3 +1116,98 @@ ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no g
 
 Result: **PASS** - Statistics is tables-only, uses real human-unit figures
 where available, and explains every unavailable derivation.
+
+### Slice 9 - Settings and custom-field definitions
+
+The Settings assertion was installed before the placeholder was replaced.
+RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: FAIL - Settings lacks custom-field definition management
+```
+
+Settings now groups the theme controls, custom-field definition management,
+default-vehicle control, and the intentionally deferred Import / Export and
+Grants placeholders. Active `%fill` definitions render in Add Fill in their
+declared order and type.
+
+The browser fixture creates one number, text, and boolean definition. It
+proves an empty mandatory number rejects the whole fill with HTTP 422, then
+writes `12.345`, `hello`, and true in the same mutation-only script as the
+fill. Direct urQL readback from the real database is:
+
+```console
+[%custom-field 116 'Number-1785288670414533630']
+[%digits 25717 12345] [%decimals 25717 3]
+[%value-unit %tas %unitless]
+
+[%custom-field 116 'Text-1785288670414533630']
+[%value 116 %hello]
+
+[%custom-field 116 'Boolean-1785288670414533630']
+[%value 102 0]
+```
+
+The fixture then attempts to change the valued text definition to number and
+receives:
+
+```console
+%immutable: custom-field.content-type - archive and recreate
+409
+```
+
+All three temporary definitions are archived afterward, leaving repeat runs
+free of an accidental mandatory field.
+
+The live pier crashed once in the runtime allocator while processing an
+accumulated-data browser request. Its event log and state were not altered.
+It was restarted using its established zuse-408 command, replayed through
+event 2569, and its post-restart listener was matched by PID before the green
+run:
+
+```console
+$ tmux new-session -d -s rover-bel \
+>   "cd '$HOME/workspace/urbit/bin' && exec ./urbit -p 31350 '$HOME/piers/rover-bel'"
+...
+play (2569): done
+http: web interface live on http://localhost:8082
+http: loopback live on http://localhost:12323
+pier (2582): live
+
+$ pid="$(pgrep -f "urbit -p 31350 $HOME/piers/rover-bel" | head -1)"
+$ echo "$pid"; ss -lntp | grep "pid=$pid,"
+750256
+LISTEN 0 16 127.0.0.1:12323 0.0.0.0:* users:(("urbit",pid=750256,fd=85))
+LISTEN 0 16 0.0.0.0:8082 0.0.0.0:* users:(("urbit",pid=750256,fd=84))
+```
+
+GREEN, exact real-Eyre command and output after persistence replay:
+
+```console
+$ timeout 360 bin/ui-test.sh
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips
+ui-test: browser measurements: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 history=Mode Scope Vehicle/true/true overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk
+ui-test: History defaults to the app vehicle; row detail opens and edit round-trips through Obelisk
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: custom number/text/boolean values use typed relations; mandatory and immutable-type rules hold
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS** - Settings manages fill-targeted typed definitions over real
+Eyre and Obelisk, mandatory values fail closed, and valued definitions require
+archive-and-recreate for a content-type change.

@@ -118,6 +118,14 @@ statistics_html="${statistics_html%%id=\"settings-screen\"*}"
 if grep -Eqi '<(canvas|svg)|chart' <<<"$statistics_html"; then
   fail "Statistics contains charting in the tables-only milestone"
 fi
+grep -q 'id="custom-field-definition-form"' <<<"$view" \
+  || fail "Settings lacks custom-field definition management"
+grep -q 'data-settings-section="theme"' <<<"$view" \
+  || fail "Settings lacks theme controls"
+grep -q 'IMPORT / EXPORT.*COMING LATER' <<<"$view" \
+  || fail "Settings lacks import/export placeholder"
+grep -q 'GRANTS.*COMING LATER' <<<"$view" \
+  || fail "Settings lacks grants placeholder"
 grep -q 'id="vehicle-add-form"' <<<"$view" \
   || fail "Vehicles screen lacks Add Vehicle"
 grep -q 'data-set-default-vehicle' <<<"$view" \
@@ -326,6 +334,7 @@ const fs = require('fs');
     executablePath: process.env.CHROMIUM_BIN
   });
   const page = await browser.newPage({viewport: {width: 390, height: 844}});
+  page.setDefaultTimeout(90000);
   const raw = fs.readFileSync(process.env.JAR, 'utf8');
   const cookie = raw.match(/urbauth-~bel\s+([^\s]+)/);
   if (!cookie) throw new Error('urbauth cookie missing');
@@ -337,7 +346,7 @@ const fs = require('fs');
   }]);
   await page.goto(`${process.env.URL}/apps/rover`);
   const fillForm = page.locator('#fill-form');
-  await fillForm.waitFor({state: 'attached'});
+  await fillForm.waitFor({state: 'attached', timeout: 90000});
   await page.locator('[data-open-screen="add-fill"]').click();
   const initialVehicle = await fillForm.locator('[name="vehicle"]').inputValue();
   await fillForm.locator('[name="vehicle"]').selectOption({label: 'Structure Vehicle'});
@@ -677,6 +686,82 @@ if grep -Eq '(^|[^0-9,.])(4125|10023125)([^0-9,.]|$)|0x[0-9a-fA-F]+' <<<"$view";
   fail "charge/odometer view leaked a raw machine value or ID"
 fi
 note "charge and standalone odometer save through Obelisk and render source-native evidence"
+
+custom_suffix="$(date +%s%N)"
+number_field="Number-$custom_suffix"
+text_field="Text-$custom_suffix"
+boolean_field="Boolean-$custom_suffix"
+
+create_custom_field() {
+  local label="$1" content_type="$2" mandatory="$3" result
+  result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf \
+      '{"label":"%s","contentType":"%s","mandatory":"%s"}' \
+      "$label" "$content_type" "$mandatory")" \
+    "$URL/apps/rover/add-custom-field")"
+  [ "$result" = $'Created custom field\n201' ] \
+    || fail "creating $content_type custom field failed: $result"
+}
+
+create_custom_field "$number_field" number yes
+create_custom_field "$text_field" text no
+create_custom_field "$boolean_field" boolean no
+
+custom_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+for field in "$number_field" "$text_field" "$boolean_field"; do
+  grep -q "$field" <<<"$custom_view" \
+    || fail "custom field does not render in Settings and Add Fill: $field"
+done
+
+missing_mandatory_payload="$(
+  printf '{"vehicle":"Structure Vehicle","definition":"Structure Gasoline","quantity":"4.000","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-31T10:00","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"Structure 91 AKI","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","custom-%s":""}' \
+    "$number_field"
+)"
+missing_mandatory="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$missing_mandatory_payload" \
+  "$URL/apps/rover/add-fill")"
+[ "$missing_mandatory" = "%mandatory-or-invalid: custom-field.$number_field"$'\n422' ] \
+  || fail "empty mandatory custom field did not block save: $missing_mandatory"
+
+typed_custom_payload="$(
+  printf '{"vehicle":"Structure Vehicle","definition":"Structure Gasoline","quantity":"4.000","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-31T10:01","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"Structure 91 AKI","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","custom-%s":"12.345","custom-%s":"hello","custom-%s":"yes"}' \
+    "$number_field" "$text_field" "$boolean_field"
+)"
+typed_custom_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$typed_custom_payload" \
+  "$URL/apps/rover/add-fill")"
+[ "$typed_custom_fill" = $'Saved fill - $3.499 - derived $14.00\n201' ] \
+  || fail "typed custom values did not save: $typed_custom_fill"
+
+custom_report="$(read_structure_report)"
+grep -q "\\[%custom-field 116 '$number_field'\\].*\\[%digits 25717 12345\\].*\\[%decimals 25717 3\\].*\\[%value-unit %tas %unitless\\]" \
+  <<<"$custom_report" || fail "number custom value did not land in its typed relation"
+grep -q "\\[%custom-field 116 '$text_field'\\].*\\[%value 116 %hello\\]" \
+  <<<"$custom_report" || fail "text custom value did not land in its typed relation"
+grep -q "\\[%custom-field 116 '$boolean_field'\\].*\\[%value 102 0\\]" \
+  <<<"$custom_report" || fail "boolean custom value did not land in its typed relation"
+
+change_custom_type="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf \
+    '{"label":"%s","contentType":"number","mandatory":"no"}' \
+    "$text_field")" \
+  "$URL/apps/rover/change-custom-field-type")"
+[ "$change_custom_type" = $'%immutable: custom-field.content-type - archive and recreate\n409' ] \
+  || fail "valued custom field content type was not immutable: $change_custom_type"
+
+for field in "$number_field" "$text_field" "$boolean_field"; do
+  archived="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{"label":"%s"}' "$field")" \
+    "$URL/apps/rover/archive-custom-field")"
+  [ "$archived" = $'Archived custom field\n201' ] \
+    || fail "archiving custom field failed: $archived"
+done
+note "custom number/text/boolean values use typed relations; mandatory and immutable-type rules hold"
 
 asset_check() {
   local path="$1" content_type="$2" source="$3"

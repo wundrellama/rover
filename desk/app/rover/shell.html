@@ -946,6 +946,56 @@
         });
       });
 
+      const customDefinitionForm =
+        app.querySelector('#custom-field-definition-form');
+      if (customDefinitionForm) {
+        customDefinitionForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = customDefinitionForm.querySelector('output');
+          const payload = Object.fromEntries(new FormData(customDefinitionForm));
+          payload.mandatory =
+            customDefinitionForm.elements.mandatory.checked ? 'yes' : 'no';
+          const response = await fetch('/apps/rover/add-custom-field', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(payload)
+          });
+          verdict.value = await response.text();
+          if (response.ok) await loadView();
+        });
+      }
+
+      app.querySelectorAll('[data-archive-custom-field]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const response = await fetch('/apps/rover/archive-custom-field', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({label: button.dataset.label})
+          });
+          if (response.ok) await loadView();
+        });
+      });
+
+      app.querySelectorAll('[data-change-custom-field]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const contentType =
+            button.previousElementSibling.value;
+          const response = await fetch('/apps/rover/change-custom-field-type', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({
+              label: button.dataset.label,
+              contentType,
+              mandatory: 'no'
+            })
+          });
+          if (response.ok) await loadView();
+        });
+      });
+
       const form = app.querySelector('#fill-form');
       if (!form) return;
       const vehicle = form.elements.vehicle;
@@ -1094,6 +1144,12 @@
         payload.missedFill = form.elements.missedFill.checked ? 'yes' : 'no';
         payload.driveBalance =
           driveBalance.dataset.state === 'set' ? driveBalance.value : '';
+        form.querySelectorAll('[data-custom-field]').forEach((field) => {
+          payload[field.name] =
+            field.dataset.customType === 'boolean'
+              ? (field.checked ? 'yes' : '')
+              : field.value;
+        });
         try {
           const response = await fetch('/apps/rover/add-fill', {
             method: 'POST',

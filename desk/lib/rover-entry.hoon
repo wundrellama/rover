@@ -42,6 +42,16 @@
     ~
   $(values t.values, texts [+.i.values texts])
 ::
+++  json-object
+  |=  body=@t
+  ^-  (unit (map @t json))
+  =/  parsed  (de:json:html body)
+  ?~  parsed
+    ~
+  ?.  ?=(%o -.u.parsed)
+    ~
+  `+.u.parsed
+::
 ++  local-da
   |=  txt=@t
   ^-  (unit @da)
@@ -632,4 +642,57 @@
   ?.  (nonempty u.energy)
     [%| %bad-shape 'vehicle.energy-source']
   [%& u.label u.energy]
+::
+++  decode-custom-definition
+  |=  body=@t
+  ^-  (each custom-definition-entry:rover entry-verdict:rover)
+  =/  parsed  (de:json:html body)
+  ?~  parsed
+    [%| %bad-shape 'custom-field']
+  ?.  ?=(%o -.u.parsed)
+    [%| %bad-shape 'custom-field']
+  =/  object=(map @t json)  +.u.parsed
+  =/  label  (json-string 'label' object)
+  ?~  label
+    [%| %missing-key 'custom-field.label']
+  ?.  (nonempty u.label)
+    [%| %bad-shape 'custom-field.label']
+  =/  content  (json-string 'contentType' object)
+  ?~  content
+    [%| %missing-key 'custom-field.content-type']
+  =/  content-term  (slaw %tas u.content)
+  ?.  ?&  ?=(^ content-term)
+          ?|  =(%number u.content-term)
+              =(%text u.content-term)
+              =(%boolean u.content-term)
+          ==
+      ==
+    [%| %bad-shape 'custom-field.content-type']
+  =/  mandatory-text  (json-string 'mandatory' object)
+  =/  mandatory  ?:(?=(^ mandatory-text) =('yes' u.mandatory-text) %.n)
+  [%& u.label u.content-term mandatory]
+::
+++  decode-custom-field-change
+  |=  body=@t
+  ^-  (each custom-field-change-entry:rover entry-verdict:rover)
+  =/  decoded  (decode-custom-definition body)
+  ?:  ?=(%| -.decoded)
+    decoded
+  [%& label.p.decoded content-type.p.decoded]
+::
+++  decode-custom-field-label
+  |=  body=@t
+  ^-  (each custom-field-label-entry:rover entry-verdict:rover)
+  =/  parsed  (de:json:html body)
+  ?~  parsed
+    [%| %bad-shape 'custom-field']
+  ?.  ?=(%o -.u.parsed)
+    [%| %bad-shape 'custom-field']
+  =/  object=(map @t json)  +.u.parsed
+  =/  label  (json-string 'label' object)
+  ?~  label
+    [%| %missing-key 'custom-field.label']
+  ?.  (nonempty u.label)
+    [%| %bad-shape 'custom-field.label']
+  [%& u.label]
 --

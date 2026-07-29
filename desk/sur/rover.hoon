@@ -109,6 +109,11 @@
   [vehicle-label=@t distance-unit=(unit distance-unit) currency=currency]
 +$  vehicle-label-entry  [vehicle-label=@t]
 +$  new-vehicle-entry  [vehicle-label=@t energy-label=@t]
++$  custom-definition-entry
+  [label=@t content-type=@tas mandatory=?]
++$  custom-field-change-entry
+  [label=@t content-type=@tas]
++$  custom-field-label-entry  [label=@t]
 +$  price-preview
   $:  currency=currency
       profile=price-profile

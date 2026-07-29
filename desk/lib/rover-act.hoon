@@ -537,6 +537,9 @@
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.highway-percent; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, T.label AS tag;"
     " FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id SELECT A.scope, V.label AS default-vehicle;"
+    " FROM custom-field-definitions C JOIN custom-field-values-number V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.digits, V.decimals, V.value-unit;"
+    " FROM custom-field-definitions C JOIN custom-field-values-text V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.value;"
+    " FROM custom-field-definitions C JOIN custom-field-values-boolean V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.value;"
   ==
 ::
 ++  second-app-default
@@ -869,6 +872,7 @@
     (sql-quote vehicle-label)
     "' SELECT D.mode-id, D.label, D.archived AS mode-archived, L.archived AS link-archived;"
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
+    " FROM custom-field-definitions C WHERE C.target = %fill SELECT C.field-id, C.label, C.content-type, C.entry-type, C.mandatory, C.archived;"
   ==
 ::
 ++  edit-fill-lookup
@@ -992,6 +996,102 @@
     (scow %ux vehicle-id)
     ", "
     (scow %ux definition-id)
+    ");"
+  ==
+::
+++  insert-custom-definition
+  |=  [field-id=@ux input=custom-definition-entry:rover recorded-at=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO custom-field-definitions VALUES ("
+    (scow %ux field-id)
+    ", '"
+    (sql-quote label.input)
+    "', "
+    (sql-term content-type.input)
+    ", %direct, "
+    ?:(mandatory.input "Y" "N")
+    ", %fill, N, "
+    (scow %da recorded-at)
+    ");"
+  ==
+::
+++  custom-field-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM custom-field-definitions C WHERE C.label = '"
+    (sql-quote label)
+    "' SELECT C.field-id, C.label, C.content-type, C.mandatory, C.archived;"
+    " FROM custom-field-definitions C JOIN custom-field-values-number V ON C.field-id = V.field-id WHERE C.label = '"
+    (sql-quote label)
+    "' SELECT V.parent-id;"
+    " FROM custom-field-definitions C JOIN custom-field-values-text V ON C.field-id = V.field-id WHERE C.label = '"
+    (sql-quote label)
+    "' SELECT V.parent-id;"
+    " FROM custom-field-definitions C JOIN custom-field-values-boolean V ON C.field-id = V.field-id WHERE C.label = '"
+    (sql-quote label)
+    "' SELECT V.parent-id;"
+  ==
+::
+++  archive-custom-field
+  |=  field-id=@ux
+  ^-  tape
+  ;:  weld
+    "UPDATE custom-field-definitions SET archived = Y WHERE field-id = "
+    (scow %ux field-id)
+    ";"
+  ==
+::
+++  change-custom-field-type
+  |=  [field-id=@ux content-type=@tas]
+  ^-  tape
+  ;:  weld
+    "UPDATE custom-field-definitions SET content-type = "
+    (sql-term content-type)
+    " WHERE field-id = "
+    (scow %ux field-id)
+    ";"
+  ==
+::
+++  insert-custom-number
+  |=  [field-id=@ux parent-id=@ux digits=@ud decimals=@ud]
+  ^-  tape
+  ;:  weld
+    " INSERT INTO custom-field-values-number VALUES ("
+    (scow %ux field-id)
+    ", "
+    (scow %ux parent-id)
+    ", "
+    (sql-ud digits)
+    ", "
+    (sql-ud decimals)
+    ", %unitless);"
+  ==
+::
+++  insert-custom-text
+  |=  [field-id=@ux parent-id=@ux value=@t]
+  ^-  tape
+  ;:  weld
+    " INSERT INTO custom-field-values-text VALUES ("
+    (scow %ux field-id)
+    ", "
+    (scow %ux parent-id)
+    ", '"
+    (sql-quote value)
+    "');"
+  ==
+::
+++  insert-custom-boolean
+  |=  [field-id=@ux parent-id=@ux value=?]
+  ^-  tape
+  ;:  weld
+    " INSERT INTO custom-field-values-boolean VALUES ("
+    (scow %ux field-id)
+    ", "
+    (scow %ux parent-id)
+    ", "
+    ?:(value "Y" "N")
     ");"
   ==
 ::

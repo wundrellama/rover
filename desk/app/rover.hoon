@@ -21,6 +21,7 @@
       [%7 state-7]
       [%8 state-8]
       [%9 state-9]
+      [%10 state-10]
   ==
 +$  fill-entry-5
   $:  vehicle-label=@t
@@ -151,6 +152,20 @@
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
   ==
++$  state-10
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+  ==
 +$  card  card:agent:gall
 --
 =>  |%
@@ -204,13 +219,66 @@
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
 ++  handle-http
-  |=  [sat=state-9 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-9]
+  |=  [sat=state-10 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-10]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?:  =(%'POST' method.request.req)
+    ?:  =('/apps/rover/add-custom-field' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: custom-field')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  decoded  (decode-custom-definition:entry body-text)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  wir=wire  /rover-custom-create/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%tape %rover (insert-custom-definition:act (fixture-id:act base 501) p.decoded now.bowl)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir body-text)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ?:  ?|  =('/apps/rover/archive-custom-field' url.request.req)
+            =('/apps/rover/change-custom-field-type' url.request.req)
+        ==
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: custom-field')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  label=@t
+        ?:  =('/apps/rover/archive-custom-field' url.request.req)
+          =/  decoded  (decode-custom-field-label:entry body-text)
+          ?:  ?=(%| -.decoded)
+            ''
+          label.p.decoded
+        =/  decoded  (decode-custom-field-change:entry body-text)
+        ?:  ?=(%| -.decoded)
+          ''
+        label.p.decoded
+      ?.  (nonempty:entry label)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: custom-field')) sat]
+      =/  operation=@tas
+        ?:  =('/apps/rover/archive-custom-field' url.request.req)
+          %archive
+        %change
+      =/  wir=wire  /rover-custom-lookup/[operation]/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%tape %rover (custom-field-lookup:act label)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir body-text)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/edit-fill' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-fill')) sat]
@@ -379,7 +447,8 @@
           ['content-type' 'text/plain']~
           `(text-octs '%bad-shape: fill')
       ==
-    =/  decoded  (decode-fill:entry `@t`q.u.body.request.req)
+    =/  fill-body=@t  `@t`q.u.body.request.req
+    =/  decoded  (decode-fill:entry fill-body)
     ?:  ?=(%| -.decoded)
       :_  sat
       %:  http-give
@@ -395,6 +464,7 @@
       %_  sat
         http-pending  (~(put by http-pending.sat) wir eyre-id)
         fill-pending  (~(put by fill-pending.sat) wir p.decoded)
+        fill-body-pending  (~(put by fill-body-pending.sat) wir fill-body)
       ==
     :_  new-sat
     :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
@@ -423,7 +493,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-9
+=|  state-10
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -435,7 +505,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%9 state])
+++  on-save  !>([%10 state])
 ::
 ++  on-load
   |=  old=vase
@@ -443,16 +513,17 @@
   =/  s  !<(versioned-state old)
   =/  loaded=_this
     ?-  -.s
-      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~])
-      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~])
-      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~])
-      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~])
-      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~])
-      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ ~ ~])
-      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~])
-      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s ~])
-      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s])
-      %9  this(state +.s)
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ ~])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~ ~])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~ ~])
+      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~])
+      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~])
+      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ ~ ~ ~])
+      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~])
+      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s ~ ~])
+      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~])
+      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~])
+      %10  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -773,6 +844,113 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-custom-create *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
+      :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs 'Created custom field'))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-custom-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  operation-term=@tas
+        ?~  t.wire
+          %unknown
+        `@tas`i.t.wire
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ body)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
+      =/  definitions  (rows-at:view p.res 0)
+      ?.  =(1 (lent definitions))
+        :_  this
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: custom-field'))
+      ?:  ?&  =(%change operation-term)
+              ?|  ?=(^ (rows-at:view p.res 1))
+                  ?=(^ (rows-at:view p.res 2))
+                  ?=(^ (rows-at:view p.res 3))
+              ==
+          ==
+        :_  this
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%immutable: custom-field.content-type - archive and recreate'))
+      =/  field-id=@ux
+        `@ux`(cell-atom:view %field-id (snag 0 definitions))
+      =/  script=tape
+        ?:  =(%archive operation-term)
+          (archive-custom-field:act field-id)
+        =/  decoded  (decode-custom-field-change:entry u.body)
+        ?:  ?=(%| -.decoded)
+          ~
+        (change-custom-field-type:act field-id content-type.p.decoded)
+      ?~  script
+        :_  this
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: custom-field'))
+      =/  write-wire=path
+        /rover-custom-write/[operation-term]/(scot %da now.bowl)/[u.eyre-id]
+      =/  jon  !>([%tape %rover script])
+      =/  new-state
+        %_  state
+          pending  (~(put by (~(del by pending) wire)) write-wire u.body)
+          http-pending
+            (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+        ==
+      :_  this(state new-state)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-custom-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  operation-term=@tas
+        ?~  t.wire
+          %unknown
+        `@tas`i.t.wire
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
+      =/  message  ?:(=(%archive operation-term) 'Archived custom field' 'Changed custom field type')
+      :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs message))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-edit-fill-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
@@ -1372,8 +1550,10 @@
         ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by fill-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
       ?:  ?|  ?=(~ eyre-id)
               ?=(~ input)
+              ?=(~ body)
           ==
         `this
       ?:  ?=(%.n -.res)
@@ -1425,7 +1605,7 @@
             ['content-type' 'text/plain']~
             `(text-octs '%unit-mismatch: fill.profile')
         ==
-      ?.  (gte (lent p.res) 7)
+      ?.  (gte (lent p.res) 8)
         :_  this
         %:  http-give
             u.eyre-id
@@ -1438,6 +1618,7 @@
       =/  subtype-rows  (rows-at:view p.res 3)
       =/  driving-mode-rows  (rows-at:view p.res 5)
       =/  tag-rows  (rows-at:view p.res 6)
+      =/  custom-rows  (rows-at:view p.res 7)
       =/  station-id=(unit @ux)
         ?~  station-label.u.input
           ~
@@ -1529,9 +1710,65 @@
             (fixture-id:act base 104)
             (fixture-id:act base 105)
         ==
+      =/  object  (need (json-object:entry u.body))
+      =/  custom-script
+        =/  build
+          |=  rows=(list vector:ast)
+          ^-  (each tape @t)
+          ?~  rows
+            [%& ~]
+          =/  archived  =(0 (cell-atom:view %archived i.rows))
+          ?:  archived
+            $(rows t.rows)
+          =/  label  (cell-text:view %label i.rows)
+          =/  key  (cat 3 'custom-' label)
+          =/  value-unit  (json-string:entry key object)
+          =/  value=@t  ?~(value-unit '' u.value-unit)
+          =/  mandatory  =(0 (cell-atom:view %mandatory i.rows))
+          ?:  ?&  mandatory
+                  !(nonempty:entry value)
+              ==
+            [%| label]
+          ?.  (nonempty:entry value)
+            $(rows t.rows)
+          =/  content  (cell-term:view %content-type i.rows)
+          =/  row-script=tape
+            ?+  content  ~
+              %text
+                (insert-custom-text:act `@ux`(cell-atom:view %field-id i.rows) acquisition.ids value)
+              %boolean
+                (insert-custom-boolean:act `@ux`(cell-atom:view %field-id i.rows) acquisition.ids =('yes' value))
+              %number
+                =/  number  (parse-decimal:render value 3)
+                ?:  ?=(%| -.number)
+                  ~
+                %:  insert-custom-number:act
+                    `@ux`(cell-atom:view %field-id i.rows)
+                    acquisition.ids
+                    digits.p.number
+                    places.p.number
+                ==
+            ==
+          ?:  ?&  =(%number content)
+                  ?=(~ row-script)
+              ==
+            [%| label]
+          =/  rest  $(rows t.rows)
+          ?:  ?=(%| -.rest)
+            rest
+          [%& (weld row-script p.rest)]
+        (build custom-rows)
+      ?:  ?=(%| -.custom-script)
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs (cat 3 '%mandatory-or-invalid: custom-field.' p.custom-script))
+        ==
       =/  write-wire=path
         /rover-fill-write/(scot %da now.bowl)/[u.eyre-id]
-      =/  script
+      =/  fill-script
         %:  insert-fill:act
             ids
             `@ux`(cell-atom:view %vehicle-id row)
@@ -1545,14 +1782,15 @@
             u.input
             now.bowl
         ==
+      =/  script  (weld fill-script p.custom-script)
       =/  jon  !>([%tape %rover script])
-      :_  this(http-pending (~(put by http-pending) write-wire u.eyre-id), fill-pending (~(put by fill-pending) write-wire u.input))
+      :_  this(http-pending (~(put by http-pending) write-wire u.eyre-id), fill-pending (~(put by fill-pending) write-wire u.input), fill-body-pending (~(put by fill-body-pending) write-wire u.body))
       :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
     ::
         %kick
-      `this(http-pending (~(del by http-pending) wire), fill-pending (~(del by fill-pending) wire))
+      `this(http-pending (~(del by http-pending) wire), fill-pending (~(del by fill-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
     ::
         %watch-ack
       `this
@@ -1609,7 +1847,7 @@
       ==
     ::
         %kick
-      `this(http-pending (~(del by http-pending) wire), fill-pending (~(del by fill-pending) wire))
+      `this(http-pending (~(del by http-pending) wire), fill-pending (~(del by fill-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
     ::
         %watch-ack
       `this

@@ -279,6 +279,88 @@
     rest
   ==
 ::
+++  custom-field-controls
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  active  !=(0 (cell-atom %archived i.rows))
+  =/  rest  (custom-field-controls t.rows)
+  ?.  active
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  =/  content  (cell-term %content-type i.rows)
+  =/  mandatory  =(0 (cell-atom %mandatory i.rows))
+  =/  control=tape
+    ?+  content
+      ;:  weld
+        "<input name=\"custom-"
+        label
+        "\" data-custom-field data-custom-label=\""
+        label
+        "\" data-custom-type=\"text\">"
+      ==
+      %number
+        ;:  weld
+          "<input name=\"custom-"
+          label
+          "\" inputmode=\"decimal\" data-custom-field data-custom-label=\""
+          label
+          "\" data-custom-type=\"number\">"
+        ==
+      %boolean
+        ;:  weld
+          "<input type=\"checkbox\" name=\"custom-"
+          label
+          "\" value=\"yes\" data-custom-field data-custom-label=\""
+          label
+          "\" data-custom-type=\"boolean\">"
+        ==
+    ==
+  ;:  weld
+    "<label class=\"custom-field-control\">"
+    label
+    ?:(mandatory " <span class=\"required\">required</span>" " <span class=\"optional\">optional</span>")
+    control
+    "</label>"
+    rest
+  ==
+::
+++  custom-definition-list
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (escape (cell-text %label i.rows))
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  ;:  weld
+    "<li data-custom-definition=\""
+    label
+    "\"><span>"
+    label
+    " - "
+    (escape (scot %tas (cell-term %content-type i.rows)))
+    ?:(=(0 (cell-atom %mandatory i.rows)) " - mandatory" "")
+    ?:(archived " - archived" "")
+    "</span><button type=\"button\" data-archive-custom-field data-label=\""
+    label
+    "\">Archive</button><select data-change-custom-type><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select><button type=\"button\" data-change-custom-field data-label=\""
+    label
+    "\">Change type</button></li>"
+    (custom-definition-list t.rows)
+  ==
+::
+++  settings-screen
+  |=  custom-definitions=(list vector:ast)
+  ^-  tape
+  ;:  weld
+    "<section id=\"settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER CONFIGURATION</p><h1>SETTINGS</h1></header>"
+    "<section data-settings-section=\"theme\"><h2>Theme</h2><p>Colors use the UA 571-C palette. Glow can be toggled from the header.</p><div class=\"theme-swatches\"><span>Background</span><span>Amber</span><span>Warning</span></div></section>"
+    "<section data-settings-section=\"custom-fields\"><h2>Custom fields</h2><form id=\"custom-field-definition-form\"><label>Label<input name=\"label\" required></label><label>Content type<select name=\"contentType\"><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select></label><label class=\"check-option\"><input type=\"checkbox\" name=\"mandatory\"><span>Mandatory on Add Fill</span></label><button type=\"submit\">Create custom field</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form><ul id=\"custom-field-definitions\">"
+    (custom-definition-list custom-definitions)
+    "</ul></section><section class=\"settings-placeholder\"><h2>IMPORT / EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
+  ==
+::
 ++  has-term
   |=  [key=@tas value=@tas rows=(list vector:ast)]
   ^-  ?
@@ -371,6 +453,7 @@
           default-subtypes=(list vector:ast)
           driving-modes=(list vector:ast)
           tags=(list vector:ast)
+          custom-definitions=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
@@ -381,6 +464,7 @@
   =/  default-subtype-html  (default-subtype-data default-subtypes)
   =/  driving-mode-html  (driving-mode-options driving-modes)
   =/  tag-html  (tag-options tags)
+  =/  custom-field-html  (custom-field-controls custom-definitions)
   ;:  weld
     "<section id=\"add-fill\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
@@ -421,7 +505,9 @@
     "<fieldset id=\"fill-tags\" data-fill-field=\"tags\"><legend>Tags <span class=\"optional\">optional</span></legend><button type=\"button\" id=\"fill-tags-toggle\" aria-expanded=\"false\">Choose or add tags</button><div id=\"fill-tags-picker\" hidden><div class=\"check-grid\">"
     tag-html
     "</div><label>Add new tag<input name=\"newTag\" autocomplete=\"off\"></label></div></fieldset>"
-    "<fieldset id=\"fill-custom-fields\" data-fill-field=\"custom-fields\"><legend>Custom fields</legend><p class=\"empty\">No custom fields target Add Fill.</p></fieldset>"
+    "<fieldset id=\"fill-custom-fields\" data-fill-field=\"custom-fields\"><legend>Custom fields</legend>"
+    ?:(?=(~ custom-field-html) "<p class=\"empty\">No custom fields target Add Fill.</p>" custom-field-html)
+    "</fieldset>"
     "<input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\">"
     "<input name=\"tank\" type=\"hidden\" value=\"full\">"
     "<input name=\"settlement\" type=\"hidden\" value=\"standard\">"
@@ -1057,6 +1143,7 @@
   =/  app-default  (rows-at commands 20)
   =/  tank-sizes  (rows-at commands 21)
   =/  fill-odometers  (rows-at commands 22)
+  =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  default-id=(unit @)
     ?~  app-default
@@ -1091,7 +1178,7 @@
   =/  html=tape
     ;:  weld
       (main-hub app-default definition-rows odometers tank-sizes)
-      (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags)
+      (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><div id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><form id=\"vehicle-add-form\"><label>Vehicle name<input name=\"label\" required></label><label>Energy Source<select name=\"energy\">"
       definition-html
       "</select></label><button type=\"submit\">Add Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form>"
@@ -1099,7 +1186,7 @@
       "</div></section>"
       (history-screen vehicles fills fill-odometers)
       (statistics-screen fills vehicles subtype-links)
-      "<section id=\"settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER CONFIGURATION</p><h1>SETTINGS</h1></header><p class=\"empty\">Theme, default vehicle, and custom fields.</p></section>"
+      (settings-screen custom-definitions)
     ==
   (crip html)
 --
