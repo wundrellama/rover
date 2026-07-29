@@ -640,3 +640,73 @@ $ PATH="$HOME/workspace/urbit/bin:$PATH" \
 
 Result: **PASS** — 36 relations, formatter/parser tests green, and the
 Rover agent compiles on the pinned zuse 408 pier.
+
+## 53-relation hub milestone
+
+### Slice 1 - fresh re-pour
+
+The schema fixture was added before the Hoon schema tape changed. Its first
+real-pier run proved the expected RED state:
+
+```console
+$ bin/schema-test.sh "$HOME/piers/rover-bel"
+schema-test: PASS - DDL has 53 unique tables, 56 explicit RESTRICT FKs, zero forward references
+schema-test: FAIL - live Obelisk has 36 relations (want 53)
+```
+
+The old disposable pier was preserved as
+`~/piers/rover-bel-pre53-20260728-191712`. A fresh `~bel` was booted on the
+unchanged brass-408k pill and Ames port 31350. The pinned, unmodified Obelisk
+`master` desk at `eecab1b8` and the Rover desk were installed separately.
+Rover then submitted the complete 53-table schema as one atomic `%tape`
+action.
+
+The Hoon schema arm was independently compared with `docs/schema-m0.sql`
+after whitespace normalization:
+
+```console
+hoon tables 53 refs 56
+docs tables 53 refs 56
+schema arm matches docs exactly after whitespace normalization
+```
+
+GREEN, exact command and real output:
+
+```console
+$ bin/schema-test.sh "$HOME/piers/rover-bel"
+schema-test: PASS - DDL has 53 unique tables, 56 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - live Obelisk has 53 relations; all 56 FK constraints (58 column rows) are RESTRICT
+```
+
+Obelisk emits one metadata row per participating FK column, so the two
+two-column composite foreign keys make 58 live metadata rows for 56 FK
+constraints. Every live row reported `%restrict` for both update and delete;
+none reported `%cascade` or `%set-default`.
+
+The fresh pier's HTTP listener was re-resolved after boot and matched back to
+the owned process:
+
+```console
+$ cat "$HOME/piers/rover-bel/.http.ports"
+12323 insecure loopback
+8082 insecure public
+
+$ ss -lntp | grep 'pid=660917'
+LISTEN 0 16 127.0.0.1:12323 0.0.0.0:* users:(("urbit",pid=660917,fd=88))
+LISTEN 0 16 0.0.0.0:8082 0.0.0.0:* users:(("urbit",pid=660917,fd=87))
+```
+
+Pinned-agent and Rover compile gates:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/compile-obelisk.hoon "$HOME/piers/rover-bel" | tail -1
+[0 %avow 0 %noun 0]
+
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/compile-rover.hoon "$HOME/piers/rover-bel" | tail -1
+[0 %avow 0 %noun 0]
+```
+
+Result: **PASS** - fresh 53-relation pour, 56 all-RESTRICT foreign-key
+constraints, zero forward references, and both agents compile on zuse 408.
