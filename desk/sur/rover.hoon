@@ -116,6 +116,21 @@
       mileage=(unit odo-reading)
       cost-state=cost-state
       currency=currency
+      subtype-label=(unit @t)
+  ==
++$  consumable-entry
+  $:  vehicle-label=@t
+      consumable-label=@t
+      quantity-milli=@ud
+      unit-price-mills=@ud
+      price-display=@t
+      currency=currency
+      price-profile=price-profile
+      minor-unit-decimals=@ud
+      cash-increment-mills=@ud
+      settlement-mode=settlement-mode
+      observed-start=@da
+      source-zone=@t
   ==
 +$  odometer-entry
   $:  vehicle-label=@t
@@ -202,6 +217,8 @@
       [%seed-fill-edit-support vehicle-label=@t]
       [%fill-edit-report vehicle-label=@t observed-start=@da]
       [%station-report station-label=@t]
+      [%consumable-report vehicle-label=@t consumable-label=@t observed-start=@da]
+      [%charge-subtype-report vehicle-label=@t observed-start=@da]
       [%vehicle-settings-report vehicle-label=@t]
       [%seed-starters ~]
       [%starter-report ~]

@@ -451,6 +451,66 @@
       payment-method-label
   ==
 ::
+++  decode-consumable
+  |=  body=@t
+  ^-  (each consumable-entry:rover entry-verdict:rover)
+  =/  object  (json-object body)
+  ?~  object
+    [%| %bad-shape 'consumable']
+  =/  vehicle  (json-string 'vehicle' u.object)
+  =/  consumable  (json-string 'consumable' u.object)
+  =/  quantity  (json-string 'quantity' u.object)
+  =/  price  (json-string 'price' u.object)
+  =/  observed  (json-string 'observed' u.object)
+  =/  zone  (json-string 'zone' u.object)
+  ?:  ?|  ?=(~ vehicle)
+          ?=(~ consumable)
+          ?=(~ quantity)
+          ?=(~ price)
+          ?=(~ observed)
+          ?=(~ zone)
+      ==
+    [%| %missing-key 'consumable']
+  ?.  ?&  (nonempty u.vehicle)
+          (nonempty u.consumable)
+          (nonempty u.zone)
+      ==
+    [%| %bad-shape 'consumable']
+  =/  parsed-quantity  (parse-decimal:render u.quantity 3)
+  ?:  ?=(%| -.parsed-quantity)
+    [%| %bad-shape 'consumable.quantity']
+  =/  quantity-milli
+    (mul digits.p.parsed-quantity (pow-ten:render (sub 3 places.p.parsed-quantity)))
+  ?.  (gth quantity-milli 0)
+    [%| %bad-range 'consumable.quantity']
+  =/  parsed-price  (parse-us-price:render u.price)
+  ?:  ?=(%| -.parsed-price)
+    [%| %bad-shape 'consumable.price']
+  =/  observed-start  (local-da u.observed)
+  ?~  observed-start
+    [%| %bad-shape 'consumable.observed']
+  =/  settlement-text  (json-string 'settlement' u.object)
+  =/  settlement-mode=settlement-mode:rover
+    ?:  ?&  ?=(^ settlement-text)
+            =('cash' u.settlement-text)
+        ==
+      %cash
+    %standard
+  :-  %&
+  :*  u.vehicle
+      u.consumable
+      quantity-milli
+      unit-price-mills.p.parsed-price
+      display.p.parsed-price
+      %usd
+      %us-usd-gal
+      2
+      50
+      settlement-mode
+      u.observed-start
+      u.zone
+  ==
+::
 ++  decode-odometer
   |=  body=@t
   ^-  (each odometer-entry:rover entry-verdict:rover)
@@ -637,6 +697,13 @@
           ==
       ==
     [%| %bad-shape 'charge.currency']
+  =/  subtype-text  (json-string 'subtype' object)
+  =/  subtype-label=(unit @t)
+    ?~  subtype-text
+      ~
+    ?:  (nonempty u.subtype-text)
+      `u.subtype-text
+    ~
   :-  %&
   :*  u.vehicle
       u.definition
@@ -649,6 +716,7 @@
       mileage
       ;;(cost-state:rover u.cost-term)
       ;;(currency:rover u.currency-term)
+      subtype-label
   ==
 ::
 ++  decode-preference

@@ -24,6 +24,7 @@
       [%10 state-10]
       [%11 state-11]
       [%12 state-12]
+      [%13 state-13]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -247,6 +248,33 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry-12)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+  ==
++$  charge-entry-12
+  $:  vehicle-label=@t
+      definition-label=@t
+      observed-start=@da
+      observed-end=@da
+      source-zone=@t
+      delivered=(unit delivered-energy:rover)
+      start-battery=(unit battery-reading:rover)
+      end-battery=(unit battery-reading:rover)
+      mileage=(unit odo-reading:rover)
+      cost-state=cost-state:rover
+      currency=currency:rover
+  ==
++$  state-13
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
       charge-pending=(map wire charge-entry:rover)
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
@@ -305,13 +333,32 @@
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
 ++  handle-http
-  |=  [sat=state-12 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-12]
+  |=  [sat=state-13 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-13]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?:  =(%'POST' method.request.req)
+    ?:  =('/apps/rover/add-consumable' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: consumable')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  decoded  (decode-consumable:entry body-text)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  wir=wire  /rover-consumable-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%tape %rover (consumable-lookup:act vehicle-label.p.decoded consumable-label.p.decoded)])
+      =/  next
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          fill-body-pending  (~(put by fill-body-pending.sat) wir body-text)
+        ==
+      :_  next
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/add-custom-field' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: custom-field')) sat]
@@ -608,7 +655,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-12
+=|  state-13
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -620,7 +667,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%12 state])
+++  on-save  !>([%13 state])
 ::
 ++  on-load
   |=  old=vase
@@ -640,7 +687,8 @@
       %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~])
       %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
       %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
-      %12  this(state +.s)
+      %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
+      %13  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -791,6 +839,22 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover (station-report:act station-label.a)])
         :_  this(pending (~(put by pending) wir 'station-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %consumable-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon
+          !>([%tape %rover (consumable-report:act vehicle-label.a consumable-label.a observed-start.a)])
+        :_  this(pending (~(put by pending) wir 'consumable-report'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %charge-subtype-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon
+          !>([%tape %rover (charge-subtype-report:act vehicle-label.a observed-start.a)])
+        :_  this(pending (~(put by pending) wir 'charge-subtype-report'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -1010,6 +1074,99 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-consumable-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      ?:  ?|  ?=(%.n -.res)
+              ?=(~ eyre-id)
+              ?=(~ body)
+          ==
+        `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      =/  decoded  (decode-consumable:entry u.body)
+      ?:  ?=(%| -.decoded)
+        :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: consumable'))
+      =/  vehicles  (rows-at:view p.res 0)
+      =/  definitions  (rows-at:view p.res 1)
+      ?.  ?&  =(1 (lent vehicles))
+              =(1 (lent definitions))
+          ==
+        :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: consumable'))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  write-wire=path  /rover-consumable-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script=tape
+        %:  insert-consumable:act
+            (fixture-id:act base 9.101)
+            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+            `@ux`(cell-atom:view %consumable-id (snag 0 definitions))
+            (cell-term:view %quantity-unit (snag 0 definitions))
+            p.decoded
+            now.bowl
+        ==
+      =/  jon  !>([%tape %rover script])
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+      =/  next-body
+        (~(put by (~(del by fill-body-pending) wire)) write-wire u.body)
+      :_  this(http-pending next-http, fill-body-pending next-body)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-consumable-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ body)
+          ==
+        `this
+      =/  decoded  (decode-consumable:entry u.body)
+      =/  next
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?:  ?|  ?=(%.n -.res)
+              ?=(%| -.decoded)
+          ==
+        :_  next
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: consumable'))
+      =/  proof
+        %:  derive-fill-total:act
+            quantity-milli.p.decoded
+            unit-price-mills.p.decoded
+            minor-unit-decimals.p.decoded
+            cash-increment-mills.p.decoded
+            settlement-mode.p.decoded
+        ==
+      =/  total
+        (format-total:render total-mills.proof currency.p.decoded minor-unit-decimals.p.decoded)
+      :_  next
+      %:  http-give
+          u.eyre-id
+          201
+          ['content-type' 'text/plain']~
+          `(text-octs (cat 3 'Saved consumable purchase - ' total))
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-starter-check *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
@@ -1017,11 +1174,18 @@
       ?:  ?=(%.n -.res)
         `this(last `res)
       =/  definitions  (rows-at:view p.res 0)
-      ?^  definitions
+      =/  consumables  (rows-at:view p.res 1)
+      ?:  ?&  ?=(^ definitions)
+              ?=(^ consumables)
+          ==
         `this(last `res, pending (~(del by pending) wire))
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  write-wire=path  /rover/starter-write/(scot %da now.bowl)
-      =/  jon  !>([%tape %rover (seed-starters:act base now.bowl)])
+      =/  script=tape
+        ?:  ?=(^ definitions)
+          (seed-consumables:act base now.bowl)
+        (seed-starters:act base now.bowl)
+      =/  jon  !>([%tape %rover script])
       =/  next-pending
         (~(put by (~(del by pending) wire)) write-wire 'seed-starters-write')
       :_  this(pending next-pending)
@@ -1871,6 +2035,24 @@
             ['content-type' 'text/plain']~
             `(text-octs '%wrong-kind: charge.definition')
         ==
+      =/  subtype-id=(unit @ux)
+        ?~  subtype-label.u.input
+          ~
+        =/  subtype
+          (row-by-text:view %label u.subtype-label.u.input (rows-at:view p.res 3))
+        ?~  subtype
+          ~
+        ``@ux`(cell-atom:view %subtype-id u.subtype)
+      ?:  ?&  ?=(^ subtype-label.u.input)
+              ?=(~ subtype-id)
+          ==
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: charge.subtype')
+        ==
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  ids=charge-ids:act
         :*  (fixture-id:act base 301)
@@ -1885,6 +2067,7 @@
             ids
             `@ux`(cell-atom:view %vehicle-id row)
             `@ux`(cell-atom:view %energy-definition-id row)
+            subtype-id
             u.input
             now.bowl
         ==

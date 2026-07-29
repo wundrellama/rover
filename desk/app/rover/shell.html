@@ -1195,6 +1195,7 @@
       if (chargeForm) {
         const chargeVehicle = chargeForm.elements.vehicle;
         const chargeDefinition = chargeForm.elements.definition;
+        const chargeSubtype = chargeForm.elements.subtype;
         const chargeEnergySourceControl =
           chargeForm.querySelector('.charge-energy-source-control');
         if (defaultVehicle) chargeVehicle.value = defaultVehicle;
@@ -1213,8 +1214,16 @@
             chargeDefinition.value =
               options.find((option) => !option.hidden)?.value || '';
           }
+          [...chargeSubtype.options].forEach((option) => {
+            option.hidden = option.dataset.definition !== chargeDefinition.value;
+          });
+          if (chargeSubtype.selectedOptions[0]?.hidden) {
+            chargeSubtype.value =
+              [...chargeSubtype.options].find((option) => !option.hidden)?.value || '';
+          }
         };
         chargeVehicle.addEventListener('change', syncChargeDefinitions);
+        chargeDefinition.addEventListener('change', syncChargeDefinitions);
         syncChargeDefinitions();
         chargeForm.elements.start.value = local.toISOString().slice(0, 16);
         chargeForm.elements.end.value = local.toISOString().slice(0, 16);
@@ -1237,6 +1246,33 @@
             if (response.ok) await loadView();
           } catch (error) {
             verdict.value = `%unavailable: charge · ${error.message}`;
+          }
+        });
+      }
+
+      const consumableForm = app.querySelector('#consumable-form');
+      if (consumableForm) {
+        if (defaultVehicle) consumableForm.elements.vehicle.value = defaultVehicle;
+        consumableForm.elements.observed.value = local.toISOString().slice(0, 16);
+        consumableForm.elements.zone.value =
+          Intl.DateTimeFormat().resolvedOptions().timeZone;
+        consumableForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = app.querySelector('#consumable-verdict');
+          verdict.value = 'Saving…';
+          try {
+            const response = await fetch('/apps/rover/add-consumable', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {'content-type': 'application/json'},
+              body: JSON.stringify(
+                Object.fromEntries(new FormData(consumableForm).entries())
+              )
+            });
+            verdict.value = await response.text();
+            if (response.ok) await loadView();
+          } catch (error) {
+            verdict.value = `%unavailable: consumable · ${error.message}`;
           }
         });
       }

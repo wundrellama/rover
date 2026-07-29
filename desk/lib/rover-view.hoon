@@ -182,6 +182,26 @@
     rest
   ==
 ::
+++  consumable-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\" data-unit=\""
+    (trip (scot %tas (cell-term %quantity-unit i.rows)))
+    "\">"
+    label
+    "</option>"
+    rest
+  ==
+::
 ++  additive-options
   |=  rows=(list vector:ast)
   ^-  tape
@@ -502,6 +522,7 @@
     "</p></header><section class=\"hub-primary\">"
     ?:(has-fill "<button type=\"button\" data-open-screen=\"add-fill\">Add Fill</button>" "")
     ?:(has-charge "<button type=\"button\" data-open-screen=\"add-charge\">Add Charge</button>" "")
+    "<button type=\"button\" data-open-screen=\"add-consumable\">Add Consumable</button>"
     ?:  ?|(has-fill has-charge)
       ""
     "<button type=\"button\" data-open-screen=\"vehicles-screen\">Configure a vehicle</button>"
@@ -540,6 +561,7 @@
           tags=(list vector:ast)
           custom-definitions=(list vector:ast)
           payment-methods=(list vector:ast)
+          consumables=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
@@ -552,6 +574,7 @@
   =/  tag-html  (tag-options tags)
   =/  custom-field-html  (custom-field-controls custom-definitions)
   =/  payment-html  (payment-options payment-methods)
+  =/  consumable-html  (consumable-options consumables)
   ;:  weld
     "<section id=\"add-fill\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
@@ -618,6 +641,9 @@
     "<label class=\"charge-energy-source-control\" hidden>Energy Source<select name=\"definition\" required>"
     definition-html
     "</select></label>"
+    "<label>Charging subtype<select name=\"subtype\" required>"
+    subtype-html
+    "</select></label>"
     "<div class=\"form-grid\"><label>Started<input name=\"start\" type=\"datetime-local\" required></label><label>Ended<input name=\"end\" type=\"datetime-local\" required></label></div>"
     "<input name=\"zone\" type=\"hidden\">"
     "<label>Energy delivered <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"energyDelivered\" inputmode=\"decimal\" placeholder=\"42.75\"><output>kWh</output></div></label>"
@@ -630,6 +656,11 @@
     "<div class=\"form-actions\"><button type=\"submit\">Save charge</button><button type=\"button\" data-close-screen>Cancel</button></div>"
     "<output id=\"charge-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
     "</form></section>"
+    "<section id=\"add-consumable\" class=\"entry-screen app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header><p class=\"eyebrow\">NEW PURCHASE</p><h2>Add consumable</h2></header><form id=\"consumable-form\"><label>Vehicle<select name=\"vehicle\" required>"
+    vehicle-html
+    "</select></label><label>Consumable<select name=\"consumable\" required>"
+    consumable-html
+    "</select></label><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" required></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" required></label><input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\"><label>Settlement<select name=\"settlement\"><option value=\"standard\">Standard</option><option value=\"cash\">Cash</option></select></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save purchase</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"consumable-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
     "<section id=\"add-odometer\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header>"
@@ -1415,6 +1446,7 @@
   =/  fill-notes  (rows-at commands 27)
   =/  fill-payment-links  (rows-at commands 28)
   =/  payment-methods  (rows-at commands 29)
+  =/  consumables  (rows-at commands 30)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -1453,7 +1485,7 @@
   =/  html=tape
     ;:  weld
       (main-hub app-default definition-rows odometers tank-sizes)
-      (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods)
+      (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
       "</section>"

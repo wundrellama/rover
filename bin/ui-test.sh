@@ -484,6 +484,117 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 41 ]; then
   exit 0
 fi
 
+consumable_seed="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s3)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q '%noun 0' <<<"$consumable_seed" \
+  || fail "fixture 42 consumable starter seed failed: $consumable_seed"
+consumable_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+for starter in DEF 'Washer Fluid' 'Motor Oil' Coolant; do
+  grep -q "<option value=\"$starter\"" <<<"$consumable_view" \
+    || fail "fixture 42 consumable starter missing from purchase entry: $starter"
+done
+economy_before="$(grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" <<<"$consumable_view" | wc -l)"
+def_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","consumable":"DEF","quantity":"2.500","price":"$4.49","profile":"us-usd-gal","settlement":"standard","observed":"2026-07-30T12:00","zone":"America/Chicago"}' "$fill_edit_vehicle")" \
+  "$URL/apps/rover/add-consumable")"
+[ "$def_result" = $'Saved consumable purchase - $11.25\n201' ] \
+  || fail "fixture 42 DEF purchase failed: $def_result"
+def_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%consumable-report (crip \"$fill_edit_vehicle\") 'DEF' ~2026.7.30..12.00.00]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%consumable 116 'DEF'\\].*\\[%quantity-milli 25717 2500\\].*\\[%unit-price-mills 25717 4499\\].*\\[%settlement-mode %tas %standard\\].*\\[%price-profile %tas %us-usd-gal\\].*\\[%minor-unit-decimals 25717 2\\].*\\[%cash-increment-mills 25717 50\\]" <<<"$def_report" \
+  || fail "fixture 42 DEF purchase did not retain exact snapshotted pricing: $def_report"
+consumable_after="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+economy_after="$(grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" <<<"$consumable_after" | wc -l)"
+[ "$economy_before" -eq 1 ] && [ "$economy_after" -eq 1 ] \
+  || fail "fixture 42 consumable changed fuel-economy derivation: before=$economy_before after=$economy_after"
+note "fixture 42 PASS - DEF purchase uses snapshotted exact pricing and remains outside fuel-economy derivation"
+if [ "${ROVER_FIXTURE_STOP:-}" = 42 ]; then
+  exit 0
+fi
+
+charge_subtype_vehicle="Charge Subtype Vehicle $(date +%s%N)"
+charge_subtype_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Electricity"}' "$charge_subtype_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$charge_subtype_created" = "Added vehicle - $charge_subtype_vehicle"$'\n201' ] \
+  || fail "fixture 43 setup vehicle failed: $charge_subtype_created"
+charge_subtype_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-07-31T12:00","end":"2026-07-31T12:30","zone":"America/Chicago","energyDelivered":"40.0","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"unknown","currency":"usd"}' "$charge_subtype_vehicle")" \
+  "$URL/apps/rover/add-charge")"
+[ "$charge_subtype_result" = $'Saved charge - Energy delivered 40.0 kWh\n201' ] \
+  || fail "fixture 43 charge with subtype failed: $charge_subtype_result"
+charge_subtype_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%charge-subtype-report (crip \"$charge_subtype_vehicle\") ~2026.7.31..12.00.00]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%vehicle 116 '$charge_subtype_vehicle'\\].*\\[%charging-subtype 116 'DC Fast'\\]" <<<"$charge_subtype_report" \
+  || fail "fixture 43 charging-session-subtype link missing: $charge_subtype_report"
+note "fixture 43 PASS - charge persists its electricity subtype through charging-session-subtype"
+if [ "${ROVER_FIXTURE_STOP:-}" = 43 ]; then
+  exit 0
+fi
+
+payment_base_payload="$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"1.000","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":""' "$fill_edit_vehicle")"
+without_payment_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "${payment_base_payload},\"observed\":\"2026-07-28T18:00\",\"paymentMethod\":\"\"}" \
+  "$URL/apps/rover/add-fill")"
+with_payment_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "${payment_base_payload},\"observed\":\"2026-07-28T19:00\",\"paymentMethod\":\"Personal Visa\"}" \
+  "$URL/apps/rover/add-fill")"
+[ "$without_payment_result" = $'Saved fill - $3.499 - derived $3.50\n201' ] \
+  || fail "fixture 44 no-payment control failed: $without_payment_result"
+[ "$with_payment_result" = "$without_payment_result" ] \
+  || fail "fixture 44 payment link changed derived total: without=$without_payment_result with=$with_payment_result"
+payment_without_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.28..18.00.00]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+payment_with_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.28..19.00.00]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+for report in "$payment_without_report" "$payment_with_report"; do
+  grep -q '\[%unit-price-mills 25717 3499\].*\[%settlement-mode %tas %standard\]' <<<"$report" \
+    || fail "fixture 44 settlement/arithmetic evidence changed: $report"
+done
+[ "$(grep -oF '[%vector-count 0]' <<<"$payment_without_report" | wc -l)" -ge 6 ] \
+  || fail "fixture 44 no-payment control unexpectedly has optional link evidence: $payment_without_report"
+grep -q "\\[%payment-method 116 'Personal Visa'\\]" <<<"$payment_with_report" \
+  || fail "fixture 44 payment-method link missing: $payment_with_report"
+note "fixture 44 PASS - payment method is descriptive; settlement mode and derived total are identical with or without its link"
+if [ "${ROVER_FIXTURE_STOP:-}" = 44 ]; then
+  exit 0
+fi
+
 grep -q '<section id="main-hub"' <<<"$view" || fail "main hub is missing"
 grep -Eq 'DEFAULT VEHICLE NOT SET|Structure Vehicle|Mode Scope Vehicle' <<<"$view" ||
   fail "hub does not name its default state"

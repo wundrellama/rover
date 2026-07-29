@@ -240,11 +240,38 @@
     (starter-subtype base 802 8 "E100 hydrous" now)
     (starter-blend base 801 %ethanol 85)
     (starter-blend base 802 %ethanol 100)
+    (seed-consumables base now)
+  ==
+::
+++  seed-consumables
+  |=  [base=@ux now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO consumable-definitions VALUES ("
+    (scow %ux (fixture-id base 9.001))
+    ", 'DEF', %gal, N, "
+    (scow %da now)
+    "); INSERT INTO consumable-definitions VALUES ("
+    (scow %ux (fixture-id base 9.002))
+    ", 'Washer Fluid', %gal, N, "
+    (scow %da now)
+    "); INSERT INTO consumable-definitions VALUES ("
+    (scow %ux (fixture-id base 9.003))
+    ", 'Motor Oil', %quart, N, "
+    (scow %da now)
+    "); INSERT INTO consumable-definitions VALUES ("
+    (scow %ux (fixture-id base 9.004))
+    ", 'Coolant', %gal, N, "
+    (scow %da now)
+    ");"
   ==
 ::
 ++  starter-check
   ^-  tape
-  "FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.archived;"
+  ;:  weld
+    "FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.archived; "
+    "FROM consumable-definitions C SELECT C.consumable-id, C.label, C.archived;"
+  ==
 ::
 ++  starter-report
   ^-  tape
@@ -253,6 +280,90 @@
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id SELECT E.label AS energy, S.label AS subtype, S.archived; "
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; "
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals;"
+  ==
+::
+++  consumable-lookup
+  |=  [vehicle-label=@t consumable-label=@t]
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT V.vehicle-id; FROM consumable-definitions C WHERE C.label = '"
+    (sql-quote consumable-label)
+    "' SELECT C.consumable-id, C.quantity-unit, C.archived;"
+  ==
+::
+++  insert-consumable
+  |=  $:  acquisition-id=@ux
+          vehicle-id=@ux
+          consumable-id=@ux
+          quantity-unit=@tas
+          input=consumable-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  acquisition  (scow %ux acquisition-id)
+  ;:  weld
+    "INSERT INTO consumable-acquisitions VALUES ("
+    acquisition
+    ", "
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux consumable-id)
+    ", "
+    (scow %da observed-start.input)
+    ", "
+    (scow %da (add observed-start.input (bex 64)))
+    ", %second, '"
+    (sql-quote source-zone.input)
+    "', "
+    (scow %da recorded-at)
+    "); INSERT INTO consumable-purchases VALUES ("
+    acquisition
+    ", "
+    (sql-ud quantity-milli.input)
+    ", "
+    (sql-term quantity-unit)
+    ", "
+    (sql-ud unit-price-mills.input)
+    ", "
+    (sql-term currency.input)
+    ", "
+    (sql-term settlement-mode.input)
+    ", "
+    (sql-term price-profile.input)
+    ", "
+    (sql-ud minor-unit-decimals.input)
+    ", "
+    (sql-ud cash-increment-mills.input)
+    ");"
+  ==
+::
+++  consumable-report
+  |=  [vehicle-label=@t consumable-label=@t observed-start=@da]
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN consumable-definitions D ON A.consumable-id = D.consumable-id JOIN consumable-purchases P ON A.consumable-acquisition-id = P.consumable-acquisition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND D.label = '"
+    (sql-quote consumable-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT V.label AS vehicle, D.label AS consumable, P.quantity-milli, P.quantity-unit, P.unit-price-mills, P.currency, P.settlement-mode, P.price-profile, P.minor-unit-decimals, P.cash-increment-mills; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT A.acquisition-id AS fuel-acquisition;"
+  ==
+::
+++  charge-subtype-report
+  |=  [vehicle-label=@t observed-start=@da]
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN charging-session-subtype L ON C.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT V.label AS vehicle, S.label AS charging-subtype;"
   ==
 ::
 ++  fill-edit-support-lookup
@@ -1092,6 +1203,7 @@
     " FROM fill-notes X SELECT X.acquisition-id, X.note;"
     " FROM fuel-fill-payment-method L JOIN payment-method-definitions P ON L.method-id = P.method-id SELECT L.acquisition-id, P.label AS payment-method;"
     " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
+    " FROM consumable-definitions C SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;"
   ==
 ::
 ++  sql-quote
@@ -2102,6 +2214,7 @@
   |=  $:  ids=charge-ids
           vehicle-id=@ux
           definition-id=@ux
+          subtype-id=(unit @ux)
           input=charge-entry:rover
           recorded-at=@da
       ==
@@ -2157,6 +2270,16 @@
       recorded
       ");"
     ==
+  =/  subtype-row=tape
+    ?~  subtype-id
+      ~
+    ;:  weld
+      " INSERT INTO charging-session-subtype VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.subtype-id)
+      ");"
+    ==
   =/  start-row=tape
     ?~  start-battery.input
       ~
@@ -2189,7 +2312,7 @@
     =/  odo-input=odometer-entry:rover
       [vehicle-label.input u.mileage.input observed-end.input source-zone.input]
     (insert-odometer odometer.ids vehicle-id odo-input recorded-at)
-  ;:(weld base delivered-row start-row end-row mileage-row)
+  ;:(weld base subtype-row delivered-row start-row end-row mileage-row)
 ::
 ++  vector-key
   |=  [key=@tas row=vector:ast]

@@ -1584,6 +1584,53 @@ report had one station/place vector followed by three separate
 `[%vector-count 0]` results for address, parts, and coordinates. Result:
 fixtures 40-41 **PASS** on live Obelisk with no empty/sentinel child evidence.
 
+## Fixtures 42-44 - consumables, charge subtype, payment method
+
+Fixture 42 seeds an independent owner-controlled consumable pack (`DEF`,
+`Washer Fluid`, `Motor Oil`, `Coolant`), records a real DEF purchase through
+Eyre, and reads `consumable-acquisitions` joined to
+`consumable-purchases`. Its live row retained `quantity-milli 2500`,
+`unit-price-mills 4499`, `%standard`, `%us-usd-gal`, two minor-unit
+decimals, and a 50-mill cash increment. The HTTP result was the exact
+post-multiply total `$11.25`. The same vehicle's served economy attribute
+was `9.000 mpg` both before and after the purchase, proving the consumable
+did not enter the fuel denominator.
+
+Fixture 43 creates an Electricity vehicle, records a `DC Fast` charge, and
+then joins `charging-sessions` through `charging-session-subtype` to the
+human subtype label. Fixture 44 writes two otherwise-identical fills; only
+the second has a `Personal Visa` link. Both HTTP responses derive `$3.50`,
+and both live parent rows retain `%standard`; only the linked fill returns
+the payment label.
+
+GREEN, exact command and output:
+
+```console
+$ ROVER_FIXTURE_STOP=44 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+ui-test: fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens
+ui-test: fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render
+ui-test: fixture 38 field gate PASS - fill-edit screen exposes every editable field
+ui-test: fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact
+ui-test: fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg
+ui-test: fixture 40 PASS - manual station persists owner address parts and scale-7 coordinates while omitted parts create no rows
+ui-test: fixture 41 PASS - name-only manual station writes no empty address rows and no zero-coordinate row
+ui-test: fixture 42 PASS - DEF purchase uses snapshotted exact pricing and remains outside fuel-economy derivation
+ui-test: fixture 43 PASS - charge persists its electricity subtype through charging-session-subtype
+ui-test: fixture 44 PASS - payment method is descriptive; settlement mode and derived total are identical with or without its link
+```
+
+Result: fixtures 42-44 **PASS** against real Rover, stock Obelisk, Eyre, and
+served projections. Payment method remains descriptive; charge subtype is a
+charge-only link; consumables remain structurally outside energy acquisition
+and fuel-economy relations.
+
 ## Served HTML review artifacts
 
 The authenticated response fragments are included verbatim as:
