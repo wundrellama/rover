@@ -1532,6 +1532,58 @@ contained the human-only attributes
 `data-economy="9.000 mpg"` and the temporary vehicle label. Result:
 fixtures 38-39 **PASS** with real Eyre, Gall, Obelisk, and served HTML.
 
+## Fixtures 40-41 - manual station evidence
+
+Fixture 40 began as a served-form assertion and failed before any write:
+
+```console
+$ ROVER_FIXTURE_STOP=40 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg
+ui-test: FAIL - fixture 40 manual-station form lacks newAddressFormatted; actual HTML: hidden><label>Station label...
+```
+
+The Add Fill station editor now accepts a human name, formatted address,
+individual address parts, and optional signed coordinates. The entry boundary
+normalizes coordinates to exactly seven decimal places and rejects half-pairs
+or out-of-range latitude/longitude. The mutation script inserts optional
+address and coordinate child rows only when their evidence is present.
+
+GREEN, exact command and output:
+
+```console
+$ ROVER_FIXTURE_STOP=41 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+ui-test: fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens
+ui-test: fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render
+ui-test: fixture 38 field gate PASS - fill-edit screen exposes every editable field
+ui-test: fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact
+ui-test: fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg
+ui-test: fixture 40 PASS - manual station persists owner address parts and scale-7 coordinates while omitted parts create no rows
+ui-test: fixture 41 PASS - name-only manual station writes no empty address rows and no zero-coordinate row
+```
+
+Fixture 40's four-result live report contained the station/place row, owner
+formatted address, exactly five present part rows, and one coordinate row:
+
+```console
+[%latitude-scaled 25715 0x31ec2fa0]
+[%longitude-scaled 25715 0x68767dfb]
+[%coord-scale 25717 7]
+[%source %tas %owner]
+```
+
+Those signed atoms are the exact `@sd` encodings of `41.8781136` and
+`-87.6297982`; the absent `line2` produced no part row. Fixture 41's same
+report had one station/place vector followed by three separate
+`[%vector-count 0]` results for address, parts, and coordinates. Result:
+fixtures 40-41 **PASS** on live Obelisk with no empty/sentinel child evidence.
+
 ## Served HTML review artifacts
 
 The authenticated response fragments are included verbatim as:

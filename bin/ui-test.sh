@@ -98,15 +98,10 @@ note "UA 571-C palette, fonts, glow control, and mobile rules served"
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
 starter_sources="$(
-  VIEW="$view" python3 - <<'PY'
-import html
-import os
-import re
-
-document = html.unescape(os.environ["VIEW"])
-labels = re.findall(r'<option[^>]+data-starter-source[^>]*>([^<]+)</option>', document)
-print("|".join(sorted(set(label.strip() for label in labels))))
-PY
+  python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+labels = re.findall(r"<option[^>]+data-starter-source[^>]*>([^<]+)</option>", document)
+print("|".join(sorted(set(label.strip() for label in labels))))' <<<"$view"
 )"
 [ "$starter_sources" = 'CNG|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane' ] \
   || fail "fixture 32 starter sources mismatch; actual served source labels: ${starter_sources:-<none>}"
@@ -421,6 +416,71 @@ grep -Fq "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"
   || fail "fixture 39 economy interval did not update to exact 9.000 mpg; actual statistics HTML: ${fill_edit_economy_view#*data-statistic=\"economy-by-subtype\"}"
 note "fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg"
 if [ "${ROVER_FIXTURE_STOP:-}" = 39 ]; then
+  exit 0
+fi
+
+station_form_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+station_form="${station_form_view#*id=\"fill-new-station\"}"
+station_form="${station_form%%</div>*}"
+for field in newAddressFormatted newAddressLine1 newAddressLine2 newLocality \
+  newRegion newPostalCode newCountry newLatitude newLongitude; do
+  grep -q "name=\"$field\"" <<<"$station_form" \
+    || fail "fixture 40 manual-station form lacks $field; actual HTML: $station_form"
+done
+address_station="Address Station $(date +%s%N)"
+address_place="Address Place $(date +%s%N)"
+address_station_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"5.000","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-28T12:00","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"new","newStationLabel":"%s","newPlaceLabel":"%s","newStationKind":"fuel","newAddressFormatted":"123 Market St, Chicago, IL 60601, US","newAddressLine1":"123 Market St","newAddressLine2":"","newLocality":"Chicago","newRegion":"IL","newPostalCode":"60601","newCountry":"US","newLatitude":"41.8781136","newLongitude":"-87.6297982","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' "$fill_edit_vehicle" "$address_station" "$address_place")" \
+  "$URL/apps/rover/add-fill")"
+[ "$address_station_result" = $'Saved fill - $3.499 - derived $17.50\n201' ] \
+  || fail "fixture 40 manual station create failed: $address_station_result"
+address_station_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%station-report (crip \"$address_station\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+for expected in \
+  "$address_station" \
+  '123 Market St, Chicago, IL 60601, US' \
+  '123 Market St' \
+  'Chicago' \
+  '60601'; do
+  grep -Fq "$expected" <<<"$address_station_report" \
+    || fail "fixture 40 address evidence missing ($expected); actual: $address_station_report"
+done
+grep -Fq '[%latitude-scaled 25715 0x31ec2fa0] [%longitude-scaled 25715 0x68767dfb] [%coord-scale 25717 7]' <<<"$address_station_report" \
+  || fail "fixture 40 coordinates did not retain exact signed scale-7 values: $address_station_report"
+if grep -Fq "[%part %tas %line2]" <<<"$address_station_report"; then
+  fail "fixture 40 omitted address line2 wrote a child row: $address_station_report"
+fi
+note "fixture 40 PASS - manual station persists owner address parts and scale-7 coordinates while omitted parts create no rows"
+
+name_only_station="Name Only Station $(date +%s%N)"
+name_only_place="Name Only Place $(date +%s%N)"
+name_only_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"4.000","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-29T12:00","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"new","newStationLabel":"%s","newPlaceLabel":"%s","newStationKind":"fuel","newAddressFormatted":"","newAddressLine1":"","newAddressLine2":"","newLocality":"","newRegion":"","newPostalCode":"","newCountry":"","newLatitude":"","newLongitude":"","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' "$fill_edit_vehicle" "$name_only_station" "$name_only_place")" \
+  "$URL/apps/rover/add-fill")"
+[ "$name_only_result" = $'Saved fill - $3.499 - derived $14.00\n201' ] \
+  || fail "fixture 41 name-only station create failed: $name_only_result"
+name_only_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%station-report (crip \"$name_only_station\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -Fq "$name_only_station" <<<"$name_only_report" \
+  || fail "fixture 41 station row missing: $name_only_report"
+[ "$(grep -oF '[%vector-count 0]' <<<"$name_only_report" | wc -l)" -eq 3 ] \
+  || fail "fixture 41 name-only station wrote address/part/coordinate evidence: $name_only_report"
+note "fixture 41 PASS - name-only manual station writes no empty address rows and no zero-coordinate row"
+if [ "${ROVER_FIXTURE_STOP:-}" = 41 ]; then
   exit 0
 fi
 

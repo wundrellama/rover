@@ -349,6 +349,25 @@
     " SELECT O.odometer-id, O.value-digits, O.decimal-places, O.unit;"
   ==
 ::
+++  station-report
+  |=  station-label=@t
+  ^-  tape
+  =/  quoted  (sql-quote station-label)
+  ;:  weld
+    "FROM stations S JOIN places P ON S.place-id = P.place-id WHERE S.label = '"
+    quoted
+    "' SELECT S.label AS station, P.label AS place, S.station-kind; "
+    "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-addresses A ON P.place-id = A.place-id WHERE S.label = '"
+    quoted
+    "' SELECT A.formatted, A.source; "
+    "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-address-parts A ON P.place-id = A.place-id WHERE S.label = '"
+    quoted
+    "' SELECT A.part, A.value; "
+    "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-coordinates C ON P.place-id = C.place-id WHERE S.label = '"
+    quoted
+    "' SELECT C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source;"
+  ==
+::
 ++  pow-ten
   |=  exponent=@ud
   ^-  @ud
@@ -1714,9 +1733,57 @@
   =/  new-station-rows=tape
     ?~  new-station.input
       ~
+    =/  place  (scow %ux place.ids)
+    =/  address-rows=tape
+      ?~  address.u.new-station.input
+        ~
+      =/  address  u.address.u.new-station.input
+      =/  part-row
+        |=  [part=@tas value=(unit @t)]
+        ^-  tape
+        ?~  value
+          ~
+        ;:  weld
+          " INSERT INTO place-address-parts VALUES ("
+          place
+          ", "
+          (sql-term part)
+          ", '"
+          (sql-quote u.value)
+          "');"
+        ==
+      ;:  weld
+        " INSERT INTO place-addresses VALUES ("
+        place
+        ", '"
+        (sql-quote formatted.address)
+        "', %owner, "
+        recorded
+        ");"
+        (part-row %line1 line1.address)
+        (part-row %line2 line2.address)
+        (part-row %locality locality.address)
+        (part-row %region region.address)
+        (part-row %postal-code postal-code.address)
+        (part-row %country country.address)
+      ==
+    =/  coordinate-rows=tape
+      ?~  coordinates.u.new-station.input
+        ~
+      ;:  weld
+        " INSERT INTO place-coordinates VALUES ("
+        place
+        ", "
+        (scow %sd latitude.u.coordinates.u.new-station.input)
+        ", "
+        (scow %sd longitude.u.coordinates.u.new-station.input)
+        ", 7, %owner, "
+        recorded
+        ");"
+      ==
     ;:  weld
       "INSERT INTO places VALUES ("
-      (scow %ux place.ids)
+      place
       ", '"
       (sql-quote place-label.u.new-station.input)
       "', N, "
@@ -1732,6 +1799,8 @@
       ", N, "
       recorded
       "); "
+      address-rows
+      coordinate-rows
     ==
   =/  acquisition-row
     ;:  weld

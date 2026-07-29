@@ -582,7 +582,7 @@
     "<select id=\"fill-station\" name=\"station\"><option value=\"none\">No station recorded</option>"
     station-html
     "<option value=\"new\">Add new station&hellip;</option></select>"
-    "<div id=\"fill-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\" placeholder=\"Home pump\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\" placeholder=\"Home\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div>"
+    "<div id=\"fill-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\" placeholder=\"Home pump\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\" placeholder=\"Home\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label><label>Formatted address <span class=\"optional\">optional</span><input name=\"newAddressFormatted\" autocomplete=\"street-address\"></label><label>Address line 1 <span class=\"optional\">optional</span><input name=\"newAddressLine1\" autocomplete=\"address-line1\"></label><label>Address line 2 <span class=\"optional\">optional</span><input name=\"newAddressLine2\" autocomplete=\"address-line2\"></label><label>City/locality <span class=\"optional\">optional</span><input name=\"newLocality\" autocomplete=\"address-level2\"></label><label>Region <span class=\"optional\">optional</span><input name=\"newRegion\" autocomplete=\"address-level1\"></label><label>Postal code <span class=\"optional\">optional</span><input name=\"newPostalCode\" autocomplete=\"postal-code\"></label><label>Country <span class=\"optional\">optional</span><input name=\"newCountry\" autocomplete=\"country\"></label><label>Latitude <span class=\"optional\">optional</span><input name=\"newLatitude\" inputmode=\"decimal\" placeholder=\"41.8781136\"></label><label>Longitude <span class=\"optional\">optional</span><input name=\"newLongitude\" inputmode=\"decimal\" placeholder=\"-87.6297982\"></label></div>"
     "</fieldset>"
     "<label data-fill-field=\"driving-mode\">Driving Mode <span class=\"optional\">optional</span><select name=\"drivingMode\"><option value=\"\">Not recorded</option>"
     driving-mode-html
@@ -1366,7 +1366,7 @@
           breaks=(list vector:ast)
       ==
   ^-  tape
-  =/  recent  (scag 12 (order-vectors:act %observed-start %.n fills))
+  =/  recent  (order-vectors:act %observed-start %.n fills)
   ;:  weld
     "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header>"
     "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"

@@ -98,6 +98,36 @@
   ^-  ?
   ?=(^ (trim-spaces:render (trip value)))
 ::
+++  optional-text
+  |=  [key=@t object=(map @t json)]
+  ^-  (unit @t)
+  =/  value  (json-string key object)
+  ?~  value
+    ~
+  ?:  (nonempty u.value)
+    value
+  ~
+::
+++  parse-coordinate
+  |=  txt=@t
+  ^-  (unit @sd)
+  =/  chars  (trim-spaces:render (trip txt))
+  ?~  chars
+    ~
+  =/  positive  !=('-' i.chars)
+  =/  magnitude-text
+    ?:  positive
+      chars
+    t.chars
+  ?~  magnitude-text
+    ~
+  =/  parsed  (parse-decimal:render (crip magnitude-text) 7)
+  ?:  ?=(%| -.parsed)
+    ~
+  =/  scaled
+    (mul digits.p.parsed (pow-ten:render (sub 7 places.p.parsed)))
+  `(new:si positive scaled)
+::
 ++  decode-fill
   |=  body=@t
   ^-  (each fill-entry:rover entry-verdict:rover)
@@ -249,7 +279,50 @@
             ==
         ==
       ~
-    `[u.place-name u.station-name ;;(station-kind:rover u.kind-term)]
+    =/  formatted  (optional-text 'newAddressFormatted' object)
+    =/  line1  (optional-text 'newAddressLine1' object)
+    =/  line2  (optional-text 'newAddressLine2' object)
+    =/  locality  (optional-text 'newLocality' object)
+    =/  region  (optional-text 'newRegion' object)
+    =/  postal-code  (optional-text 'newPostalCode' object)
+    =/  country  (optional-text 'newCountry' object)
+    =/  any-part
+      ?|  ?=(^ line1)
+          ?=(^ line2)
+          ?=(^ locality)
+          ?=(^ region)
+          ?=(^ postal-code)
+          ?=(^ country)
+      ==
+    ?:  ?&  any-part
+            ?=(~ formatted)
+        ==
+      ~
+    =/  address=(unit station-address-entry:rover)
+      ?~  formatted
+        ~
+      `[u.formatted line1 line2 locality region postal-code country]
+    =/  latitude-text  (optional-text 'newLatitude' object)
+    =/  longitude-text  (optional-text 'newLongitude' object)
+    ?:  !=(?=(~ latitude-text) ?=(~ longitude-text))
+      ~
+    =/  coordinates=(unit station-coordinate-entry:rover)
+      ?~  latitude-text
+        ~
+      =/  latitude  (parse-coordinate u.latitude-text)
+      =/  longitude  (parse-coordinate (need longitude-text))
+      ?:  ?|  ?=(~ latitude)
+              ?=(~ longitude)
+              (gth (abs:si (need latitude)) 900.000.000)
+              (gth (abs:si (need longitude)) 1.800.000.000)
+          ==
+        ~
+      `[(need latitude) (need longitude)]
+    ?:  ?&  ?=(^ latitude-text)
+            ?=(~ coordinates)
+        ==
+      ~
+    `[u.place-name u.station-name ;;(station-kind:rover u.kind-term) address coordinates]
   ?:  ?&  =('new' u.station)
           ?=(~ new-station)
       ==

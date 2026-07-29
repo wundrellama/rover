@@ -51,8 +51,24 @@
 +$  odo-reading  [digits=@ud places=@ud odo-unit=distance-unit]
 +$  scaled-entry  [digits=@ud places=@ud value-unit=@tas]
 +$  entry-verdict  [class=@tas field=@t]
++$  station-address-entry
+  $:  formatted=@t
+      line1=(unit @t)
+      line2=(unit @t)
+      locality=(unit @t)
+      region=(unit @t)
+      postal-code=(unit @t)
+      country=(unit @t)
+  ==
++$  station-coordinate-entry
+  [latitude=@sd longitude=@sd]
 +$  new-station-entry
-  [place-label=@t station-label=@t station-kind=station-kind]
+  $:  place-label=@t
+      station-label=@t
+      station-kind=station-kind
+      address=(unit station-address-entry)
+      coordinates=(unit station-coordinate-entry)
+  ==
 +$  fill-entry
   $:  vehicle-label=@t
       definition-label=@t
@@ -185,6 +201,7 @@
       [%rename-energy-source old-label=@t new-label=@t]
       [%seed-fill-edit-support vehicle-label=@t]
       [%fill-edit-report vehicle-label=@t observed-start=@da]
+      [%station-report station-label=@t]
       [%vehicle-settings-report vehicle-label=@t]
       [%seed-starters ~]
       [%starter-report ~]
