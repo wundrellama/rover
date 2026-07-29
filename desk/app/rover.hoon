@@ -1299,9 +1299,24 @@
         ?~  driving-mode-labels.p.decoded
           ~
         `(unique-ids:act p.mode-result)
+      =/  current-def-rows  (rows-at:view p.res 7)
+      =/  current-def  ?=(^ current-def-rows)
+      =/  def-consumable-id=(unit @ux)
+        ?^  current-def-rows
+          ``@ux`(cell-atom:view %consumable-id i.current-def-rows)
+        =/  definitions  (rows-at:view p.res 6)
+        ?~  definitions
+          ~
+        ``@ux`(cell-atom:view %consumable-id i.definitions)
+      ?:  ?&  ?=(^ def-enabled.p.decoded)
+              u.def-enabled.p.decoded
+              ?=(~ def-consumable-id)
+          ==
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.consumable.DEF'))
       =/  write-wire=path  /rover-edit-vehicle-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
-        !>([%tape %rover (update-vehicle-settings:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) p.decoded subtype-id current-energy-ids resolved-energy-ids current-mode-ids resolved-mode-ids now.bowl)])
+        !>([%tape %rover (update-vehicle-settings:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) p.decoded subtype-id current-energy-ids resolved-energy-ids current-mode-ids resolved-mode-ids current-def def-consumable-id now.bowl)])
       =/  new-state
         %_  state
           pending  (~(put by (~(del by pending) wire)) write-wire u.body)
@@ -1796,6 +1811,18 @@
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.driving-mode'))
       =/  primary-id=@ux  `@ux`(cell-atom:view %energy-definition-id u.primary)
+      =/  def-consumable-id=(unit @ux)
+        ?:  def-enabled.p.decoded
+          =/  def-rows  (rows-at:view p.res 2)
+          ?~  def-rows
+            ~
+          ``@ux`(cell-atom:view %consumable-id i.def-rows)
+        ~
+      ?:  ?&  def-enabled.p.decoded
+              ?=(~ def-consumable-id)
+          ==
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.consumable.DEF'))
       =/  definition-ids
         (unique-ids:act [primary-id p.additional-result])
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
@@ -1807,6 +1834,8 @@
             primary-id
             definition-ids
             (unique-ids:act p.mode-result)
+            def-consumable-id
+            def-tank-size.p.decoded
             now.bowl
         ==
       =/  jon  !>([%tape %rover script])

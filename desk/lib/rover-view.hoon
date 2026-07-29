@@ -409,6 +409,18 @@
     %.y
   $(rows t.rows)
 ::
+++  active-energy-label
+  |=  [label=@t rows=(list vector:ast)]
+  ^-  ?
+  ?~  rows
+    %.n
+  ?:  ?&  =(label (cell-text %energy i.rows))
+          !=(0 (cell-atom %energy-archived i.rows))
+          !=(0 (cell-atom %link-archived i.rows))
+      ==
+    %.y
+  $(rows t.rows)
+::
 ++  tag-options
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1086,6 +1098,8 @@
           driving-modes=(list vector:ast)
           available-definitions=(list vector:ast)
           available-modes=(list vector:ast)
+          vehicle-consumables=(list vector:ast)
+          consumable-tank-sizes=(list vector:ast)
           tank-sizes=(list vector:ast)
           is-default=?
       ==
@@ -1125,6 +1139,24 @@
     (vehicle-mode-membership-options available-modes modes)
   =/  can-fill  (active-energy-kind %reservoir vehicle-definitions)
   =/  can-charge  (active-energy-kind %electricity vehicle-definitions)
+  =/  def-link  (row-by-text %consumable 'DEF' (rows-for id vehicle-consumables))
+  =/  def-enabled
+    ?~  def-link
+      %.n
+    !=(0 (cell-atom %link-archived u.def-link))
+  =/  show-def
+    ?|  (active-energy-label 'Diesel' vehicle-definitions)
+        ?=(^ def-link)
+    ==
+  =/  def-tank  (row-by-text %consumable 'DEF' (rows-for id consumable-tank-sizes))
+  =/  def-tank-value=tape
+    ?~  def-tank
+      ~
+    (trip (format-scaled:render (cell-atom %digits u.def-tank) (cell-atom %decimals u.def-tank) %.n))
+  =/  def-tank-unit=@tas
+    ?~  def-tank
+      %gal
+    (cell-term %unit u.def-tank)
   =/  tank-text=tape
     ?~  tank
       "Unavailable - no tank size recorded"
@@ -1185,7 +1217,21 @@
     energy-controls
     "</select></label><label>Driving Modes<select name=\"drivingModes\" multiple>"
     mode-controls
-    "</select></label><label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
+    "</select></label>"
+    ?:  show-def
+      ;:  weld
+        "<fieldset data-def-configuration><legend>DEF configuration</legend><label><input type=\"checkbox\" name=\"defEnabled\" value=\"yes\""
+        ?:(def-enabled " checked" "")
+        "> Enable DEF</label><label>DEF tank size<input name=\"defTankSize\" inputmode=\"decimal\" value=\""
+        def-tank-value
+        "\"></label><label>DEF tank unit<select name=\"defTankUnit\"><option value=\"gal\""
+        ?:(=(%gal def-tank-unit) " selected" "")
+        ">gal</option><option value=\"litre\""
+        ?:(=(%litre def-tank-unit) " selected" "")
+        ">litre</option></select></label></fieldset>"
+      ==
+    ~
+    "<label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
     subtype-controls
     "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\" value=\""
     tank-value
@@ -1700,6 +1746,8 @@
   =/  consumables  (rows-at commands 30)
   =/  fill-tags  (rows-at commands 31)
   =/  available-modes  (rows-at commands 32)
+  =/  vehicle-consumables  (rows-at commands 33)
+  =/  consumable-tank-sizes  (rows-at commands 34)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -1733,6 +1781,8 @@
           driving-modes
           starter-definitions
           available-modes
+          vehicle-consumables
+          consumable-tank-sizes
           tank-sizes
           ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
       ==
@@ -1753,7 +1803,7 @@
       starter-subtype-html
       "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\"></label><label>Tank Unit<select name=\"tankUnit\"><option value=\"gal\">gal</option><option value=\"litre\">litre</option></select></label><label>Driving Modes<select name=\"drivingModes\" multiple>"
       starter-mode-html
-      "</select></label><label>Distance Display<select name=\"distanceUnit\"><option value=\"native\">Source-native</option><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Currency Display<select name=\"currency\"><option value=\"usd\">USD</option><option value=\"eur\">EUR</option></select></label><button type=\"submit\">Save Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+      "</select></label><fieldset data-def-configuration hidden><legend>DEF configuration</legend><label><input type=\"checkbox\" name=\"defEnabled\" value=\"yes\"> Enable DEF</label><label>DEF tank size<input name=\"defTankSize\" inputmode=\"decimal\"></label><label>DEF tank unit<select name=\"defTankUnit\"><option value=\"gal\">gal</option><option value=\"litre\">litre</option></select></label></fieldset><label>Distance Display<select name=\"distanceUnit\"><option value=\"native\">Source-native</option><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Currency Display<select name=\"currency\"><option value=\"usd\">USD</option><option value=\"eur\">EUR</option></select></label><button type=\"submit\">Save Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
       "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"

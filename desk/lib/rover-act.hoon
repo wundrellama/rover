@@ -1233,6 +1233,8 @@
     " FROM consumable-definitions C SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;"
     " FROM fuel-fill-tags L JOIN tag-definitions T ON L.tag-id = T.tag-id SELECT L.acquisition-id, T.label AS tag;"
     " FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived;"
+    " FROM vehicles V JOIN vehicle-consumables L ON V.vehicle-id = L.vehicle-id JOIN consumable-definitions C ON L.consumable-id = C.consumable-id SELECT V.vehicle-id, C.consumable-id, C.label AS consumable, L.archived AS link-archived;"
+    " FROM vehicle-consumable-tank-size T JOIN consumable-definitions C ON T.consumable-id = C.consumable-id SELECT T.vehicle-id, T.consumable-id, C.label AS consumable, T.digits, T.decimals, T.unit;"
   ==
 ::
 ++  sql-quote
@@ -1607,7 +1609,8 @@
   ^-  tape
   ;:  weld
     "FROM energy-definitions E WHERE E.archived = N SELECT E.energy-definition-id, E.label, E.physical-kind; "
-    "FROM driving-mode-definitions D WHERE D.archived = N SELECT D.mode-id, D.label;"
+    "FROM driving-mode-definitions D WHERE D.archived = N SELECT D.mode-id, D.label; "
+    "FROM consumable-definitions C WHERE C.label = 'DEF' AND C.archived = N SELECT C.consumable-id, C.label, C.quantity-unit;"
   ==
 ::
 ++  rename-energy-definition
@@ -1639,6 +1642,13 @@
     (sql-quote vehicle-label)
     "' SELECT D.mode-id, D.label, L.archived AS link-archived; "
     "FROM driving-mode-definitions D WHERE D.archived = N SELECT D.mode-id, D.label;"
+    " FROM consumable-definitions C WHERE C.label = 'DEF' AND C.archived = N SELECT C.consumable-id, C.label, C.quantity-unit; "
+    "FROM vehicles V JOIN vehicle-consumables L ON V.vehicle-id = L.vehicle-id JOIN consumable-definitions C ON L.consumable-id = C.consumable-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND C.label = 'DEF' SELECT C.consumable-id, C.label, L.archived AS link-archived; "
+    "FROM vehicles V JOIN vehicle-consumable-tank-size T ON V.vehicle-id = T.vehicle-id JOIN consumable-definitions C ON T.consumable-id = C.consumable-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND C.label = 'DEF' SELECT C.consumable-id, T.digits, T.decimals, T.unit;"
   ==
 ::
 ++  has-id
@@ -1737,6 +1747,8 @@
           energy-ids=(unit (list @ux))
           current-mode-ids=(list @ux)
           mode-ids=(unit (list @ux))
+          current-def=?
+          def-consumable-id=(unit @ux)
           now=@da
       ==
   ^-  tape
@@ -1781,6 +1793,63 @@
       (sync-mode-current vehicle-id current-mode-ids u.mode-ids)
       (add-mode-missing vehicle-id current-mode-ids u.mode-ids)
     ==
+  =/  def-script=tape
+    ?~  def-enabled.input
+      ~
+    ?~  def-consumable-id
+      ~
+    =/  def-id  (scow %ux u.def-consumable-id)
+    =/  membership=tape
+      ?~  current-def
+        ?:  u.def-enabled.input
+          ;:  weld
+            "INSERT INTO vehicle-consumables VALUES ("
+            id
+            ", "
+            def-id
+            ", N); "
+          ==
+        ~
+      ;:  weld
+        "UPDATE vehicle-consumables SET archived = "
+        ?:  u.def-enabled.input
+          "N"
+        "Y"
+        " WHERE vehicle-id = "
+        id
+        " AND consumable-id = "
+        def-id
+        "; "
+      ==
+    =/  tank-update=tape
+      ?:  u.def-enabled.input
+        ?~  def-tank-size.input
+          ~
+        ;:  weld
+          "DELETE FROM vehicle-consumable-tank-size WHERE vehicle-id = "
+          id
+          " AND consumable-id = "
+          def-id
+          "; INSERT INTO vehicle-consumable-tank-size VALUES ("
+          id
+          ", "
+          def-id
+          ", "
+          (sql-ud digits.u.def-tank-size.input)
+          ", "
+          (sql-ud places.u.def-tank-size.input)
+          ", "
+          (sql-term value-unit.u.def-tank-size.input)
+          "); "
+        ==
+      ;:  weld
+        "DELETE FROM vehicle-consumable-tank-size WHERE vehicle-id = "
+        id
+        " AND consumable-id = "
+        def-id
+        "; "
+      ==
+    (weld membership tank-update)
   ;:  weld
     "UPDATE vehicles SET label = '"
     (sql-quote label.input)
@@ -1796,6 +1865,7 @@
     subtype-script
     energy-script
     mode-script
+    def-script
   ==
 ::
 ++  vehicle-settings-report
@@ -1816,7 +1886,13 @@
     "' SELECT E.label AS energy, L.archived AS link-archived; "
     "FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
     (sql-quote label)
-    "' SELECT D.label AS driving-mode, L.archived AS link-archived;"
+    "' SELECT D.label AS driving-mode, L.archived AS link-archived; "
+    "FROM vehicles V JOIN vehicle-consumables L ON V.vehicle-id = L.vehicle-id JOIN consumable-definitions C ON L.consumable-id = C.consumable-id WHERE V.label = '"
+    (sql-quote label)
+    "' AND C.label = 'DEF' SELECT C.label AS consumable, L.archived AS link-archived; "
+    "FROM vehicles V JOIN vehicle-consumable-tank-size T ON V.vehicle-id = T.vehicle-id JOIN consumable-definitions C ON T.consumable-id = C.consumable-id WHERE V.label = '"
+    (sql-quote label)
+    "' AND C.label = 'DEF' SELECT T.digits, T.decimals, T.unit;"
   ==
 ::
 ++  insert-energy-links
@@ -1853,9 +1929,39 @@
           definition-id=@ux
           definition-ids=(list @ux)
           mode-ids=(list @ux)
+          def-consumable-id=(unit @ux)
+          def-tank-size=(unit scaled-entry:rover)
           recorded-at=@da
       ==
   ^-  tape
+  =/  def-script=tape
+    ?~  def-consumable-id
+      ~
+    =/  def-id  (scow %ux u.def-consumable-id)
+    =/  tank-script=tape
+      ?~  def-tank-size
+        ~
+      ;:  weld
+        "INSERT INTO vehicle-consumable-tank-size VALUES ("
+        (scow %ux vehicle-id)
+        ", "
+        def-id
+        ", "
+        (sql-ud digits.u.def-tank-size)
+        ", "
+        (sql-ud places.u.def-tank-size)
+        ", "
+        (sql-term value-unit.u.def-tank-size)
+        "); "
+      ==
+    ;:  weld
+      "INSERT INTO vehicle-consumables VALUES ("
+      (scow %ux vehicle-id)
+      ", "
+      def-id
+      ", N); "
+      tank-script
+    ==
   ;:  weld
     "INSERT INTO vehicles VALUES ("
     (scow %ux vehicle-id)
@@ -1866,6 +1972,7 @@
     "); "
     (insert-energy-links vehicle-id definition-ids)
     (insert-mode-links vehicle-id mode-ids)
+    def-script
     "INSERT INTO vehicle-default-energy-definitions VALUES ("
     (scow %ux vehicle-id)
     ", "

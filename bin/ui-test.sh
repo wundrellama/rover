@@ -743,6 +743,63 @@ note "fixture 48 PASS - create and edit mode memberships persist; the non-member
 if [ "${ROVER_FIXTURE_STOP:-}" = 48 ]; then
   exit 0
 fi
+
+def_vehicle="Fixture 49 DEF $(date +%s%N)"
+no_def_vehicle="Fixture 49 No DEF $(date +%s%N)"
+def_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Diesel","additionalEnergy":[],"drivingModes":[],"defEnabled":"yes","defTankSize":"5.5","defTankUnit":"gal"}' "$def_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+no_def_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Diesel","additionalEnergy":[],"drivingModes":[]}' "$no_def_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$def_created" = "Added vehicle - $def_vehicle"$'\n201' ] \
+  || fail "fixture 49 DEF-enabled vehicle create failed: $def_created"
+[ "$no_def_created" = "Added vehicle - $no_def_vehicle"$'\n201' ] \
+  || fail "fixture 49 DEF-disabled control create failed: $no_def_created"
+def_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$def_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+no_def_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$no_def_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%consumable 116 'DEF'\\].*\\[%link-archived 102 1\\]" <<<"$def_report" \
+  || fail "fixture 49 DEF enablement link missing or archived: $def_report"
+if grep -q "\\[%consumable 116 'DEF'\\]" <<<"$no_def_report"; then
+  fail "fixture 49 disabled control has a vehicle-consumables row: $no_def_report"
+fi
+note "fixture 49 PASS - enabled Diesel has an active DEF link; disabled Diesel has no link row"
+if [ "${ROVER_FIXTURE_STOP:-}" = 49 ]; then
+  exit 0
+fi
+
+grep -q '\[%digits 25717 55\].*\[%decimals 25717 1\].*\[%unit %tas %gal\]' <<<"$def_report" \
+  || fail "fixture 50 exact DEF tank size missing: $def_report"
+if grep -q '\[%digits 25717 ' <<<"$no_def_report"; then
+  fail "fixture 50 no-tank control has a vehicle-consumable-tank-size row: $no_def_report"
+fi
+def_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+def_panel="${def_view#*data-vehicle-settings-panel data-vehicle=\"$def_vehicle\"}"
+def_panel="${def_panel%%</article>*}"
+grep -q 'name="defEnabled" value="yes" checked' <<<"$def_panel" \
+  || fail "fixture 50 served Diesel settings do not show DEF enabled: $def_panel"
+grep -q 'name="defTankSize"[^>]*value="5.5"' <<<"$def_panel" \
+  || fail "fixture 50 served Diesel settings do not show exact DEF tank size: $def_panel"
+note "fixture 50 PASS - composite DEF tank size stores exact 55/1/gal, absence creates no row, and settings re-render 5.5 gal"
+if [ "${ROVER_FIXTURE_STOP:-}" = 50 ]; then
+  exit 0
+fi
 fi
 
 if ! grep -q 'Phase A Vehicle' <<<"$view"; then

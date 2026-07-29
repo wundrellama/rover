@@ -1872,3 +1872,19 @@ $ bash bin/schema-test.sh "$HOME/piers/rover-bel"
 schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
 schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
 ```
+
+## Follow-up slice 4 - DEF enablement and tank capacity
+
+Create and edit decode DEF configuration without adding any boolean column.
+An enabled vehicle gets an active `vehicle-consumables` link; an omitted or
+never-enabled vehicle gets no link row. Capacity is exact
+digits/decimals/unit in the composite child relation. The Diesel check only
+controls whether the settings fieldset is offered; storage remains capable of
+representing an unusual real-world vehicle.
+
+```console
+ui-test: fixture 49 PASS - enabled Diesel has an active DEF link; disabled Diesel has no link row
+ui-test: fixture 50 PASS - composite DEF tank size stores exact 55/1/gal, absence creates no row, and settings re-render 5.5 gal
+```
+
+Fixtures 49-50 are verified; none is UNVERIFIED.

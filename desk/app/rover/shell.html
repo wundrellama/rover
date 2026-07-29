@@ -856,6 +856,16 @@
           if (seen.has(option.value)) option.remove();
           else seen.add(option.value);
         });
+        const defConfiguration = vehicleAddForm.querySelector('[data-def-configuration]');
+        const updateDefAffordance = () => {
+          if (!defConfiguration) return;
+          const additional = [...vehicleAddForm.elements.additionalEnergy.selectedOptions]
+            .map((option) => option.value);
+          defConfiguration.hidden = ![energy.value, ...additional].includes('Diesel');
+        };
+        energy.addEventListener('change', updateDefAffordance);
+        vehicleAddForm.elements.additionalEnergy.addEventListener('change', updateDefAffordance);
+        updateDefAffordance();
         vehicleAddForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = vehicleAddForm.querySelector('output');
@@ -864,6 +874,7 @@
           const payload = Object.fromEntries(formData);
           payload.additionalEnergy = formData.getAll('additionalEnergy');
           payload.drivingModes = formData.getAll('drivingModes');
+          payload.defEnabled = formData.has('defEnabled') ? 'yes' : 'no';
           const response = await fetch('/apps/rover/add-vehicle', {
             method: 'POST',
             credentials: 'same-origin',
@@ -908,6 +919,7 @@
           const payload = Object.fromEntries(formData);
           payload.energySources = formData.getAll('energySources');
           payload.drivingModes = formData.getAll('drivingModes');
+          payload.defEnabled = formData.has('defEnabled') ? 'yes' : 'no';
           const response = await fetch('/apps/rover/edit-vehicle', {
             method: 'POST',
             credentials: 'same-origin',

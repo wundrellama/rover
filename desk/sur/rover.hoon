@@ -146,6 +146,8 @@
       energy-label=@t
       additional-energy-labels=(list @t)
       driving-mode-labels=(list @t)
+      def-enabled=?
+      def-tank-size=(unit scaled-entry)
   ==
 +$  vehicle-edit-entry
   $:  vehicle-label=@t
@@ -154,6 +156,8 @@
       default-subtype=(unit @t)
       energy-labels=(unit (list @t))
       driving-mode-labels=(unit (list @t))
+      def-enabled=(unit ?)
+      def-tank-size=(unit scaled-entry)
   ==
 +$  custom-definition-entry
   [label=@t content-type=@tas mandatory=?]

@@ -806,7 +806,34 @@
           (levy mode-labels nonempty)
       ==
     [%| %bad-shape 'vehicle.configuration']
-  [%& u.label u.energy additional-labels mode-labels]
+  =/  def-text  (json-string 'defEnabled' object)
+  ?.  ?~(def-text %.y ?|(=('yes' u.def-text) =('no' u.def-text)))
+    [%| %bad-shape 'vehicle.def-enabled']
+  =/  def-enabled  ?~(def-text %.n =('yes' u.def-text))
+  =/  def-tank-text  (json-string 'defTankSize' object)
+  =/  def-unit-text  (json-string 'defTankUnit' object)
+  =/  def-tank-size=(unit scaled-entry:rover)
+    ?~  def-tank-text
+      ~
+    ?.  (nonempty u.def-tank-text)
+      ~
+    =/  parsed  (parse-decimal:render u.def-tank-text 3)
+    ?:  ?=(%| -.parsed)
+      ~
+    =/  unit  ?~(def-unit-text ~ (slaw %tas u.def-unit-text))
+    ?~  unit
+      ~
+    ?:  ?|  =(%gal u.unit)
+            =(%litre u.unit)
+        ==
+      `[digits.p.parsed places.p.parsed u.unit]
+    ~
+  ?:  ?&  ?=(^ def-tank-text)
+          (nonempty u.def-tank-text)
+          ?=(~ def-tank-size)
+      ==
+    [%| %bad-shape 'vehicle.def-tank-size']
+  [%& u.label u.energy additional-labels mode-labels def-enabled def-tank-size]
 ::
 ++  decode-vehicle-edit
   |=  body=@t
@@ -860,7 +887,37 @@
           ?~(mode-labels %.y (levy u.mode-labels nonempty))
       ==
     [%| %bad-shape 'vehicle.configuration']
-  [%& u.vehicle u.label tank-size default-subtype energy-labels mode-labels]
+  =/  def-text  (json-string 'defEnabled' u.object)
+  ?.  ?~(def-text %.y ?|(=('yes' u.def-text) =('no' u.def-text)))
+    [%| %bad-shape 'vehicle.def-enabled']
+  =/  def-enabled=(unit ?)
+    ?~  def-text
+      ~
+    `=('yes' u.def-text)
+  =/  def-tank-text  (json-string 'defTankSize' u.object)
+  =/  def-unit-text  (json-string 'defTankUnit' u.object)
+  =/  def-tank-size=(unit scaled-entry:rover)
+    ?~  def-tank-text
+      ~
+    ?.  (nonempty u.def-tank-text)
+      ~
+    =/  parsed  (parse-decimal:render u.def-tank-text 3)
+    ?:  ?=(%| -.parsed)
+      ~
+    =/  unit  ?~(def-unit-text ~ (slaw %tas u.def-unit-text))
+    ?~  unit
+      ~
+    ?:  ?|  =(%gal u.unit)
+            =(%litre u.unit)
+        ==
+      `[digits.p.parsed places.p.parsed u.unit]
+    ~
+  ?:  ?&  ?=(^ def-tank-text)
+          (nonempty u.def-tank-text)
+          ?=(~ def-tank-size)
+      ==
+    [%| %bad-shape 'vehicle.def-tank-size']
+  [%& u.vehicle u.label tank-size default-subtype energy-labels mode-labels def-enabled def-tank-size]
 ::
 ++  decode-custom-definition
   |=  body=@t
