@@ -1038,3 +1038,39 @@ ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no g
 
 Result: **PASS** - default filtering, four-column rows, detail expansion, and
 edit/readback all execute over authenticated Eyre and real Obelisk state.
+
+### Slice 7 - Add Charge and Add Odometer
+
+These write paths were carried forward from the previous UI milestone and
+remained green after the 53-relation re-pour. This slice separated their
+purpose-built navigation from Vehicles and corrected the remaining owner
+wording: Add Charge now says `Energy Source`, never `Definition`, and its
+technical evidence selector says `Measurement source`. The Energy Source
+control stays hidden for a single-source vehicle and is exposed only for a
+multi-source configuration.
+
+Exact authenticated requests and responses exercised by `bin/ui-test.sh`:
+
+```console
+POST /apps/rover/add-charge
+bad range -> %bad-range: charge.end
+valid -> Saved charge - Energy delivered 41.25 kWh
+
+POST /apps/rover/add-odometer
+bad shape -> %bad-shape: odometer.reading
+valid -> Saved odometer - 10,023.125 mi
+overlapping time -> Saved odometer - 10,024.125 mi
+```
+
+The subsequent real readback renders `41.25 kWh`, `21%`, `79.5%`,
+`charger / reported`, and the overlapping-odometer reason
+`Unavailable - latest observation times overlap`. The full green command is
+the exact Slice 6 output above, including:
+
+```console
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Result: **PASS** - Add Charge and Add Odometer are dedicated, named-back
+screens with default-vehicle initialization and real Obelisk write/readback.

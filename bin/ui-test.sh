@@ -190,6 +190,11 @@ grep -q 'name="energySource"' <<<"$view" \
 grep -q 'name="costState"' <<<"$view" || fail "add-charge form lacks cost state"
 charge_html="${view#*id=\"add-charge\"}"
 charge_html="${charge_html%%</section>*}"
+grep -q '>Energy Source<' <<<"$charge_html" \
+  || fail "Add Charge does not use Energy Source owner naming"
+if grep -Eqi '>[[:space:]]*[^<]*definition' <<<"$charge_html"; then
+  fail "Add Charge exposes the retired Definition owner-facing name"
+fi
 if grep -Eqi 'full|partial|battery filled' <<<"$charge_html"; then
   fail "add-charge screen contains a fuel tank-state concept"
 fi
