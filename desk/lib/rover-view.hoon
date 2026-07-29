@@ -346,6 +346,24 @@
     rest
   ==
 ::
+++  payment-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  (payment-options t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\">"
+    label
+    "</option>"
+    rest
+  ==
+::
 ++  custom-field-controls
   |=  rows=(list vector:ast)
   ^-  tape
@@ -521,6 +539,7 @@
           driving-modes=(list vector:ast)
           tags=(list vector:ast)
           custom-definitions=(list vector:ast)
+          payment-methods=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
@@ -532,6 +551,7 @@
   =/  driving-mode-html  (driving-mode-options driving-modes)
   =/  tag-html  (tag-options tags)
   =/  custom-field-html  (custom-field-controls custom-definitions)
+  =/  payment-html  (payment-options payment-methods)
   ;:  weld
     "<section id=\"add-fill\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
@@ -575,6 +595,10 @@
     "<fieldset id=\"fill-custom-fields\" data-fill-field=\"custom-fields\"><legend>Custom fields</legend>"
     ?:(?=(~ custom-field-html) "<p class=\"empty\">No custom fields target Add Fill.</p>" custom-field-html)
     "</fieldset>"
+    "<label data-fill-field=\"notes\">Notes <span class=\"optional\">optional</span><textarea name=\"notes\"></textarea></label>"
+    "<label data-fill-field=\"payment-method\">Payment Method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
+    payment-html
+    "</select></label>"
     "<input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\">"
     "<input name=\"tank\" type=\"hidden\" value=\"full\">"
     "<input name=\"settlement\" type=\"hidden\" value=\"standard\">"
@@ -1032,6 +1056,7 @@
   |=  $:  row=vector:ast
           vehicles=(list vector:ast)
           odometer-links=(list vector:ast)
+          payment-methods=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle  (vehicle-label (cell-atom %vehicle-id row) vehicles)
@@ -1086,13 +1111,17 @@
     "</dd></div></dl><form class=\"history-edit-form\">"
     "<input type=\"hidden\" name=\"vehicle\" value=\""
     (escape vehicle)
+    "\"><input type=\"hidden\" name=\"originalObserved\" value=\""
+    observed-input
     "\"><input type=\"hidden\" name=\"observed\" value=\""
     observed-input
     "\"><input type=\"hidden\" name=\"definition\" value=\""
     (escape (cell-text %energy row))
     "\"><input type=\"hidden\" name=\"zone\" value=\""
     (escape (cell-text %source-zone row))
-    "\"><input type=\"hidden\" name=\"mileage\" value=\"\"><input type=\"hidden\" name=\"mileageUnit\" value=\"mi\"><input type=\"hidden\" name=\"station\" value=\"none\"><input type=\"hidden\" name=\"newStationLabel\" value=\"\"><input type=\"hidden\" name=\"newPlaceLabel\" value=\"\"><input type=\"hidden\" name=\"newStationKind\" value=\"private\"><input type=\"hidden\" name=\"subtype\" value=\"\"><input type=\"hidden\" name=\"missedFill\" value=\"no\"><input type=\"hidden\" name=\"drivingMode\" value=\"\"><input type=\"hidden\" name=\"averageSpeed\" value=\"\"><input type=\"hidden\" name=\"speedUnit\" value=\"mph\"><input type=\"hidden\" name=\"driveBalance\" value=\"\"><input type=\"hidden\" name=\"newTag\" value=\"\"><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" value=\""
+    "\"><input type=\"hidden\" name=\"mileage\" value=\"\"><input type=\"hidden\" name=\"mileageUnit\" value=\"mi\"><input type=\"hidden\" name=\"station\" value=\"none\"><input type=\"hidden\" name=\"newStationLabel\" value=\"\"><input type=\"hidden\" name=\"newPlaceLabel\" value=\"\"><input type=\"hidden\" name=\"newStationKind\" value=\"private\"><input type=\"hidden\" name=\"subtype\" value=\"\"><input type=\"hidden\" name=\"missedFill\" value=\"no\"><input type=\"hidden\" name=\"drivingMode\" value=\"\"><input type=\"hidden\" name=\"averageSpeed\" value=\"\"><input type=\"hidden\" name=\"speedUnit\" value=\"mph\"><input type=\"hidden\" name=\"driveBalance\" value=\"\"><input type=\"hidden\" name=\"newTag\" value=\"\"><label>Notes<textarea name=\"notes\"></textarea></label><label>Payment Method<select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
+    (payment-options payment-methods)
+    "</select></label><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" value=\""
     (escape (format-scaled:render (cell-atom %quantity-milli row) 3 %.n))
     "\"></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" value=\""
     (escape (format-unit-price:render (cell-atom %unit-price-mills row) (cell-term %currency row)))
@@ -1109,6 +1138,15 @@
   |=  $:  vehicles=(list vector:ast)
           fills=(list vector:ast)
           odometer-links=(list vector:ast)
+          stations=(list vector:ast)
+          subtypes=(list vector:ast)
+          driving-modes=(list vector:ast)
+          fill-driving-modes=(list vector:ast)
+          fill-average-speeds=(list vector:ast)
+          fill-drive-balances=(list vector:ast)
+          fill-notes=(list vector:ast)
+          fill-payment-links=(list vector:ast)
+          payment-methods=(list vector:ast)
       ==
   ^-  tape
   =/  ordered  (order-vectors:act %observed-start %.n fills)
@@ -1117,7 +1155,7 @@
     ^-  tape
     ?~  rows
       ~
-    (weld (history-row i.rows vehicles odometer-links) $(rows t.rows))
+    (weld (history-row i.rows vehicles odometer-links payment-methods) $(rows t.rows))
   =/  rows=tape  (render-rows ordered)
   ;:  weld
     "<section id=\"history-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER LOG</p><h1>HISTORY</h1></header>"
@@ -1128,10 +1166,129 @@
     "</div><p id=\"history-empty\" class=\"empty\" hidden>No fill history for this vehicle.</p></section>"
   ==
 ::
+++  interval-quantity
+  |=  $:  fills=(list vector:ast)
+          vehicle-id=@
+          after=@da
+          through=@da
+          quantity-unit=@tas
+      ==
+  ^-  (unit @ud)
+  ?~  fills
+    `0
+  =/  row  i.fills
+  =/  date=@da  `@da`(cell-atom %observed-start row)
+  =/  included
+    ?&  =(vehicle-id (cell-atom %vehicle-id row))
+        (gth date after)
+        (lte date through)
+    ==
+  =/  rest
+    $(fills t.fills)
+  ?~  rest
+    ~
+  ?.  included
+    rest
+  ?.  =(quantity-unit (cell-term %quantity-unit row))
+    ~
+  `(add (cell-atom %quantity-milli row) u.rest)
+::
+++  interval-has-break
+  |=  $:  fills=(list vector:ast)
+          breaks=(list vector:ast)
+          vehicle-id=@
+          after=@da
+          through=@da
+      ==
+  ^-  ?
+  ?~  fills
+    %.n
+  =/  row  i.fills
+  =/  date=@da  `@da`(cell-atom %observed-start row)
+  ?:  ?&  =(vehicle-id (cell-atom %vehicle-id row))
+          (gth date after)
+          (lte date through)
+          ?=(^ (rows-by %acquisition-id (cell-atom %acquisition-id row) breaks))
+      ==
+    %.y
+  $(fills t.fills)
+::
+++  economy-for-fill
+  |=  $:  close=vector:ast
+          fills=(list vector:ast)
+          odometers=(list vector:ast)
+          breaks=(list vector:ast)
+      ==
+  ^-  (unit [milli=@ud unit=@t])
+  ?.  =(%full (cell-term %tank-state close))
+    ~
+  =/  close-odo
+    (rows-by %acquisition-id (cell-atom %acquisition-id close) odometers)
+  ?.  =(1 (lent close-odo))
+    ~
+  =/  vehicle-id  (cell-atom %vehicle-id close)
+  =/  close-date=@da  `@da`(cell-atom %observed-start close)
+  =/  prior-fulls=(list vector:ast)
+    %+  skim  fills
+    |=  row=vector:ast
+    ?&  =(vehicle-id (cell-atom %vehicle-id row))
+        (lth (cell-atom %observed-start row) close-date)
+        =(%full (cell-term %tank-state row))
+        =(1 (lent (rows-by %acquisition-id (cell-atom %acquisition-id row) odometers)))
+    ==
+  ?~  prior-fulls
+    ~
+  =/  prior  (snag 0 (order-vectors:act %observed-start %.n prior-fulls))
+  =/  prior-date=@da  `@da`(cell-atom %observed-start prior)
+  ?:  (interval-has-break fills breaks vehicle-id prior-date close-date)
+    ~
+  =/  quantity-unit  (cell-term %quantity-unit close)
+  =/  quantity
+    (interval-quantity fills vehicle-id prior-date close-date quantity-unit)
+  ?~  quantity
+    ~
+  ?:  =(0 u.quantity)
+    ~
+  =/  prior-odo
+    (snag 0 (rows-by %acquisition-id (cell-atom %acquisition-id prior) odometers))
+  =/  close-odo-row  (snag 0 close-odo)
+  =/  distance-unit  (cell-term %unit close-odo-row)
+  ?.  =(distance-unit (cell-term %unit prior-odo))
+    ~
+  =/  prior-places  (cell-atom %decimal-places prior-odo)
+  =/  close-places  (cell-atom %decimal-places close-odo-row)
+  ?:  ?|((gth prior-places 3) (gth close-places 3))
+    ~
+  =/  prior-milli
+    (mul (cell-atom %value-digits prior-odo) (pow-ten:render (sub 3 prior-places)))
+  =/  close-milli
+    (mul (cell-atom %value-digits close-odo-row) (pow-ten:render (sub 3 close-places)))
+  ?.  (gth close-milli prior-milli)
+    ~
+  =/  unit=@t
+    ?:  ?&  =(%mi distance-unit)
+            =(%gal quantity-unit)
+        ==
+      'mpg'
+    ?:  ?&  =(%km distance-unit)
+            =(%litre quantity-unit)
+        ==
+      'km/L'
+    ''
+  ?:  =('' unit)
+    ~
+  =/  distance-milli  (sub close-milli prior-milli)
+  =/  economy-milli
+    (div (add (mul distance-milli 1.000) (div u.quantity 2)) u.quantity)
+  `[economy-milli unit]
+::
 ++  statistic-fill-rows
   |=  $:  fills=(list vector:ast)
+          all-fills=(list vector:ast)
           vehicles=(list vector:ast)
           subtype-links=(list vector:ast)
+          odometers=(list vector:ast)
+          breaks=(list vector:ast)
           mode=@tas
       ==
   ^-  tape
@@ -1158,15 +1315,25 @@
     ==
   =/  price
     (format-unit-price:render (cell-atom %unit-price-mills row) (cell-term %currency row))
+  =/  economy
+    (economy-for-fill row all-fills odometers breaks)
   =/  rendered=tape
     ?+  mode  ~
       %economy
         ;:  weld
-          "<tr><td>"
+          "<tr data-economy-vehicle=\""
+          (escape vehicle)
+          "\" data-economy=\""
+          ?~(economy "Unavailable" (weld (trip (format-scaled:render milli.u.economy 3 %.n)) (weld " " (trip unit.u.economy))))
+          "\"><td>"
           date
           "</td><td>"
           ?:(?=(~ subtype) "Not recorded" (escape (cell-text %subtype i.subtype)))
-          "</td><td>Unavailable</td><td>An eligible adjacent full-fill interval is required.</td></tr>"
+          "</td><td>"
+          ?~(economy "Unavailable" (weld (trip (format-scaled:render milli.u.economy 3 %.n)) (weld " " (trip unit.u.economy))))
+          "</td><td>"
+          ?:(?=(~ economy) "An eligible adjacent full-fill interval is required." "Eligible full-fill interval.")
+          "</td></tr>"
         ==
       %cost
         ;:  weld
@@ -1195,21 +1362,23 @@
   |=  $:  fills=(list vector:ast)
           vehicles=(list vector:ast)
           subtype-links=(list vector:ast)
+          odometers=(list vector:ast)
+          breaks=(list vector:ast)
       ==
   ^-  tape
   =/  recent  (scag 12 (order-vectors:act %observed-start %.n fills))
   ;:  weld
     "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header>"
     "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-fill-rows recent vehicles subtype-links %economy)
+    (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %economy)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"fuel-costs\"><h2>Fuel costs</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Total cost</th></tr></thead><tbody>"
-    (statistic-fill-rows recent vehicles subtype-links %cost)
+    (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %cost)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"distance-between-fills\"><h2>Distance between fills</h2><table><tbody><tr><td>Unavailable</td><td>Adjacent odometer-linked full fills are required.</td></tr></tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><tbody><tr><td>Unavailable</td><td>Two eligible ordered fills are required for the selected vehicle.</td></tr></tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Observed unit price</th></tr></thead><tbody>"
-    (statistic-fill-rows recent vehicles subtype-links %price)
+    (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %price)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><tbody><tr><td>Unavailable</td><td>Tank size and an eligible economy interval are required; Rover never guesses tank size.</td></tr></tbody></table></section></section>"
   ==
@@ -1240,6 +1409,12 @@
   =/  tank-sizes  (rows-at commands 21)
   =/  fill-odometers  (rows-at commands 22)
   =/  starter-definitions  (rows-at commands 23)
+  =/  fill-driving-modes  (rows-at commands 24)
+  =/  fill-average-speeds  (rows-at commands 25)
+  =/  fill-drive-balances  (rows-at commands 26)
+  =/  fill-notes  (rows-at commands 27)
+  =/  fill-payment-links  (rows-at commands 28)
+  =/  payment-methods  (rows-at commands 29)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -1278,7 +1453,7 @@
   =/  html=tape
     ;:  weld
       (main-hub app-default definition-rows odometers tank-sizes)
-      (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions)
+      (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
       "</section>"
@@ -1294,8 +1469,8 @@
       "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
-      (history-screen vehicles fills fill-odometers)
-      (statistics-screen fills vehicles subtype-links)
+      (history-screen vehicles fills fill-odometers stations subtypes driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links payment-methods)
+      (statistics-screen fills vehicles subtype-links fill-odometers economy-breaks)
       (settings-screen custom-definitions)
     ==
   (crip html)

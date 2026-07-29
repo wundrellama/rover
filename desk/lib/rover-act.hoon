@@ -105,6 +105,8 @@
       end-battery=@ux
       odometer=@ux
   ==
++$  fill-edit-support-ids
+  [place=@ux station=@ux payment=@ux mode=@ux]
 ::
 ++  rover-db  %rover
 ::
@@ -251,6 +253,100 @@
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id SELECT E.label AS energy, S.label AS subtype, S.archived; "
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; "
     "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals;"
+  ==
+::
+++  fill-edit-support-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote label)
+    "' SELECT V.vehicle-id;"
+  ==
+::
+++  seed-fill-edit-support
+  |=  [ids=fill-edit-support-ids vehicle-id=@ux now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO places VALUES ("
+    (scow %ux place.ids)
+    ", 'Edit Station Place', N, "
+    (scow %da now)
+    "); INSERT INTO stations VALUES ("
+    (scow %ux station.ids)
+    ", "
+    (scow %ux place.ids)
+    ", 'Edit Station', %fuel, N, "
+    (scow %da now)
+    "); INSERT INTO payment-method-definitions VALUES ("
+    (scow %ux payment.ids)
+    ", 'Personal Visa', N, "
+    (scow %da now)
+    "); INSERT INTO driving-mode-definitions VALUES ("
+    (scow %ux mode.ids)
+    ", 'Mixed Driving', N, "
+    (scow %da now)
+    "); INSERT INTO vehicle-driving-modes VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux mode.ids)
+    ", N);"
+  ==
+::
+++  fill-edit-report
+  |=  [vehicle-label=@t observed-start=@da]
+  ^-  tape
+  =/  prefix=tape
+    ;:  weld
+      "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id "
+      "WHERE V.label = '"
+      (sql-quote vehicle-label)
+      "' AND A.observed-start = "
+      (scow %da observed-start)
+    ==
+  ;:  weld
+    prefix
+    " SELECT V.label AS vehicle, A.acquisition-id, A.observed-start, A.source-zone, F.quantity-milli, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT S.label AS subtype; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT S.label AS station; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT D.label AS driving-mode; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT S.digits, S.decimals, S.speed-unit; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT B.highway-percent; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fill-notes X ON A.acquisition-id = X.acquisition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT X.note; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-payment-method L ON A.acquisition-id = L.acquisition-id JOIN payment-method-definitions P ON L.method-id = P.method-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT P.label AS payment-method; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT O.odometer-id, O.value-digits, O.decimal-places, O.unit;"
   ==
 ::
 ++  pow-ten
@@ -971,6 +1067,12 @@
     " FROM vehicle-tank-size T SELECT T.vehicle-id, T.digits, T.decimals, T.size-unit;"
     " FROM fuel-fill-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.acquisition-id, O.value-digits, O.decimal-places, O.unit;"
     " FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived;"
+    " FROM fuel-fill-driving-mode L JOIN driving-mode-definitions D ON L.mode-id = D.mode-id SELECT L.acquisition-id, D.label AS driving-mode;"
+    " FROM fuel-fill-average-speed S SELECT S.acquisition-id, S.digits, S.decimals, S.speed-unit;"
+    " FROM fuel-fill-drive-balance B SELECT B.acquisition-id, B.highway-percent;"
+    " FROM fill-notes X SELECT X.acquisition-id, X.note;"
+    " FROM fuel-fill-payment-method L JOIN payment-method-definitions P ON L.method-id = P.method-id SELECT L.acquisition-id, P.label AS payment-method;"
+    " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
   ==
 ::
 ++  sql-quote
@@ -1020,23 +1122,206 @@
     "' SELECT D.mode-id, D.label, D.archived AS mode-archived, L.archived AS link-archived;"
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
     " FROM custom-field-definitions C WHERE C.target = %fill SELECT C.field-id, C.label, C.content-type, C.entry-type, C.mandatory, C.archived;"
+    " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
   ==
 ::
 ++  edit-fill-lookup
-  |=  [vehicle-label=@t observed-start=@da]
+  |=  [vehicle-label=@t observed-start=@da definition-label=@t]
   ^-  tape
   ;:  weld
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = '"
     (sql-quote vehicle-label)
     "' AND A.observed-start = "
     (scow %da observed-start)
-    " SELECT A.acquisition-id;"
+    " SELECT A.acquisition-id, V.vehicle-id; "
+    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND E.label = '"
+    (sql-quote definition-label)
+    "' SELECT E.energy-definition-id, E.quantity-unit, E.physical-kind; "
+    "FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.archived, P.label AS place; "
+    "FROM additive-definitions D SELECT D.additive-id, D.label, D.archived; "
+    "FROM energy-definition-subtypes S JOIN energy-definitions E ON S.energy-definition-id = E.energy-definition-id WHERE E.label = '"
+    (sql-quote definition-label)
+    "' SELECT S.subtype-id, S.label, S.archived; "
+    "FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT D.mode-id, D.label, D.archived AS mode-archived, L.archived AS link-archived; "
+    "FROM tag-definitions T SELECT T.tag-id, T.label, T.archived; "
+    "FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+    " SELECT L.odometer-id;"
   ==
 ::
 ++  update-fill
-  |=  [acquisition-id=@ux input=fill-entry:rover]
+  |=  $:  acquisition-id=@ux
+          vehicle-id=@ux
+          definition-id=@ux
+          quantity-unit=@tas
+          station-id=(unit @ux)
+          additive-ids=(list @ux)
+          subtype-id=(unit @ux)
+          driving-mode-id=(unit @ux)
+          tag-ids=(list @ux)
+          payment-method-id=(unit @ux)
+          current-odometer-id=(unit @ux)
+          new-odometer-id=@ux
+          input=fill-entry:rover
+          recorded-at=@da
+      ==
   ^-  tape
+  =/  acquisition  (scow %ux acquisition-id)
+  =/  observed  (scow %da observed-start.input)
+  =/  observed-end  (scow %da (add observed-start.input (bex 64)))
+  =/  station-row=tape
+    ?~  station-id
+      ~
+    ;:  weld
+      " INSERT INTO energy-acquisition-stations VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.station-id)
+      ");"
+    ==
+  =/  subtype-row=tape
+    ?~  subtype-id
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-subtype VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.subtype-id)
+      ");"
+    ==
+  =/  mode-row=tape
+    ?~  driving-mode-id
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-driving-mode VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.driving-mode-id)
+      ");"
+    ==
+  =/  speed-row=tape
+    ?~  average-speed.input
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-average-speed VALUES ("
+      acquisition
+      ", "
+      (sql-ud digits.u.average-speed.input)
+      ", "
+      (sql-ud places.u.average-speed.input)
+      ", "
+      (sql-term value-unit.u.average-speed.input)
+      ");"
+    ==
+  =/  balance-row=tape
+    ?~  drive-balance.input
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-drive-balance VALUES ("
+      acquisition
+      ", "
+      (sql-ud u.drive-balance.input)
+      ");"
+    ==
+  =/  break-row=tape
+    ?.  missed-fill.input
+      ~
+    ;:  weld
+      " INSERT INTO economy-breaks VALUES ("
+      acquisition
+      ", %missed-fill, "
+      (scow %da recorded-at)
+      ");"
+    ==
+  =/  note-row=tape
+    ?~  notes.input
+      ~
+    ;:  weld
+      " INSERT INTO fill-notes VALUES ("
+      acquisition
+      ", '"
+      (sql-quote u.notes.input)
+      "');"
+    ==
+  =/  payment-row=tape
+    ?~  payment-method-id
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-payment-method VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.payment-method-id)
+      ");"
+    ==
+  =/  odometer-row=tape
+    ?~  mileage.input
+      ~
+    ?^  current-odometer-id
+      ;:  weld
+        " UPDATE odometer-observations SET value-digits = "
+        (sql-ud digits.u.mileage.input)
+        ", decimal-places = "
+        (sql-ud places.u.mileage.input)
+        ", unit = "
+        (sql-term odo-unit.u.mileage.input)
+        ", observed-start = "
+        observed
+        ", observed-end = "
+        observed-end
+        ", source-zone = '"
+        (sql-quote source-zone.input)
+        "', recorded-at = "
+        (scow %da recorded-at)
+        " WHERE odometer-id = "
+        (scow %ux u.current-odometer-id)
+        ";"
+      ==
+    ;:  weld
+      " INSERT INTO odometer-observations VALUES ("
+      (scow %ux new-odometer-id)
+      ", "
+      (scow %ux vehicle-id)
+      ", "
+      (sql-ud digits.u.mileage.input)
+      ", "
+      (sql-ud places.u.mileage.input)
+      ", "
+      (sql-term odo-unit.u.mileage.input)
+      ", "
+      observed
+      ", "
+      observed-end
+      ", %second, '"
+      (sql-quote source-zone.input)
+      "', "
+      (scow %da recorded-at)
+      "); INSERT INTO fuel-fill-odometers VALUES ("
+      acquisition
+      ", "
+      (scow %ux new-odometer-id)
+      ");"
+    ==
   ;:  weld
+    "UPDATE energy-acquisitions SET energy-definition-id = "
+    (scow %ux definition-id)
+    ", observed-start = "
+    observed
+    ", observed-end = "
+    observed-end
+    ", source-zone = '"
+    (sql-quote source-zone.input)
+    "', recorded-at = "
+    (scow %da recorded-at)
+    " WHERE acquisition-id = "
+    acquisition
+    "; "
     "UPDATE fuel-fills SET quantity-milli = "
     (sql-ud quantity-milli.input)
     ", tank-state = "
@@ -1053,9 +1338,42 @@
     (sql-ud minor-unit-decimals.input)
     ", cash-increment-mills = "
     (sql-ud cash-increment-mills.input)
+    ", quantity-unit = "
+    (sql-term quantity-unit)
     " WHERE acquisition-id = "
-    (scow %ux acquisition-id)
-    ";"
+    acquisition
+    "; DELETE FROM energy-acquisition-stations WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM fuel-fill-additives WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM fuel-fill-subtype WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM economy-breaks WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM fuel-fill-driving-mode WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM fuel-fill-average-speed WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM fuel-fill-drive-balance WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM fuel-fill-tags WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM fill-notes WHERE acquisition-id = "
+    acquisition
+    "; DELETE FROM fuel-fill-payment-method WHERE acquisition-id = "
+    acquisition
+    "; "
+    station-row
+    (insert-fill-additives acquisition-id additive-ids)
+    subtype-row
+    break-row
+    mode-row
+    speed-row
+    balance-row
+    (insert-fill-tags acquisition-id tag-ids)
+    note-row
+    payment-row
+    odometer-row
   ==
 ::
 ++  vehicle-lookup
@@ -1380,6 +1698,7 @@
           subtype-id=(unit @ux)
           driving-mode-id=(unit @ux)
           tag-ids=(list @ux)
+          payment-method-id=(unit @ux)
           input=fill-entry:rover
           recorded-at=@da
       ==
@@ -1572,6 +1891,26 @@
       ");"
     ==
   =/  tag-rows  (insert-fill-tags acquisition.ids tag-ids)
+  =/  notes-row=tape
+    ?~  notes.input
+      ~
+    ;:  weld
+      " INSERT INTO fill-notes VALUES ("
+      acquisition
+      ", '"
+      (sql-quote u.notes.input)
+      "');"
+    ==
+  =/  payment-row=tape
+    ?~  payment-method-id
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-payment-method VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.payment-method-id)
+      ");"
+    ==
   ;:  weld
     new-station-rows
     acquisition-row
@@ -1586,6 +1925,8 @@
     drive-balance-row
     new-tag-rows
     tag-rows
+    notes-row
+    payment-row
   ==
 ::
 ++  insert-fill-additives

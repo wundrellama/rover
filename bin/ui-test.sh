@@ -304,6 +304,126 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 37 ]; then
   exit 0
 fi
 
+fill_edit_vehicle="Fill Edit Vehicle $(date +%s%N)"
+fill_edit_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Gasoline"}' "$fill_edit_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$fill_edit_created" = "Added vehicle - $fill_edit_vehicle"$'\n201' ] \
+  || fail "fixture 38 setup vehicle failed: $fill_edit_created"
+fill_edit_baseline_observed='2026-07-26T11:45'
+fill_edit_baseline="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"8.000","price":"$3.39","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"19900.0","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$fill_edit_vehicle" "$fill_edit_baseline_observed")" \
+  "$URL/apps/rover/add-fill")"
+[ "$fill_edit_baseline" = $'Saved fill - $3.399 - derived $27.19\n201' ] \
+  || fail "fixture 39 baseline fill failed: $fill_edit_baseline"
+fill_edit_observed='2026-07-27T10:15'
+fill_edit_setup="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"10.000","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$fill_edit_vehicle" "$fill_edit_observed")" \
+  "$URL/apps/rover/add-fill")"
+[ "$fill_edit_setup" = $'Saved fill - $3.499 - derived $34.99\n201' ] \
+  || fail "fixture 38 setup fill failed: $fill_edit_setup"
+fill_edit_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+fill_edit_html="${fill_edit_view#*class=\"history-edit-form\"}"
+fill_edit_html="${fill_edit_html%%</form>*}"
+for field in quantity price observed tank subtype station drivingMode averageSpeed \
+  driveBalance notes paymentMethod mileage; do
+  grep -Eq "name=\"$field\"" <<<"$fill_edit_html" \
+    || fail "fixture 38 fill-edit screen lacks editable $field; actual form HTML: $fill_edit_html"
+done
+note "fixture 38 field gate PASS - fill-edit screen exposes every editable field"
+fill_edit_support="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-fill-edit-support (crip \"$fill_edit_vehicle\")]))
+;<  ~  bind:m  (sleep ~s3)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q '%noun 0' <<<"$fill_edit_support" \
+  || fail "fixture 38 support definitions failed: $fill_edit_support"
+fill_edit_new_observed='2026-07-27T11:45'
+fill_edit_payload="$(
+  printf '{"vehicle":"%s","definition":"Gasoline","originalObserved":"%s","quantity":"11.111","price":"$3.59","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"Edit Station","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"95","missedFill":"no","drivingMode":"Mixed Driving","averageSpeed":"55.5","speedUnit":"mph","driveBalance":"64","tags":[],"newTag":"","notes":"Owner corrected every field","paymentMethod":"Personal Visa"}' \
+    "$fill_edit_vehicle" "$fill_edit_observed" "$fill_edit_new_observed"
+)"
+fill_edit_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-raw "$fill_edit_payload" \
+  "$URL/apps/rover/edit-fill")"
+[ "$fill_edit_result" = $'Saved fill changes - $39.99\n201' ] \
+  || fail "fixture 38 full fill edit failed: $fill_edit_result"
+fill_edit_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.27..11.45.00]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q '\[%quantity-milli 25717 11111\].*\[%tank-state %tas %partial\].*\[%unit-price-mills 25717 3599\]' <<<"$fill_edit_report" \
+  || fail "fixture 38 main fill fields did not round-trip; actual: $fill_edit_report"
+grep -q '\[%minor-unit-decimals 25717 2\] \[%cash-increment-mills 25717 50\]' <<<"$fill_edit_report" \
+  || fail "fixture 38 untouched rounding integers changed; actual: $fill_edit_report"
+for expected in \
+  "\\[%subtype 116 13625\\]" \
+  "\\[%station 116 'Edit Station'\\]" \
+  "\\[%driving-mode 116 'Mixed Driving'\\]" \
+  "\\[%digits 25717 555\\] \\[%decimals 25717 1\\]" \
+  "\\[%highway-percent 25717 64\\]" \
+  "\\[%note 116 'Owner corrected every field'\\]" \
+  "\\[%payment-method 116 'Personal Visa'\\]"; do
+  grep -q "$expected" <<<"$fill_edit_report" \
+    || fail "fixture 38 child field missing ($expected); actual: $fill_edit_report"
+done
+fill_edit_rerender="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q 'value="11.111"' <<<"$fill_edit_rerender" \
+  || fail "fixture 38 edited quantity did not re-render"
+grep -q '\$39\.99' <<<"$fill_edit_rerender" \
+  || fail "fixture 38 edited derived total did not re-render"
+note "fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact"
+if [ "${ROVER_FIXTURE_STOP:-}" = 38 ]; then
+  exit 0
+fi
+
+fill_edit_pre_odometer="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.27..11.45.00]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+[ "$(grep -oF '[%vector-count 0]' <<<"$fill_edit_pre_odometer" | wc -l)" -eq 1 ] \
+  || fail "fixture 39 target fill unexpectedly had an odometer link before edit: $fill_edit_pre_odometer"
+fill_edit_odometer_payload="$(
+  printf '{"vehicle":"%s","definition":"Gasoline","originalObserved":"%s","quantity":"11.111","price":"$3.59","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"20000.0","mileageUnit":"mi","station":"Edit Station","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"95","missedFill":"no","drivingMode":"Mixed Driving","averageSpeed":"55.5","speedUnit":"mph","driveBalance":"64","tags":[],"newTag":"","notes":"Owner corrected every field","paymentMethod":"Personal Visa"}' \
+    "$fill_edit_vehicle" "$fill_edit_new_observed" "$fill_edit_new_observed"
+)"
+fill_edit_odometer_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-raw "$fill_edit_odometer_payload" \
+  "$URL/apps/rover/edit-fill")"
+[ "$fill_edit_odometer_result" = $'Saved fill changes - $39.99\n201' ] \
+  || fail "fixture 39 historical odometer edit failed: $fill_edit_odometer_result"
+fill_edit_post_odometer="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.27..11.45.00]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -Fq '[%value-digits 25717 0x30d40] [%decimal-places 25717 1] [%unit %tas 26989]' <<<"$fill_edit_post_odometer" \
+  || fail "fixture 39 did not create and link the exact historical odometer observation: $fill_edit_post_odometer"
+fill_edit_economy_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -Fq "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" <<<"$fill_edit_economy_view" \
+  || fail "fixture 39 economy interval did not update to exact 9.000 mpg; actual statistics HTML: ${fill_edit_economy_view#*data-statistic=\"economy-by-subtype\"}"
+note "fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg"
+if [ "${ROVER_FIXTURE_STOP:-}" = 39 ]; then
+  exit 0
+fi
+
 grep -q '<section id="main-hub"' <<<"$view" || fail "main hub is missing"
 grep -Eq 'DEFAULT VEHICLE NOT SET|Structure Vehicle|Mode Scope Vehicle' <<<"$view" ||
   fail "hub does not name its default state"

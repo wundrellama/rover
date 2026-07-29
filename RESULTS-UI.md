@@ -1463,6 +1463,75 @@ reads separate live Obelisk result sets for `vehicles`,
 `18.5 gal` evidence and subtype `95`, checks the values in served HTML, and
 removes the temporary vehicle through Rover.
 
+## Fixtures 38-39 - full fill correction and historical odometer
+
+Fixture 38 first exposed the old partial edit contract. RED from authenticated
+Eyre HTML:
+
+```console
+$ ROVER_FIXTURE_STOP=38 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render
+ui-test: FAIL - fixture 38 fill-edit screen lacks editable notes; actual form HTML: ...
+```
+
+After expanding the decoder, lookup validation, and atomic correction script,
+the live Obelisk report contained the corrected parent and child facts:
+
+```console
+[%quantity-milli 25717 11111]
+[%tank-state %tas %partial]
+[%unit-price-mills 25717 3599]
+[%minor-unit-decimals 25717 2]
+[%cash-increment-mills 25717 50]
+[%subtype 116 13625]
+[%station 116 'Edit Station']
+[%driving-mode 116 'Mixed Driving']
+[%digits 25717 555] [%decimals 25717 1] [%speed-unit %tas %mph]
+[%highway-percent 25717 64]
+[%note 116 'Owner corrected every field']
+[%payment-method 116 'Personal Visa']
+```
+
+Fixture 39 was installed before the economy projection. The odometer
+observation and `fuel-fill-odometers` join existed after the edit, but the
+new failable statistics assertion produced this RED:
+
+```console
+$ ROVER_FIXTURE_STOP=39 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact
+ui-test: FAIL - fixture 39 economy interval did not update to exact 9.000 mpg; actual statistics HTML: ...
+```
+
+Rover now derives eligible liquid-fuel intervals with integer arithmetic. It
+finds the prior linked full fill, includes all compatible intervening
+quantities, rejects break rows and incompatible units, and rounds half-up
+only at the final thousandth.
+
+GREEN, exact command and terminal output:
+
+```console
+$ ROVER_FIXTURE_STOP=39 bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 33 PASS - Chromium selection exposes only source-owned subtypes: gasoline=100|85|87|88|89|90|91|92|93|95|98 diesel=#1|#2|Arctic|B20|B7|HVO100|Off-road (dyed)|Premium|R99|Winter
+ui-test: fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata
+ui-test: fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite
+ui-test: fixture 36 PASS - Vehicles is a plain list; Add Vehicle and vehicle taps open distinct screens
+ui-test: fixture 37 PASS - label, exact tank size, and default subtype persist in Obelisk and re-render
+ui-test: fixture 38 field gate PASS - fill-edit screen exposes every editable field
+ui-test: fixture 38 PASS - every fill field round-trips through one atomic edit; untouched rounding integers remain exact
+ui-test: fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg
+```
+
+The fixture proves the target fill had zero odometer links beforehand. After
+the historical edit, the live joined row contained `value-digits 0x30d40`
+(200000), one decimal place, and `%mi`; the served Statistics row then
+contained the human-only attributes
+`data-economy="9.000 mpg"` and the temporary vehicle label. Result:
+fixtures 38-39 **PASS** with real Eyre, Gall, Obelisk, and served HTML.
+
 ## Served HTML review artifacts
 
 The authenticated response fragments are included verbatim as:

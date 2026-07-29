@@ -335,6 +335,20 @@
     ?:  (nonempty u.new-tag-text)
       `u.new-tag-text
     ~
+  =/  notes-text  (json-string 'notes' object)
+  =/  notes=(unit @t)
+    ?~  notes-text
+      ~
+    ?:  (nonempty u.notes-text)
+      `u.notes-text
+    ~
+  =/  payment-text  (json-string 'paymentMethod' object)
+  =/  payment-method-label=(unit @t)
+    ?~  payment-text
+      ~
+    ?:  (nonempty u.payment-text)
+      `u.payment-text
+    ~
   :-  %&
   :*  u.vehicle
       u.definition
@@ -360,6 +374,8 @@
       drive-balance
       safe-tag-labels
       new-tag-label
+      notes
+      payment-method-label
   ==
 ::
 ++  decode-odometer

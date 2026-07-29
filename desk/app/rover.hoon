@@ -22,6 +22,7 @@
       [%8 state-8]
       [%9 state-9]
       [%10 state-10]
+      [%11 state-11]
   ==
 +$  fill-entry-5
   $:  vehicle-label=@t
@@ -57,6 +58,32 @@
       station-label=(unit @t)
       new-station=(unit new-station-entry:rover)
       additive-labels=(list @t)
+  ==
++$  fill-entry-10
+  $:  vehicle-label=@t
+      definition-label=@t
+      quantity-milli=@ud
+      unit-price-mills=@ud
+      price-display=@t
+      currency=currency:rover
+      price-profile=price-profile:rover
+      minor-unit-decimals=@ud
+      cash-increment-mills=@ud
+      tank-state=tank-state:rover
+      settlement-mode=settlement-mode:rover
+      observed-start=@da
+      source-zone=@t
+      mileage=(unit odo-reading:rover)
+      station-label=(unit @t)
+      new-station=(unit new-station-entry:rover)
+      additive-labels=(list @t)
+      subtype-label=(unit @t)
+      missed-fill=?
+      driving-mode-label=(unit @t)
+      average-speed=(unit scaled-entry:rover)
+      drive-balance=(unit @ud)
+      tag-labels=(list @t)
+      new-tag-label=(unit @t)
   ==
 +$  state-0
   $:  pending=(map wire @t)
@@ -100,7 +127,7 @@
       charging-total=(unit charging-total-proof:rover)
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
-      fill-pending=(map wire fill-entry:rover)
+      fill-pending=(map wire fill-entry-10)
   ==
 +$  state-6
   $:  pending=(map wire @t)
@@ -122,7 +149,7 @@
       charging-total=(unit charging-total-proof:rover)
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
-      fill-pending=(map wire fill-entry:rover)
+      fill-pending=(map wire fill-entry-10)
       charge-pending=(map wire charge-entry:rover)
       odometer-pending=(map wire odometer-entry:rover)
   ==
@@ -147,12 +174,26 @@
       charging-total=(unit charging-total-proof:rover)
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
-      fill-pending=(map wire fill-entry:rover)
+      fill-pending=(map wire fill-entry-10)
       charge-pending=(map wire charge-entry:rover)
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
   ==
 +$  state-10
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry-10)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+  ==
++$  state-11
   $:  pending=(map wire @t)
       last=(unit (each (list cmd-result:ast) tang))
       preview=(unit price-preview:rover)
@@ -219,8 +260,8 @@
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
 ++  handle-http
-  |=  [sat=state-10 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-10]
+  |=  [sat=state-11 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-11]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -286,9 +327,20 @@
       =/  decoded  (decode-fill:entry body-text)
       ?:  ?=(%| -.decoded)
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  object  (json-object:entry body-text)
+      =/  original-text
+        ?~  object
+          ~
+        (json-string:entry 'originalObserved' u.object)
+      =/  original-observed
+        ?~  original-text
+          `observed-start.p.decoded
+        (local-da:entry u.original-text)
+      ?~  original-observed
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-fill.original-date')) sat]
       =/  wir=wire  /rover-edit-fill-lookup/(scot %da now.bowl)/[eyre-id]
       =/  jon
-        !>([%tape %rover (edit-fill-lookup:act vehicle-label.p.decoded observed-start.p.decoded)])
+        !>([%tape %rover (edit-fill-lookup:act vehicle-label.p.decoded (need original-observed) definition-label.p.decoded)])
       =/  new-sat
         %_  sat
           pending  (~(put by pending.sat) wir body-text)
@@ -511,7 +563,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-10
+=|  state-11
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -523,7 +575,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%10 state])
+++  on-save  !>([%11 state])
 ::
 ++  on-load
   |=  old=vase
@@ -536,12 +588,13 @@
       %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~ ~])
       %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~])
       %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~])
-      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ ~ ~ ~])
+      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~])
       %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~])
-      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s ~ ~])
+      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~])
       %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~])
-      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~])
-      %10  this(state +.s)
+      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~])
+      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
+      %11  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -671,6 +724,20 @@
         =/  wir=path  /rover-energy-rename/(scot %da now.bowl)
         =/  jon  !>([%tape %rover (energy-definition-lookup:act old-label.a)])
         :_  this(pending (~(put by pending) wir new-label.a))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %seed-fill-edit-support
+        =/  wir=path  /rover-fill-edit-support/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (fill-edit-support-lookup:act vehicle-label.a)])
+        :_  this(pending (~(put by pending) wir 'seed-fill-edit-support'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %fill-edit-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (fill-edit-report:act vehicle-label.a observed-start.a)])
+        :_  this(pending (~(put by pending) wir 'fill-edit-report'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -999,6 +1066,39 @@
       `this
     ==
   ::
+      [%rover-fill-edit-support *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this(last `res)
+      =/  vehicles  (rows-at:view p.res 0)
+      ?.  =(1 (lent vehicles))
+        `this(last `res)
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  ids=fill-edit-support-ids:act
+        :*  (fixture-id:act base 921)
+            (fixture-id:act base 922)
+            (fixture-id:act base 923)
+            (fixture-id:act base 924)
+        ==
+      =/  write-wire=path  /rover/fill-edit-support/(scot %da now.bowl)
+      =/  jon
+        !>([%tape %rover (seed-fill-edit-support:act ids `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) now.bowl)])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) write-wire 'seed-fill-edit-support-write')
+      :_  this(pending next-pending)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-edit-vehicle-write *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
@@ -1146,13 +1246,87 @@
       ?~  p.res
         :_  this
         (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill'))
-      =/  rows  (result-rows:view i.p.res)
+      ?.  (gte (lent p.res) 9)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-fill.evidence'))
+      =/  rows  (rows-at:view p.res 0)
       ?.  =(1 (lent rows))
         :_  this
         (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%ambiguous: edit-fill'))
+      =/  definition-rows  (rows-at:view p.res 1)
+      ?.  =(1 (lent definition-rows))
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill.definition'))
+      =/  definition-row  (snag 0 definition-rows)
+      ?.  =(%reservoir (cell-term:view %physical-kind definition-row))
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%wrong-kind: edit-fill.definition'))
+      =/  station-id=(unit @ux)
+        ?~  station-label.p.decoded
+          ~
+        =/  found  (row-by-text:view %label u.station-label.p.decoded (rows-at:view p.res 2))
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %station-id u.found)
+      ?:  ?&  ?=(^ station-label.p.decoded)
+              ?=(~ station-id)
+          ==
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill.station'))
+      =/  additive-proof
+        (ids-for-labels:view additive-labels.p.decoded (rows-at:view p.res 3) %label %additive-id)
+      ?:  ?=(%| -.additive-proof)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill.additives'))
+      =/  subtype-id=(unit @ux)
+        ?~  subtype-label.p.decoded
+          ~
+        =/  found  (row-by-text:view %label u.subtype-label.p.decoded (rows-at:view p.res 4))
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %subtype-id u.found)
+      ?:  ?&  ?=(^ subtype-label.p.decoded)
+              ?=(~ subtype-id)
+          ==
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill.subtype'))
+      =/  mode-id=(unit @ux)
+        ?~  driving-mode-label.p.decoded
+          ~
+        =/  found  (row-by-text:view %label u.driving-mode-label.p.decoded (rows-at:view p.res 5))
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %mode-id u.found)
+      ?:  ?&  ?=(^ driving-mode-label.p.decoded)
+              ?=(~ mode-id)
+          ==
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill.driving-mode'))
+      =/  tag-proof
+        (ids-for-labels:view tag-labels.p.decoded (rows-at:view p.res 6) %label %tag-id)
+      ?:  ?=(%| -.tag-proof)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill.tags'))
+      =/  payment-id=(unit @ux)
+        ?~  payment-method-label.p.decoded
+          ~
+        =/  found  (row-by-text:view %label u.payment-method-label.p.decoded (rows-at:view p.res 7))
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %method-id u.found)
+      ?:  ?&  ?=(^ payment-method-label.p.decoded)
+              ?=(~ payment-id)
+          ==
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-fill.payment-method'))
+      =/  current-odometer-id=(unit @ux)
+        ?~  (rows-at:view p.res 8)
+          ~
+        ``@ux`(cell-atom:view %odometer-id (snag 0 (rows-at:view p.res 8)))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  write-wire=path  /rover-edit-fill-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
-        !>([%tape %rover (update-fill:act `@ux`(cell-atom:view %acquisition-id (snag 0 rows)) p.decoded)])
+        !>([%tape %rover (update-fill:act `@ux`(cell-atom:view %acquisition-id (snag 0 rows)) `@ux`(cell-atom:view %vehicle-id (snag 0 rows)) `@ux`(cell-atom:view %energy-definition-id definition-row) (cell-term:view %quantity-unit definition-row) station-id p.additive-proof subtype-id mode-id p.tag-proof payment-id current-odometer-id (fixture-id:act base 901) p.decoded now.bowl)])
       =/  new-state
         %_  state
           pending  (~(put by (~(del by pending) wire)) write-wire u.body)
@@ -1780,7 +1954,7 @@
             ['content-type' 'text/plain']~
             `(text-octs '%unit-mismatch: fill.profile')
         ==
-      ?.  (gte (lent p.res) 8)
+      ?.  (gte (lent p.res) 9)
         :_  this
         %:  http-give
             u.eyre-id
@@ -1794,6 +1968,7 @@
       =/  driving-mode-rows  (rows-at:view p.res 5)
       =/  tag-rows  (rows-at:view p.res 6)
       =/  custom-rows  (rows-at:view p.res 7)
+      =/  payment-rows  (rows-at:view p.res 8)
       =/  station-id=(unit @ux)
         ?~  station-label.u.input
           ~
@@ -1866,6 +2041,24 @@
             422
             ['content-type' 'text/plain']~
             `(text-octs '%not-found: fill.tags')
+        ==
+      =/  payment-method-id=(unit @ux)
+        ?~  payment-method-label.u.input
+          ~
+        =/  found
+          (row-by-text:view %label u.payment-method-label.u.input payment-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %method-id u.found)
+      ?:  ?&  ?=(^ payment-method-label.u.input)
+              ?=(~ payment-method-id)
+          ==
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: fill.payment-method')
         ==
       ?:  ?&  ?=(^ new-tag-label.u.input)
               ?=(^ (row-by-text:view %label u.new-tag-label.u.input tag-rows))
@@ -1954,6 +2147,7 @@
             subtype-id
             driving-mode-id
             p.tag-proof
+            payment-method-id
             u.input
             now.bowl
         ==

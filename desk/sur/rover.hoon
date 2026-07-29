@@ -78,6 +78,8 @@
       drive-balance=(unit @ud)
       tag-labels=(list @t)
       new-tag-label=(unit @t)
+      notes=(unit @t)
+      payment-method-label=(unit @t)
   ==
 +$  delivered-energy
   $:  digits=@ud
@@ -181,6 +183,8 @@
       [%pricing-report ~]
       [%run-integrity scenario=integrity-kind]
       [%rename-energy-source old-label=@t new-label=@t]
+      [%seed-fill-edit-support vehicle-label=@t]
+      [%fill-edit-report vehicle-label=@t observed-start=@da]
       [%vehicle-settings-report vehicle-label=@t]
       [%seed-starters ~]
       [%starter-report ~]
