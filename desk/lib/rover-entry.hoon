@@ -496,6 +496,31 @@
         ==
       %cash
     %standard
+  =/  mileage-text  (json-string 'mileage' u.object)
+  =/  mileage=(unit odo-reading:rover)
+    ?~  mileage-text
+      ~
+    ?:  =(0 (lent (trim-spaces:render (trip u.mileage-text))))
+      ~
+    =/  parsed-mileage  (parse-decimal:render u.mileage-text 3)
+    ?:  ?=(%| -.parsed-mileage)
+      ~
+    =/  mileage-unit  (json-string 'mileageUnit' u.object)
+    ?~  mileage-unit
+      ~
+    =/  unit-term  (slaw %tas u.mileage-unit)
+    ?.  ?&  ?=(^ unit-term)
+            ?|  =(%mi u.unit-term)
+                =(%km u.unit-term)
+            ==
+        ==
+      ~
+    `[digits.p.parsed-mileage places.p.parsed-mileage ;;(distance-unit:rover u.unit-term)]
+  ?:  ?&  ?=(^ mileage-text)
+          (gth (lent (trim-spaces:render (trip u.mileage-text))) 0)
+          ?=(~ mileage)
+      ==
+    [%| %bad-shape 'consumable.mileage']
   :-  %&
   :*  u.vehicle
       u.consumable
@@ -509,6 +534,7 @@
       settlement-mode
       u.observed-start
       u.zone
+      mileage
   ==
 ::
 ++  decode-odometer

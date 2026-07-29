@@ -1108,6 +1108,7 @@
       =/  script=tape
         %:  insert-consumable:act
             (fixture-id:act base 9.101)
+            (fixture-id:act base 9.102)
             `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
             `@ux`(cell-atom:view %consumable-id (snag 0 definitions))
             (cell-term:view %quantity-unit (snag 0 definitions))

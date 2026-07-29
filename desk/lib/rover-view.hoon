@@ -599,11 +599,118 @@
     %.y
   $(rows t.rows)
 ::
+++  def-economy
+  |=  $:  vehicle-id=@
+          purchases=(list vector:ast)
+          odometers=(list vector:ast)
+      ==
+  ^-  [available=? display=@t reason=@t]
+  =/  vehicle-purchases=(list vector:ast)
+    (order-vectors:act %observed-start %.y (rows-for vehicle-id purchases))
+  ?:  (lth (lent vehicle-purchases) 2)
+    [%.n 'Unavailable' 'Two consecutive DEF purchases are required']
+  =/  close=vector:ast  (snag 0 vehicle-purchases)
+  =/  prior=vector:ast  (snag 1 vehicle-purchases)
+  =/  close-odos=(list vector:ast)
+    (rows-by %consumable-acquisition-id (cell-atom %consumable-acquisition-id close) odometers)
+  ?~  close-odos
+    [%.n 'Unavailable' 'Latest DEF purchase has no odometer reading']
+  =/  prior-odos=(list vector:ast)
+    (rows-by %consumable-acquisition-id (cell-atom %consumable-acquisition-id prior) odometers)
+  ?~  prior-odos
+    [%.n 'Unavailable' 'Previous DEF purchase has no odometer reading']
+  =/  close-odo  i.close-odos
+  =/  prior-odo  i.prior-odos
+  =/  distance-unit  (cell-term %unit close-odo)
+  ?.  =(distance-unit (cell-term %unit prior-odo))
+    [%.n 'Unavailable' 'DEF interval odometer units do not match']
+  =/  prior-places  (cell-atom %decimal-places prior-odo)
+  =/  close-places  (cell-atom %decimal-places close-odo)
+  ?:  ?|  (gth prior-places 3)
+          (gth close-places 3)
+      ==
+    [%.n 'Unavailable' 'DEF interval odometer precision is unsupported']
+  =/  prior-milli
+    (mul (cell-atom %value-digits prior-odo) (pow-ten:render (sub 3 prior-places)))
+  =/  close-milli
+    (mul (cell-atom %value-digits close-odo) (pow-ten:render (sub 3 close-places)))
+  ?.  (gth close-milli prior-milli)
+    [%.n 'Unavailable' 'DEF interval odometer did not advance']
+  =/  quantity  (cell-atom %quantity-milli close)
+  ?:  =(0 quantity)
+    [%.n 'Unavailable' 'Latest DEF purchase quantity is zero']
+  =/  quantity-unit  (cell-term %quantity-unit close)
+  =/  unit=@t
+    ?:  ?&  =(%mi distance-unit)
+            =(%gal quantity-unit)
+        ==
+      'mi/gal DEF'
+    ?:  ?&  =(%km distance-unit)
+            =(%litre quantity-unit)
+        ==
+      'km/L DEF'
+    ''
+  ?:  =('' unit)
+    [%.n 'Unavailable' 'DEF interval units are not a supported pair']
+  =/  distance-milli  (sub close-milli prior-milli)
+  =/  economy-milli
+    (div (add (mul distance-milli 1.000) (div quantity 2)) quantity)
+  =/  display=@t
+    %-  crip
+    ;:  weld
+      (trip (format-scaled:render economy-milli 3 %.n))
+      " "
+      (trip unit)
+    ==
+  [%.y display '']
+::
+++  def-economy-stat-rows
+  |=  $:  vehicles=(list vector:ast)
+          purchases=(list vector:ast)
+          odometers=(list vector:ast)
+      ==
+  ^-  tape
+  ?~  vehicles
+    ~
+  =/  rest  $(vehicles t.vehicles)
+  =/  id  (cell-atom %vehicle-id i.vehicles)
+  ?:  ?=(~ (rows-for id purchases))
+    rest
+  =/  label  (escape (cell-text %label i.vehicles))
+  =/  status=[available=? display=@t reason=@t]
+    (def-economy id purchases odometers)
+  ;:  weld
+    "<tr "
+    ?:  available.status
+      ;:  weld
+        "data-def-economy-vehicle=\""
+        label
+        "\" data-def-economy=\""
+        (escape display.status)
+        "\""
+      ==
+    ;:  weld
+      "data-def-economy-unavailable=\""
+      label
+      "\""
+    ==
+    "><td>"
+    label
+    "</td><td>"
+    (escape display.status)
+    "</td><td>"
+    ?:(available.status "Consecutive odometer-linked DEF purchases." (escape reason.status))
+    "</td></tr>"
+    rest
+  ==
+::
 ++  main-hub
   |=  $:  app-default=(list vector:ast)
           definition-rows=(list vector:ast)
           odometers=(list vector:ast)
           tank-sizes=(list vector:ast)
+          def-purchases=(list vector:ast)
+          def-odometers=(list vector:ast)
       ==
   ^-  tape
   =/  default-id=(unit @)
@@ -638,6 +745,10 @@
     ?:  ?=(~ (rows-for u.default-id tank-sizes))
       "Tank size is not recorded for this vehicle."
     "An eligible economy interval is required."
+  =/  def-status=[available=? display=@t reason=@t]
+    ?~  default-id
+      [%.n 'Unavailable' 'No default vehicle is set']
+    (def-economy u.default-id def-purchases def-odometers)
   ;:  weld
     default-marker
     "<section id=\"main-hub\" class=\"app-screen\">"
@@ -671,6 +782,11 @@
     "</small></article>"
     "<article><span>BEST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
     "<article><span>WORST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
+    "<article><span>DEF ECONOMY - LAST INTERVAL</span><strong>"
+    (escape display.def-status)
+    "</strong><small>"
+    ?:(available.def-status "Consecutive odometer-linked DEF purchases." (escape reason.def-status))
+    "</small></article>"
     "</section></section>"
   ==
 ::
@@ -784,7 +900,7 @@
     vehicle-html
     "</select></label><label>Consumable<select name=\"consumable\" required>"
     consumable-html
-    "</select></label><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" required></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" required></label><input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\"><label>Settlement<select name=\"settlement\"><option value=\"standard\">Standard</option><option value=\"cash\">Cash</option></select></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save purchase</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"consumable-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+    "</select></label><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" required></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" required></label><input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\"><label>Settlement<select name=\"settlement\"><option value=\"standard\">Standard</option><option value=\"cash\">Cash</option></select></label><label>Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\"></label><label>Odometer unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save purchase</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"consumable-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
     "<section id=\"add-odometer\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header>"
@@ -1692,6 +1808,8 @@
           subtype-links=(list vector:ast)
           odometers=(list vector:ast)
           breaks=(list vector:ast)
+          def-purchases=(list vector:ast)
+          def-odometers=(list vector:ast)
       ==
   ^-  tape
   =/  recent  (order-vectors:act %observed-start %.n fills)
@@ -1708,7 +1826,10 @@
     "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Observed unit price</th></tr></thead><tbody>"
     (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %price)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><tbody><tr><td>Unavailable</td><td>Tank size and an eligible economy interval are required; Rover never guesses tank size.</td></tr></tbody></table></section></section>"
+    "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><tbody><tr><td>Unavailable</td><td>Tank size and an eligible economy interval are required; Rover never guesses tank size.</td></tr></tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Vehicle</th><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
+    (def-economy-stat-rows vehicles def-purchases def-odometers)
+    "</tbody></table></section></section>"
   ==
 ::
 ++  page
@@ -1748,6 +1869,8 @@
   =/  available-modes  (rows-at commands 32)
   =/  vehicle-consumables  (rows-at commands 33)
   =/  consumable-tank-sizes  (rows-at commands 34)
+  =/  def-purchases  (rows-at commands 35)
+  =/  def-odometers  (rows-at commands 36)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -1790,7 +1913,7 @@
     (weld card rest)
   =/  html=tape
     ;:  weld
-      (main-hub app-default definition-rows odometers tank-sizes)
+      (main-hub app-default definition-rows odometers tank-sizes def-purchases def-odometers)
       (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
@@ -1808,7 +1931,7 @@
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
       (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods)
-      (statistics-screen fills vehicles subtype-links fill-odometers economy-breaks)
+      (statistics-screen fills vehicles subtype-links fill-odometers economy-breaks def-purchases def-odometers)
       (settings-screen custom-definitions)
     ==
   (crip html)

@@ -295,6 +295,7 @@
 ::
 ++  insert-consumable
   |=  $:  acquisition-id=@ux
+          odometer-id=@ux
           vehicle-id=@ux
           consumable-id=@ux
           quantity-unit=@tas
@@ -303,6 +304,35 @@
       ==
   ^-  tape
   =/  acquisition  (scow %ux acquisition-id)
+  =/  odometer-script=tape
+    ?~  mileage.input
+      ~
+    =/  odometer  (scow %ux odometer-id)
+    ;:  weld
+      " INSERT INTO odometer-observations VALUES ("
+      odometer
+      ", "
+      (scow %ux vehicle-id)
+      ", "
+      (sql-ud digits.u.mileage.input)
+      ", "
+      (sql-ud places.u.mileage.input)
+      ", "
+      (sql-term odo-unit.u.mileage.input)
+      ", "
+      (scow %da observed-start.input)
+      ", "
+      (scow %da (add observed-start.input (bex 64)))
+      ", %second, '"
+      (sql-quote source-zone.input)
+      "', "
+      (scow %da recorded-at)
+      "); INSERT INTO consumable-acquisition-odometers VALUES ("
+      acquisition
+      ", "
+      odometer
+      "); "
+    ==
   ;:  weld
     "INSERT INTO consumable-acquisitions VALUES ("
     acquisition
@@ -337,6 +367,7 @@
     ", "
     (sql-ud cash-increment-mills.input)
     ");"
+    odometer-script
   ==
 ::
 ++  consumable-report
@@ -1235,6 +1266,8 @@
     " FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived;"
     " FROM vehicles V JOIN vehicle-consumables L ON V.vehicle-id = L.vehicle-id JOIN consumable-definitions C ON L.consumable-id = C.consumable-id SELECT V.vehicle-id, C.consumable-id, C.label AS consumable, L.archived AS link-archived;"
     " FROM vehicle-consumable-tank-size T JOIN consumable-definitions C ON T.consumable-id = C.consumable-id SELECT T.vehicle-id, T.consumable-id, C.label AS consumable, T.digits, T.decimals, T.unit;"
+    " FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN consumable-definitions C ON A.consumable-id = C.consumable-id JOIN consumable-purchases P ON A.consumable-acquisition-id = P.consumable-acquisition-id WHERE C.label = 'DEF' SELECT V.vehicle-id, A.consumable-acquisition-id, C.label AS consumable, P.quantity-milli, P.quantity-unit, A.observed-start;"
+    " FROM consumable-acquisition-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.consumable-acquisition-id, O.value-digits, O.decimal-places, O.unit;"
   ==
 ::
 ++  sql-quote

@@ -800,6 +800,82 @@ note "fixture 50 PASS - composite DEF tank size stores exact 55/1/gal, absence c
 if [ "${ROVER_FIXTURE_STOP:-}" = 50 ]; then
   exit 0
 fi
+
+for def_interval in \
+  '2026-08-10T08:00|1.500|10000.0' \
+  '2026-08-15T08:00|2.000|11000.0'; do
+  IFS='|' read -r def_observed def_quantity def_mileage <<<"$def_interval"
+  def_interval_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{"vehicle":"%s","consumable":"DEF","quantity":"%s","price":"$4.49","profile":"us-usd-gal","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"%s","mileageUnit":"mi"}' "$def_vehicle" "$def_quantity" "$def_observed" "$def_mileage")" \
+    "$URL/apps/rover/add-consumable")"
+  case "$def_interval_result" in
+    'Saved consumable purchase - '*$'\n201') ;;
+    *) fail "fixture 51 DEF interval purchase failed: $def_interval_result" ;;
+  esac
+done
+default_def_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s"}' "$def_vehicle")" \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$default_def_result" = $'Saved default vehicle\n201' ] \
+  || fail "fixture 51 could not set DEF vehicle as default: $default_def_result"
+def_economy_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q "data-def-economy-vehicle=\"$def_vehicle\" data-def-economy=\"500.000 mi/gal DEF\"" <<<"$def_economy_view" \
+  || fail "fixture 51 exact DEF economy is absent from statistics"
+grep -q 'DEF ECONOMY - LAST INTERVAL' <<<"$def_economy_view" \
+  || fail "fixture 51 hub lacks DEF economy readout"
+grep -q '>500.000 mi/gal DEF<' <<<"$def_economy_view" \
+  || fail "fixture 51 hub does not render exact human DEF economy"
+note "fixture 51 PASS - two odometer-linked DEF purchases derive and render exact 500.000 mi/gal DEF"
+if [ "${ROVER_FIXTURE_STOP:-}" = 51 ]; then
+  exit 0
+fi
+
+def_break_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","consumable":"DEF","quantity":"1.000","price":"$4.49","profile":"us-usd-gal","settlement":"standard","observed":"2026-08-20T08:00","zone":"America/Chicago","mileage":"","mileageUnit":"mi"}' "$def_vehicle")" \
+  "$URL/apps/rover/add-consumable")"
+[ "$def_break_result" = $'Saved consumable purchase - $4.50\n201' ] \
+  || fail "fixture 52 break purchase failed: $def_break_result"
+def_break_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q "data-def-economy-unavailable=\"$def_vehicle\"" <<<"$def_break_view" \
+  || fail "fixture 52 latest DEF interval is not marked unavailable"
+grep -q 'Latest DEF purchase has no odometer reading' <<<"$def_break_view" \
+  || fail "fixture 52 unavailable DEF interval lacks a human reason"
+if grep -Eq 'data-def-economy="(0|estimated)' <<<"$def_break_view"; then
+  fail "fixture 52 fabricated a zero or estimated DEF economy"
+fi
+note "fixture 52 PASS - missing odometer evidence explicitly breaks the latest DEF interval with a human reason"
+if [ "${ROVER_FIXTURE_STOP:-}" = 52 ]; then
+  exit 0
+fi
+
+fuel_before_fixture53="$(curl -s -b "$JAR" "$URL/apps/rover/view" | grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" | wc -l)"
+def_outside_fuel="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","consumable":"DEF","quantity":"1.000","price":"$4.49","profile":"us-usd-gal","settlement":"standard","observed":"2026-08-21T08:00","zone":"America/Chicago","mileage":"20200.0","mileageUnit":"mi"}' "$fill_edit_vehicle")" \
+  "$URL/apps/rover/add-consumable")"
+[ "$def_outside_fuel" = $'Saved consumable purchase - $4.50\n201' ] \
+  || fail "fixture 53 DEF control purchase failed: $def_outside_fuel"
+fuel_after_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+fuel_after_fixture53="$(grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" <<<"$fuel_after_view" | wc -l)"
+[ "$fuel_before_fixture53" -eq 1 ] && [ "$fuel_after_fixture53" -eq 1 ] \
+  || fail "fixture 53 DEF changed fuel economy: before=$fuel_before_fixture53 after=$fuel_after_fixture53"
+fixture53_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%consumable-report (crip \"$fill_edit_vehicle\") 'DEF' ~2026.8.21..08.00.00]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%consumable 116 'DEF'\\]" <<<"$fixture53_report" \
+  || fail "fixture 53 DEF purchase missing from consumable parent: $fixture53_report"
+note "fixture 53 PASS - DEF remains outside fuel acquisitions and leaves exact 9.000 mpg unchanged"
+if [ "${ROVER_FIXTURE_STOP:-}" = 53 ]; then
+  exit 0
+fi
 fi
 
 if ! grep -q 'Phase A Vehicle' <<<"$view"; then

@@ -131,6 +131,7 @@
       settlement-mode=settlement-mode
       observed-start=@da
       source-zone=@t
+      mileage=(unit odo-reading)
   ==
 +$  odometer-entry
   $:  vehicle-label=@t

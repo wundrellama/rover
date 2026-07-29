@@ -1888,3 +1888,26 @@ ui-test: fixture 50 PASS - composite DEF tank size stores exact 55/1/gal, absenc
 ```
 
 Fixtures 49-50 are verified; none is UNVERIFIED.
+
+## Follow-up slice 5 - DEF economy and fuel isolation
+
+Rover does not transfer the full-to-full fuel algorithm to DEF. The implemented
+rule uses the two latest consecutive DEF purchases, the closing purchase
+quantity, and one exact odometer observation on each endpoint. Units must be
+the same supported distance/volume pair. A purchase without odometer evidence
+breaks the current interval and produces a reason; Rover does not bridge across
+it or estimate the missed distance.
+
+The first red fixture used August 1. Pinned Obelisk's date-literal parser
+rejected the formatted `~2026.08.01` before any mutation. The fixture moved to
+August 10 without changing its interval semantics. This was a test-data/parser
+edge, not a relaxed assertion.
+
+```console
+ui-test: fixture 51 PASS - two odometer-linked DEF purchases derive and render exact 500.000 mi/gal DEF
+ui-test: fixture 52 PASS - missing odometer evidence explicitly breaks the latest DEF interval with a human reason
+ui-test: fixture 53 PASS - DEF remains outside fuel acquisitions and leaves exact 9.000 mpg unchanged
+```
+
+The DEF readout is available on the default-vehicle hub and in Statistics.
+Fixtures 51-53 are verified; none is UNVERIFIED.
