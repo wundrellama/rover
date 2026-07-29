@@ -234,6 +234,359 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 32 ]; then
 fi
 
 if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
+  demo_pack_check="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+pairs = set(re.findall(
+    r"<option value=\"([^\"]+)\" data-definition=\"([^\"]+)\">",
+    document,
+))
+required_pairs = {
+    ("CNG", "CNG"),
+    ("#1", "Diesel"), ("#2", "Diesel"), ("Arctic", "Diesel"),
+    ("B20", "Diesel"), ("B7", "Diesel"), ("HVO100", "Diesel"),
+    ("Off-road (dyed)", "Diesel"), ("Premium", "Diesel"),
+    ("R99", "Diesel"), ("Winter", "Diesel"),
+    ("AC Level 1", "Electricity"), ("AC Level 2", "Electricity"),
+    ("DC Fast", "Electricity"),
+    ("E100 hydrous", "Ethanol"), ("E85", "Ethanol"),
+    ("100", "Gasoline"), ("85", "Gasoline"), ("87", "Gasoline"),
+    ("88", "Gasoline"), ("89", "Gasoline"), ("90", "Gasoline"),
+    ("91", "Gasoline"), ("92", "Gasoline"), ("93", "Gasoline"),
+    ("95", "Gasoline"), ("98", "Gasoline"),
+    ("H35", "Hydrogen"), ("H70", "Hydrogen"),
+    ("LNG", "LNG"), ("Autogas", "Propane"), ("HD-5", "Propane"),
+}
+required_additives = {"Fuel stabilizer", "Injector cleaner"}
+required_options = {
+    "Economy", "Normal", "Sport", "Towing", "Winter",
+    "Coolant", "DEF", "Motor Oil", "Washer Fluid",
+}
+missing_pairs = sorted(required_pairs - pairs)
+missing_additives = sorted(
+    label for label in required_additives
+    if f"name=\"additives\" value=\"{label}\"" not in document
+)
+missing_options = sorted(
+    label for label in required_options
+    if f">{label}</option>" not in document
+)
+print("yes" if not missing_pairs and not missing_additives and not missing_options else
+      f"missing pairs={missing_pairs!r} additives={missing_additives!r} options={missing_options!r}")' <<<"$view"
+  )"
+  [ "$demo_pack_check" = yes ] \
+    || fail "fixture 57 populated starter-pack control failed: $demo_pack_check"
+  note "fixture 57 PASS - demo run serves every starter subtype, additive, driving mode, and consumable alongside the exact eight source starters"
+fi
+
+settings_vehicle="Fixture 70 Settings $(date +%s%N)"
+settings_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Gasoline"}' "$settings_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$settings_created" = "Added vehicle - $settings_vehicle"$'\n201' ] \
+  || fail "fixture 70 setup vehicle failed: $settings_created"
+settings_tank_first="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"17.5","tankUnit":"gal","defaultSubtype":"87","energySources":["Gasoline"],"drivingModes":[],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' "$settings_vehicle" "$settings_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_tank_first" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 70 first tank-size edit failed: $settings_tank_first"
+settings_tank_second="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"18.5","tankUnit":"gal","defaultSubtype":"87","energySources":["Gasoline"],"drivingModes":[],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' "$settings_vehicle" "$settings_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_tank_second" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 70 second tank-size edit failed: $settings_tank_second"
+settings_tank_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q '\[%digits 25717 185\] \[%decimals 25717 1\] \[%size-unit %tas %gal\]' \
+  <<<"$settings_tank_report" \
+  || fail "fixture 70 second tank size did not persist exactly: $settings_tank_report"
+note "fixture 70 PASS - two consecutive tank-size edits succeeded and the second exact value persisted"
+if [ "${ROVER_FIXTURE_STOP:-}" = 70 ]; then
+  exit 0
+fi
+
+settings_subtype_first="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"18.5","tankUnit":"gal","defaultSubtype":"91","energySources":["Gasoline"],"drivingModes":[],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' "$settings_vehicle" "$settings_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_subtype_first" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 71 first default-subtype edit failed: $settings_subtype_first"
+settings_subtype_second="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"18.5","tankUnit":"gal","defaultSubtype":"93","energySources":["Gasoline"],"drivingModes":[],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' "$settings_vehicle" "$settings_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_subtype_second" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 71 second default-subtype edit failed: $settings_subtype_second"
+settings_subtype_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q '\[%default-subtype 116 13113\]' <<<"$settings_subtype_report" \
+  || fail "fixture 71 second default subtype did not persist: $settings_subtype_report"
+note "fixture 71 PASS - two consecutive default-subtype edits succeeded and the latest subtype persisted"
+if [ "${ROVER_FIXTURE_STOP:-}" = 71 ]; then
+  exit 0
+fi
+
+settings_combined="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"20.25","tankUnit":"gal","defaultSubtype":"87","energySources":["Gasoline"],"drivingModes":[],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' "$settings_vehicle" "$settings_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_combined" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 72 combined tank/subtype edit failed: $settings_combined"
+settings_combined_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q '\[%digits 25717 2025\] \[%decimals 25717 2\] \[%size-unit %tas %gal\]' \
+  <<<"$settings_combined_report" \
+  || fail "fixture 72 combined tank size did not persist exactly: $settings_combined_report"
+grep -q '\[%default-subtype 116 14136\]' <<<"$settings_combined_report" \
+  || fail "fixture 72 combined default subtype did not persist: $settings_combined_report"
+note "fixture 72 PASS - one submission persisted both exact tank size and default subtype"
+if [ "${ROVER_FIXTURE_STOP:-}" = 72 ]; then
+  exit 0
+fi
+
+settings_cleared="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"","tankUnit":"gal","defaultSubtype":"87","energySources":["Gasoline"],"drivingModes":[],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' "$settings_vehicle" "$settings_vehicle")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_cleared" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 73 clear tank-size edit failed: $settings_cleared"
+settings_cleared_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_vehicle\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+if grep -q '\[%size-unit ' <<<"$settings_cleared_report"; then
+  fail "fixture 73 clear left a vehicle-tank-size row: $settings_cleared_report"
+fi
+settings_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s"}' "$settings_vehicle")" \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$settings_default" = $'Saved default vehicle\n201' ] \
+  || fail "fixture 73 could not set settings vehicle as default: $settings_default"
+settings_clear_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+settings_clear_hub="$(html_slice 'id="main-hub"' 'id="add-fill"' <<<"$settings_clear_view")"
+grep -q '<strong>Unavailable</strong>' <<<"$settings_clear_hub" \
+  || fail "fixture 73 cleared tank did not make distance-to-next-fill unavailable"
+grep -q 'Tank size is not recorded for this vehicle.' <<<"$settings_clear_hub" \
+  || fail "fixture 73 cleared tank lacks the concrete unavailable reason: $settings_clear_hub"
+note "fixture 73 PASS - clearing tank size leaves no row and restores the hub unavailable reason"
+if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
+  PLAYWRIGHT_ROOT="${PLAYWRIGHT_ROOT:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules}"
+  CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
+  [ -d "$PLAYWRIGHT_ROOT/playwright" ] \
+    || fail "fixture 62 Playwright package not found at $PLAYWRIGHT_ROOT"
+  [ -x "$CHROMIUM_BIN" ] \
+    || fail "fixture 62 Chromium not found at $CHROMIUM_BIN"
+  settings_no_data_summary="$(
+    URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" \
+      NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
+const {chromium} = require('playwright');
+const fs = require('fs');
+(async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROMIUM_BIN
+  });
+  const page = await browser.newPage();
+  const raw = fs.readFileSync(process.env.JAR, 'utf8');
+  const cookie = raw.match(/\s(urbauth-[^\s]+)\s+([^\s]+)/);
+  await page.context().addCookies([{
+    name: cookie[1], value: cookie[2], domain: 'localhost', path: '/'
+  }]);
+  await page.goto(`${process.env.URL}/apps/rover`);
+  await page.locator('[data-open-screen="statistics-screen"]').click();
+  const empty = page.locator('#statistics-empty');
+  const visible = await empty.isVisible();
+  const text = (await empty.textContent() || '').trim();
+  const rows = await page.locator('section.stat-table tbody tr:visible').count();
+  console.log(`${visible}|${text}|${rows}`);
+  await browser.close();
+})().catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+NODE
+  )" || fail "fixture 62 Chromium no-fill statistics check failed"
+  [ "$settings_no_data_summary" = 'true|No statistics are recorded for this vehicle.|0' ] \
+    || fail "fixture 62 no-fill scoped statistics state is not empty: $settings_no_data_summary"
+  note "fixture 62 PASS - a scoped no-fill vehicle shows an explicit no-data state with zero visible interval rows"
+fi
+if [ "${ROVER_FIXTURE_STOP:-}" = 73 ]; then
+  exit 0
+fi
+
+settings_label_first="$settings_vehicle First"
+settings_other_first="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"","tankUnit":"gal","defaultSubtype":"91","energySources":["Gasoline","Electricity"],"drivingModes":["Economy"],"defEnabled":"yes","defTankSize":"5.5","defTankUnit":"gal"}' "$settings_vehicle" "$settings_label_first")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_other_first" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 74 first all-settings edit failed: $settings_other_first"
+settings_other_first_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_first\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%vehicle 116 '$settings_label_first'\\]" <<<"$settings_other_first_report" \
+  || fail "fixture 74 first label edit did not persist: $settings_other_first_report"
+grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 1\\]" \
+  <<<"$settings_other_first_report" \
+  || fail "fixture 74 first energy-source edit did not persist: $settings_other_first_report"
+grep -q "\\[%driving-mode 116 'Economy'\\].*\\[%link-archived 102 1\\]" \
+  <<<"$settings_other_first_report" \
+  || fail "fixture 74 first driving-mode edit did not persist: $settings_other_first_report"
+grep -q "\\[%consumable 116 'DEF'\\].*\\[%link-archived 102 1\\]" \
+  <<<"$settings_other_first_report" \
+  || fail "fixture 74 first DEF enablement did not persist: $settings_other_first_report"
+grep -q '\[%digits 25717 55\] \[%decimals 25717 1\] \[%unit %tas %gal\]' \
+  <<<"$settings_other_first_report" \
+  || fail "fixture 74 first DEF tank size did not persist: $settings_other_first_report"
+
+settings_label_second="$settings_vehicle Second"
+settings_other_second="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"","tankUnit":"gal","defaultSubtype":"93","energySources":["Gasoline","Diesel"],"drivingModes":["Sport"],"defEnabled":"yes","defTankSize":"6.5","defTankUnit":"gal"}' "$settings_label_first" "$settings_label_second")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_other_second" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 74 second all-settings edit failed: $settings_other_second"
+settings_other_second_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_second\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%vehicle 116 '$settings_label_second'\\]" <<<"$settings_other_second_report" \
+  || fail "fixture 74 second label edit did not persist: $settings_other_second_report"
+grep -q "\\[%energy 116 'Diesel'\\].*\\[%link-archived 102 1\\]" \
+  <<<"$settings_other_second_report" \
+  || fail "fixture 74 second energy-source edit did not persist: $settings_other_second_report"
+grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 0\\]" \
+  <<<"$settings_other_second_report" \
+  || fail "fixture 74 replaced energy source was not archived: $settings_other_second_report"
+grep -q "\\[%driving-mode 116 'Sport'\\].*\\[%link-archived 102 1\\]" \
+  <<<"$settings_other_second_report" \
+  || fail "fixture 74 second driving-mode edit did not persist: $settings_other_second_report"
+grep -q "\\[%driving-mode 116 'Economy'\\].*\\[%link-archived 102 0\\]" \
+  <<<"$settings_other_second_report" \
+  || fail "fixture 74 replaced driving mode was not archived: $settings_other_second_report"
+grep -q "\\[%consumable 116 'DEF'\\].*\\[%link-archived 102 1\\]" \
+  <<<"$settings_other_second_report" \
+  || fail "fixture 74 second DEF enablement did not persist: $settings_other_second_report"
+grep -q '\[%digits 25717 65\] \[%decimals 25717 1\] \[%unit %tas %gal\]' \
+  <<<"$settings_other_second_report" \
+  || fail "fixture 74 second DEF tank size did not persist: $settings_other_second_report"
+
+settings_preference_first="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","distanceUnit":"mi","currency":"usd"}' "$settings_label_second")" \
+  "$URL/apps/rover/set-preference")"
+[ "$settings_preference_first" = $'Saved display preference - mi\n201' ] \
+  || fail "fixture 74 first display-preference edit failed: $settings_preference_first"
+settings_preference_second="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","distanceUnit":"km","currency":"eur"}' "$settings_label_second")" \
+  "$URL/apps/rover/set-preference")"
+[ "$settings_preference_second" = $'Saved display preference - km\n201' ] \
+  || fail "fixture 74 second display-preference edit failed: $settings_preference_second"
+settings_other_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+settings_other_panel="$(html_slice "data-vehicle-settings-panel data-vehicle=\"$settings_label_second\"" '</article>' <<<"$settings_other_view")"
+grep -q 'value="km" selected' <<<"$settings_other_panel" \
+  || fail "fixture 74 latest distance display preference did not re-render"
+grep -q 'value="eur" selected' <<<"$settings_other_panel" \
+  || fail "fixture 74 latest currency display preference did not re-render"
+
+settings_def_clear="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"","tankUnit":"gal","defaultSubtype":"93","energySources":["Gasoline","Diesel"],"drivingModes":["Sport"],"defEnabled":"yes","defTankSize":"","defTankUnit":"gal"}' "$settings_label_second" "$settings_label_second")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_def_clear" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 74 clearing the optional DEF tank size failed: $settings_def_clear"
+settings_def_clear_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_second\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+if grep -q '\[%unit %tas %gal\]' <<<"$settings_def_clear_report"; then
+  fail "fixture 74 clearing optional DEF tank size left a child row: $settings_def_clear_report"
+fi
+
+settings_def_disabled="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"","tankUnit":"gal","defaultSubtype":"93","energySources":["Gasoline","Diesel"],"drivingModes":["Sport"],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' "$settings_label_second" "$settings_label_second")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_def_disabled" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 74 disabling DEF failed: $settings_def_disabled"
+settings_def_disabled_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_second\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%consumable 116 'DEF'\\].*\\[%link-archived 102 0\\]" \
+  <<<"$settings_def_disabled_report" \
+  || fail "fixture 74 disabling DEF did not archive its membership: $settings_def_disabled_report"
+
+settings_def_reenabled="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","label":"%s","tankSize":"","tankUnit":"gal","defaultSubtype":"93","energySources":["Gasoline","Diesel"],"drivingModes":["Sport"],"defEnabled":"yes","defTankSize":"","defTankUnit":"gal"}' "$settings_label_second" "$settings_label_second")" \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$settings_def_reenabled" = $'Saved vehicle settings\n201' ] \
+  || fail "fixture 74 re-enabling DEF failed: $settings_def_reenabled"
+settings_def_reenabled_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_second\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -q "\\[%consumable 116 'DEF'\\].*\\[%link-archived 102 1\\]" \
+  <<<"$settings_def_reenabled_report" \
+  || fail "fixture 74 re-enabling DEF did not restore its membership: $settings_def_reenabled_report"
+if grep -q '\[%unit %tas %gal\]' <<<"$settings_def_reenabled_report"; then
+  fail "fixture 74 re-enabling DEF without a tank size recreated a child row: $settings_def_reenabled_report"
+fi
+note "fixture 74 PASS - label, display preference, energy sources, driving modes, DEF enablement, and DEF tank size survive repeated edits"
+if [ "${ROVER_FIXTURE_STOP:-}" = 74 ]; then
+  exit 0
+fi
+
+if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
   click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-demo-fuel ~]))
@@ -577,7 +930,6 @@ for table in re.findall(
 ):
     print(table)' <<<"$demo_after_def"
   fi
-  exit 0
 fi
 
 gas_vehicle="Starter Gasoline $(date +%s%N)"

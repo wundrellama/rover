@@ -2424,3 +2424,131 @@ cc43a3437cdb822a4da68caaa0f17968173f083734ac60a756aa561127f5fbc5  artifacts/serv
 $ wc -c artifacts/served-vehicle-settings-def.html
 4886 artifacts/served-vehicle-settings-def.html
 ```
+
+## Vehicle settings replacement rows - fixtures 70-74
+
+Run 2026-07-29 on branch `master`, starting at `16924fc`, against the real
+`rover-binbel` pier. The pier process was PID 1581177 and Eyre was verified at
+`http://localhost:8085`. Stock Obelisk remained on dev pin `2b72856e`; the
+copied API mold SHA-256 remained
+`c74bf1c911b61b7abb4de8c98b28b30d684e5e3c0b10a0c65f759f64ee9f93dd`.
+
+### Pre-fix result - the requested fixture 70 failure was not reproducible
+
+The first fixture 70 run used the complete settings-form payload, not a direct
+database poke. It created a real vehicle, changed tank size to 17.5 gal, then
+changed it to 18.5 gal through authenticated Eyre. Contrary to the task's
+diagnosis, it was already green on the specified HEAD:
+
+```console
+$ ROVER_FIXTURE_STOP=70 bin/ui-test.sh ~/piers/rover-binbel
+ui-test: fixture 70 PASS - two consecutive tank-size edits succeeded and the second exact value persisted
+```
+
+This was not relaxed or replaced with a note-only check. Both HTTP responses
+were asserted as `Saved vehicle settings` / 201, and a filtered real-Obelisk
+report asserted exact `digits=185`, `decimals=1`, and `size-unit=%gal`.
+
+The source explains the unexpected green. HEAD `16924fc` already contained:
+
+```text
+DELETE FROM vehicle-tank-size WHERE vehicle-id = ...
+<conditional vehicle-tank-size INSERT>
+```
+
+That delete entered with commit `960b244e`; the repo and mounted-pier copies of
+`desk/lib/rover-act.hoon` were byte-identical. Therefore there is no honest
+`%database-refused` fixture-70 transcript to paste for this HEAD. Fabricating
+one would violate the real-fixture gate.
+
+### Genuine pre-fix red result
+
+Expanding the test through every setting exposed a real failure in the same
+`+update-vehicle-settings` arm before any fix:
+
+```console
+$ ROVER_FIXTURE_STOP=74 bin/ui-test.sh ~/piers/rover-binbel
+ui-test: fixture 70 PASS - two consecutive tank-size edits succeeded and the second exact value persisted
+ui-test: fixture 71 PASS - two consecutive default-subtype edits succeeded and the latest subtype persisted
+ui-test: fixture 72 PASS - one submission persisted both exact tank size and default subtype
+ui-test: fixture 73 PASS - clearing tank size leaves no row and restores the hub unavailable reason
+ui-test: FAIL - fixture 74 first all-settings edit failed: %database-refused: vehicle
+422
+```
+
+A temporary diagnostic log printed Obelisk's actual refusal:
+
+```text
+INSERT: FOREIGN KEY parent key not found
+"INSERT": [%dbo %vehicle-consumable-tank-size] row 1
+```
+
+The audit found two facts:
+
+- `vehicle-default-energy-subtype` was deleted only after the tank insert, so
+  the arm did not satisfy the required all-deletes-before-all-inserts shape.
+- The DEF membership branch used `?~ current-def` on a loobean. Because
+  `%.y` is atom zero, this inverted the intended branch: an existing
+  `vehicle-consumables` row took the insert path, while a missing row skipped
+  its required parent insert. The latter caused the captured child-FK refusal.
+
+The implementation now emits every replaceable-child delete before any insert:
+`vehicle-tank-size`, `vehicle-default-energy-subtype`, and
+`vehicle-consumable-tank-size`. It then conditionally inserts replacement rows.
+`vehicle-consumables` updates an existing membership and inserts only a
+genuinely absent enabled membership. Energy-source and driving-mode membership
+rows update archive state in place and insert only IDs absent from the current
+primary-key set. No `UPSERT` was introduced.
+
+### Focused real-pier green
+
+```console
+$ ROVER_FIXTURE_STOP=74 bin/ui-test.sh ~/piers/rover-binbel
+ui-test: fixture 70 PASS - two consecutive tank-size edits succeeded and the second exact value persisted
+ui-test: fixture 71 PASS - two consecutive default-subtype edits succeeded and the latest subtype persisted
+ui-test: fixture 72 PASS - one submission persisted both exact tank size and default subtype
+ui-test: fixture 73 PASS - clearing tank size leaves no row and restores the hub unavailable reason
+ui-test: fixture 74 PASS - label, display preference, energy sources, driving modes, DEF enablement, and DEF tank size survive repeated edits
+```
+
+Fixture 73 checks the filtered Obelisk report contains no
+`vehicle-tank-size` row and uses Chromium-served hub HTML to require
+`Unavailable` plus `Tank size is not recorded for this vehicle.` Fixture 74
+also clears the optional DEF tank while leaving DEF enabled, proves the
+`vehicle-consumable-tank-size` child row is absent, and then disables and
+re-enables DEF with the membership archive state asserted after each change.
+
+### Coverage gates and complete battery
+
+The plain run reached the end but is deliberately not counted as passing
+because it named its gated omissions:
+
+```console
+$ bin/ui-test.sh ~/piers/rover-binbel
+ui-test: COVERAGE - ran 43 of 55 defined fixtures
+ui-test: COVERAGE - SKIPPED, not executed this run: 57 58 59 60 61 62 63 64 65 66 67 69
+ui-test: COVERAGE - gated fixtures need their flag, e.g. ROVER_DEMO_ONLY=1 bin/ui-test.sh <pier>
+```
+
+The required combined invocation executed the demo fixtures and the complete
+legacy tail. Its final coverage line contains no skipped fixtures:
+
+```console
+$ ROVER_DEMO_ONLY=1 bin/ui-test.sh ~/piers/rover-binbel
+ui-test: fixture 57 PASS - demo run serves every starter subtype, additive, driving mode, and consumable alongside the exact eight source starters
+ui-test: fixture 62 PASS - a scoped no-fill vehicle shows an explicit no-data state with zero visible interval rows
+ui-test: fixture 70 PASS - two consecutive tank-size edits succeeded and the second exact value persisted
+ui-test: fixture 71 PASS - two consecutive default-subtype edits succeeded and the latest subtype persisted
+ui-test: fixture 72 PASS - one submission persisted both exact tank size and default subtype
+ui-test: fixture 73 PASS - clearing tank size leaves no row and restores the hub unavailable reason
+ui-test: fixture 74 PASS - label, display preference, energy sources, driving modes, DEF enablement, and DEF tank size survive repeated edits
+ui-test: COVERAGE - all 55 defined fixtures executed
+```
+
+The schema/live-metadata battery also stayed green:
+
+```console
+$ bin/schema-test.sh ~/piers/rover-binbel
+schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
+```

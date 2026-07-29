@@ -2107,23 +2107,26 @@
       (sync-mode-current vehicle-id current-mode-ids u.mode-ids)
       (add-mode-missing vehicle-id current-mode-ids u.mode-ids)
     ==
-  =/  def-script=tape
+  =/  def-delete=tape
     ?~  def-enabled.input
       ~
     ?~  def-consumable-id
       ~
     =/  def-id  (scow %ux u.def-consumable-id)
-    =/  membership=tape
-      ?~  current-def
-        ?:  u.def-enabled.input
-          ;:  weld
-            "INSERT INTO vehicle-consumables VALUES ("
-            id
-            ", "
-            def-id
-            ", N); "
-          ==
-        ~
+    ;:  weld
+      "DELETE FROM vehicle-consumable-tank-size WHERE vehicle-id = "
+      id
+      " AND consumable-id = "
+      def-id
+      "; "
+    ==
+  =/  def-membership=tape
+    ?~  def-enabled.input
+      ~
+    ?~  def-consumable-id
+      ~
+    =/  def-id  (scow %ux u.def-consumable-id)
+    ?:  current-def
       ;:  weld
         "UPDATE vehicle-consumables SET archived = "
         ?:  u.def-enabled.input
@@ -2135,35 +2138,37 @@
         def-id
         "; "
       ==
-    =/  tank-update=tape
-      ?:  u.def-enabled.input
-        ?~  def-tank-size.input
-          ~
-        ;:  weld
-          "DELETE FROM vehicle-consumable-tank-size WHERE vehicle-id = "
-          id
-          " AND consumable-id = "
-          def-id
-          "; INSERT INTO vehicle-consumable-tank-size VALUES ("
-          id
-          ", "
-          def-id
-          ", "
-          (sql-ud digits.u.def-tank-size.input)
-          ", "
-          (sql-ud places.u.def-tank-size.input)
-          ", "
-          (sql-term value-unit.u.def-tank-size.input)
-          "); "
-        ==
+    ?:  u.def-enabled.input
       ;:  weld
-        "DELETE FROM vehicle-consumable-tank-size WHERE vehicle-id = "
+        "INSERT INTO vehicle-consumables VALUES ("
         id
-        " AND consumable-id = "
+        ", "
         def-id
-        "; "
+        ", N); "
       ==
-    (weld membership tank-update)
+    ~
+  =/  def-tank-insert=tape
+    ?~  def-enabled.input
+      ~
+    ?.  u.def-enabled.input
+      ~
+    ?~  def-consumable-id
+      ~
+    ?~  def-tank-size.input
+      ~
+    ;:  weld
+      "INSERT INTO vehicle-consumable-tank-size VALUES ("
+      id
+      ", "
+      (scow %ux u.def-consumable-id)
+      ", "
+      (sql-ud digits.u.def-tank-size.input)
+      ", "
+      (sql-ud places.u.def-tank-size.input)
+      ", "
+      (sql-term value-unit.u.def-tank-size.input)
+      "); "
+    ==
   ;:  weld
     "UPDATE vehicles SET label = '"
     (sql-quote label.input)
@@ -2172,14 +2177,16 @@
     "; DELETE FROM vehicle-tank-size WHERE vehicle-id = "
     id
     "; "
-    tank-script
     "DELETE FROM vehicle-default-energy-subtype WHERE vehicle-id = "
     id
     "; "
+    def-delete
+    tank-script
     subtype-script
     energy-script
     mode-script
-    def-script
+    def-membership
+    def-tank-insert
   ==
 ::
 ++  vehicle-settings-report
