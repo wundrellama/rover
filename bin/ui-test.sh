@@ -87,8 +87,8 @@ note "UA 571-C palette, fonts, glow control, and mobile rules served"
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
 grep -q '<section id="main-hub"' <<<"$view" || fail "main hub is missing"
-grep -q 'DEFAULT VEHICLE NOT SET' <<<"$view" ||
-  fail "hub does not explain its fresh-install default state"
+grep -Eq 'DEFAULT VEHICLE NOT SET|Structure Vehicle|Mode Scope Vehicle' <<<"$view" ||
+  fail "hub does not name its default state"
 for destination in add-odometer vehicles-screen history-screen statistics-screen settings-screen; do
   grep -q "data-open-screen=\"$destination\"" <<<"$view" ||
     fail "hub navigation is missing $destination"
@@ -98,6 +98,21 @@ for readout in 'MOST RECENT ODOMETER' 'ECONOMY - LAST FILL' 'ECONOMY - LIFETIME'
   grep -q "$readout" <<<"$view" || fail "hub readout missing: $readout"
 done
 grep -q '&lsaquo; MAIN' <<<"$view" || fail "screens do not name MAIN in back controls"
+grep -q 'id="vehicle-add-form"' <<<"$view" \
+  || fail "Vehicles screen lacks Add Vehicle"
+grep -q 'data-set-default-vehicle' <<<"$view" \
+  || fail "Vehicles screen lacks Set Default"
+grep -q 'data-remove-vehicle' <<<"$view" \
+  || fail "Vehicles screen lacks Remove"
+for setting in 'ENERGY SOURCE' 'FUEL SUBTYPES' 'TANK SIZE' 'DRIVING MODES' \
+  'DISPLAY PREFERENCE'; do
+  grep -q "$setting" <<<"$view" ||
+    fail "per-vehicle settings missing: $setting"
+done
+for action in 'Add Fill' 'Add Charge' 'Add Odometer'; do
+  grep -q "$action" <<<"$view" ||
+    fail "per-vehicle action missing: $action"
+done
 grep -q 'Phase A Vehicle' <<<"$view" || fail "vehicle view has no seeded vehicle"
 grep -Eq '[0-9]{1,3}(,[0-9]{3})+\.[0-9]+ (mi|km)' <<<"$view" \
   || fail "current odometer is not human-formatted"
@@ -190,6 +205,87 @@ bad_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   || fail "malformed fill did not name its field: $bad_fill"
 note "malformed fill refuses as %bad-shape: fill.quantity"
 
+set_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Structure Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$set_default" = $'Saved default vehicle\n201' ] \
+  || fail "initial app default insert failed: $set_default"
+default_report="$(read_structure_report)"
+[ "$(grep -o '\[%scope %tas %app\]' <<<"$default_report" | wc -l)" -eq 1 ] \
+  || fail "app-default-vehicle is not a one-row singleton after insert"
+grep -q "\\[%default-vehicle 116 'Structure Vehicle'\\]" <<<"$default_report" \
+  || fail "initial app default does not point to Structure Vehicle"
+
+change_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$change_default" = $'Saved default vehicle\n201' ] \
+  || fail "app default UPDATE failed: $change_default"
+changed_default_report="$(read_structure_report)"
+[ "$(grep -o '\[%scope %tas %app\]' <<<"$changed_default_report" | wc -l)" -eq 1 ] \
+  || fail "changing app default created a second row"
+grep -q "\\[%default-vehicle 116 'Mode Scope Vehicle'\\]" \
+  <<<"$changed_default_report" || fail "app default did not update in place"
+second_insert="$(click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%try-second-app-default ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))')"
+grep -q '%noun 0 0 1 ' <<<"$second_insert" \
+  || fail "a second %app INSERT was not rejected: $second_insert"
+
+remove_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
+  "$URL/apps/rover/remove-vehicle")"
+[ "$remove_default" = $'%restricted: remove-vehicle\n409' ] \
+  || fail "deleting the app-default vehicle was not RESTRICTed: $remove_default"
+default_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q 'data-vehicle="Mode Scope Vehicle"' <<<"$default_view" \
+  || fail "entry surfaces do not receive the app default vehicle"
+grep -q 'Tank size is not recorded for this vehicle.' <<<"$default_view" \
+  || fail "missing tank size does not explain why distance estimate is unavailable"
+
+phev_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Location Evidence Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$phev_default" = $'Saved default vehicle\n201' ] \
+  || fail "setting multi-source default failed: $phev_default"
+phev_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+phev_hub="${phev_view#*id=\"main-hub\"}"
+phev_hub="${phev_hub%%</section>*}"
+grep -q '>Add Fill<' <<<"$phev_hub" ||
+  fail "multi-source hub does not offer Add Fill"
+grep -q '>Add Charge<' <<<"$phev_hub" ||
+  fail "multi-source hub does not offer Add Charge"
+curl -s -b "$JAR" -o /dev/null \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Mode Scope Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle"
+
+temporary_vehicle="Temporary Vehicle $(date +%s%N)"
+temporary_payload="$(
+  printf '{"label":"%s","energy":"Structure Gasoline"}' "$temporary_vehicle"
+)"
+added_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-raw "$temporary_payload" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$added_vehicle" = "Added vehicle - $temporary_vehicle"$'\n201' ] \
+  || fail "Add Vehicle failed: $added_vehicle"
+removed_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s"}' "$temporary_vehicle")" \
+  "$URL/apps/rover/remove-vehicle")"
+[ "$removed_vehicle" = $'Removed vehicle\n201' ] \
+  || fail "removing an unreferenced vehicle failed: $removed_vehicle"
+note "app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips"
+
 PLAYWRIGHT_ROOT="${PLAYWRIGHT_ROOT:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules}"
 CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
 [ -d "$PLAYWRIGHT_ROOT/playwright" ] || fail "Playwright package not found at $PLAYWRIGHT_ROOT"
@@ -218,6 +314,7 @@ const fs = require('fs');
   const fillForm = page.locator('#fill-form');
   await fillForm.waitFor({state: 'attached'});
   await page.locator('[data-open-screen="add-fill"]').click();
+  const initialVehicle = await fillForm.locator('[name="vehicle"]').inputValue();
   await fillForm.locator('[name="vehicle"]').selectOption({label: 'Structure Vehicle'});
   const subtypeState = await fillForm.locator('[name="subtype"]').evaluate((select) => ({
     selected: select.value,
@@ -308,6 +405,7 @@ const fs = require('fs');
     `total=${shape.tag}/${shape.editable ? 'editable' : 'readonly'} ` +
     `energy-source=${energySourceVisible ? 'visible' : 'vehicle-property'} ` +
     `balance=${balanceState} ` +
+    `default=${initialVehicle} ` +
     `subtypes=${subtypeState.selected}/${subtypeState.visible.join('|')} ` +
     `modes=${structureModes.join('|')}/${otherModes} ` +
     `overflow=${overflow} touch=${mobile.touch} stacked=${mobile.stacked} ` +
@@ -320,7 +418,7 @@ const fs = require('fs');
 });
 NODE
 )"
-[ "$preview" = '$3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 overflow=false touch=true stacked=true font=true ordered=true stable=true' ] \
+[ "$preview" = '$3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 overflow=false touch=true stacked=true font=true ordered=true stable=true' ] \
   || fail "browser fill preview mismatch: $preview"
 note "browser measurements: $preview"
 note "browser completes \$3.49 to \$3.499 and derives an exact non-editable total"

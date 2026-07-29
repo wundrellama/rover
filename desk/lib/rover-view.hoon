@@ -80,6 +80,13 @@
     `i.rows
   $(rows t.rows)
 ::
+++  rows-by-text
+  |=  [key=@tas value=@t rows=(list vector:ast)]
+  ^-  (list vector:ast)
+  %+  skim  rows
+  |=  row=vector:ast
+  =(value (cell-text key row))
+::
 ++  ids-for-labels
   |=  $:  labels=(list @t)
           rows=(list vector:ast)
@@ -272,12 +279,66 @@
     rest
   ==
 ::
+++  has-term
+  |=  [key=@tas value=@tas rows=(list vector:ast)]
+  ^-  ?
+  ?~  rows
+    %.n
+  ?:  =(value (cell-term key i.rows))
+    %.y
+  $(rows t.rows)
+::
 ++  main-hub
+  |=  $:  app-default=(list vector:ast)
+          definition-rows=(list vector:ast)
+          odometers=(list vector:ast)
+          tank-sizes=(list vector:ast)
+      ==
   ^-  tape
+  =/  default-id=(unit @)
+    ?~  app-default
+      ~
+    `(cell-atom %vehicle-id i.app-default)
+  =/  default-marker=tape
+    ?~  app-default
+      "<span id=\"app-default-data\" hidden></span>"
+    ;:  weld
+      "<span id=\"app-default-data\" hidden data-vehicle=\""
+      (escape (cell-text %label i.app-default))
+      "\"></span>"
+    ==
+  =/  default-label=tape
+    ?~  app-default
+      "DEFAULT VEHICLE NOT SET"
+    (escape (cell-text %label i.app-default))
+  =/  sources=(list vector:ast)
+    ?~  default-id
+      ~
+    (rows-for u.default-id definition-rows)
+  =/  has-fill  (has-term %physical-kind %reservoir sources)
+  =/  has-charge  (has-term %physical-kind %electricity sources)
+  =/  odometer=tape
+    ?~  default-id
+      "Unavailable"
+    (current-odometer (rows-for u.default-id odometers) ~)
+  =/  tank-reason=tape
+    ?~  default-id
+      "No default vehicle is set."
+    ?:  ?=(~ (rows-for u.default-id tank-sizes))
+      "Tank size is not recorded for this vehicle."
+    "An eligible economy interval is required."
   ;:  weld
+    default-marker
     "<section id=\"main-hub\" class=\"app-screen\">"
-    "<header class=\"hub-header\"><p class=\"eyebrow\">ROVER VEHICLE LOG</p><h1>MAIN</h1></header>"
-    "<section class=\"hub-primary\"><button type=\"button\" data-open-screen=\"add-fill\">Add Fill</button><p class=\"unavailable\">DEFAULT VEHICLE NOT SET - CHOOSE A VEHICLE ON THE ENTRY SCREEN OR SET ONE IN VEHICLES</p></section>"
+    "<header class=\"hub-header\"><p class=\"eyebrow\">ROVER VEHICLE LOG</p><h1>MAIN</h1><p>"
+    default-label
+    "</p></header><section class=\"hub-primary\">"
+    ?:(has-fill "<button type=\"button\" data-open-screen=\"add-fill\">Add Fill</button>" "")
+    ?:(has-charge "<button type=\"button\" data-open-screen=\"add-charge\">Add Charge</button>" "")
+    ?:  ?|(has-fill has-charge)
+      ""
+    "<button type=\"button\" data-open-screen=\"vehicles-screen\">Configure a vehicle</button>"
+    "</section>"
     "<nav class=\"hub-actions\" aria-label=\"Main actions\">"
     "<button type=\"button\" data-open-screen=\"add-odometer\">Add Odometer Entry</button>"
     "<button type=\"button\" data-open-screen=\"vehicles-screen\">Vehicles</button>"
@@ -286,12 +347,18 @@
     "<button type=\"button\" data-open-screen=\"settings-screen\">Settings</button>"
     "</nav>"
     "<section class=\"hub-readouts\" aria-label=\"Default vehicle readouts\">"
-    "<article><span>MOST RECENT ODOMETER</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
-    "<article><span>ECONOMY - LAST FILL</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
-    "<article><span>ECONOMY - LIFETIME</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
-    "<article><span>ESTIMATED DISTANCE TO NEXT FILL</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
-    "<article><span>BEST ECONOMY</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
-    "<article><span>WORST ECONOMY</span><strong>Unavailable</strong><small>No default vehicle is set.</small></article>"
+    "<article><span>MOST RECENT ODOMETER</span><strong>"
+    odometer
+    "</strong><small>"
+    ?:(?=(~ default-id) "No default vehicle is set." "Latest non-overlapping observation.")
+    "</small></article>"
+    "<article><span>ECONOMY - LAST FILL</span><strong>Unavailable</strong><small>An eligible full-fill interval is required.</small></article>"
+    "<article><span>ECONOMY - LIFETIME</span><strong>Unavailable</strong><small>No eligible lifetime interval is recorded.</small></article>"
+    "<article><span>ESTIMATED DISTANCE TO NEXT FILL</span><strong>Unavailable</strong><small>"
+    tank-reason
+    "</small></article>"
+    "<article><span>BEST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
+    "<article><span>WORST ECONOMY</span><strong>Unavailable</strong><small>No eligible economy intervals are recorded.</small></article>"
     "</section></section>"
   ==
 ::
@@ -694,6 +761,10 @@
           preferences=(list vector:ast)
           subtype-links=(list vector:ast)
           economy-breaks=(list vector:ast)
+          default-subtypes=(list vector:ast)
+          driving-modes=(list vector:ast)
+          tank-sizes=(list vector:ast)
+          is-default=?
       ==
   ^-  tape
   =/  id  (cell-atom %vehicle-id row)
@@ -706,6 +777,22 @@
   =/  odometer  (current-odometer (rows-for id odometers) preference)
   =/  defs  (definitions (rows-for id definition-rows) (rows-for id default-rows))
   =/  preference-control  (preference-form (cell-text %label row) preference-rows)
+  =/  label  (cell-text %label row)
+  =/  default-subtype  (row-by-text %vehicle label default-subtypes)
+  =/  modes  (rows-by-text %vehicle label driving-modes)
+  =/  tank  (rows-for id tank-sizes)
+  =/  tank-text=tape
+    ?~  tank
+      "Unavailable - no tank size recorded"
+    ;:  weld
+      (trip (format-scaled:render (cell-atom %digits i.tank) (cell-atom %decimals i.tank) %.n))
+      " "
+      (escape (scot %tas (cell-term %size-unit i.tank)))
+    ==
+  =/  mode-text=tape
+    ?~  modes
+      "No driving modes configured"
+    (escape (cell-text %label i.modes))
   =/  history
     %:  ordered-history
         (rows-for id fills)
@@ -721,8 +808,29 @@
     "<article class=\"vehicle-card\"><header><div><p class=\"eyebrow\">VEHICLE</p><h2>"
     (escape (cell-text %label row))
     "</h2></div><span class=\"status\">"
-    ?:(archived "ARCHIVED" "ACTIVE")
-    "</span></header><section class=\"odometer\"><span class=\"key\">CURRENT ODOMETER - DERIVED</span><strong>"
+    ?:(is-default "DEFAULT" ?:(archived "ARCHIVED" "ACTIVE"))
+    "</span></header><div class=\"vehicle-actions\">"
+    "<button type=\"button\" data-set-default-vehicle data-vehicle=\""
+    (escape (cell-text %label row))
+    "\">Set Default</button><button type=\"button\" data-remove-vehicle data-vehicle=\""
+    (escape (cell-text %label row))
+    "\">Remove</button></div><div class=\"vehicle-entry-actions\">"
+    "<button type=\"button\" data-vehicle-action=\"fill\" data-vehicle=\""
+    (escape (cell-text %label row))
+    "\">Add Fill</button><button type=\"button\" data-vehicle-action=\"charge\" data-vehicle=\""
+    (escape (cell-text %label row))
+    "\">Add Charge</button><button type=\"button\" data-vehicle-action=\"odometer\" data-vehicle=\""
+    (escape (cell-text %label row))
+    "\">Add Odometer</button></div><details class=\"vehicle-settings\"><summary>Vehicle settings</summary>"
+    "<dl><div><dt>ENERGY SOURCE</dt><dd>Configured below</dd></div>"
+    "<div><dt>FUEL SUBTYPES</dt><dd>"
+    ?~(default-subtype "No default subtype; all source subtypes remain selectable" (escape (cell-text %subtype u.default-subtype)))
+    " default; all source subtypes remain selectable</dd></div>"
+    "<div><dt>TANK SIZE</dt><dd>"
+    tank-text
+    "</dd></div><div><dt>DRIVING MODES</dt><dd>"
+    mode-text
+    "</dd></div><div><dt>DISPLAY PREFERENCE</dt><dd>Source-native unless selected</dd></div></dl></details><section class=\"odometer\"><span class=\"key\">CURRENT ODOMETER - DERIVED</span><strong>"
     odometer
     "</strong></section>"
     preference-control
@@ -754,19 +862,46 @@
   =/  driving-modes  (rows-at commands 16)
   =/  tags  (rows-at commands 17)
   =/  economy-breaks  (rows-at commands 19)
+  =/  app-default  (rows-at commands 20)
+  =/  tank-sizes  (rows-at commands 21)
+  =/  definition-html  (definition-options definition-rows vehicles)
+  =/  default-id=(unit @)
+    ?~  app-default
+      ~
+    `(cell-atom %vehicle-id i.app-default)
   =/  cards=tape
     |-
     ?~  vehicles
       ~
     =/  card
-      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries station-links additive-links preferences subtype-links economy-breaks)
+      %:  vehicle-card
+          i.vehicles
+          odometers
+          definition-rows
+          default-rows
+          fills
+          charges
+          measurements
+          batteries
+          station-links
+          additive-links
+          preferences
+          subtype-links
+          economy-breaks
+          default-subtypes
+          driving-modes
+          tank-sizes
+          ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
+      ==
     =/  rest=tape  $(vehicles t.vehicles)
     (weld card rest)
   =/  html=tape
     ;:  weld
-      main-hub
+      (main-hub app-default definition-rows odometers tank-sizes)
       (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags)
-      "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><div id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header>"
+      "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><div id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><form id=\"vehicle-add-form\"><label>Vehicle name<input name=\"label\" required></label><label>Energy Source<select name=\"energy\">"
+      definition-html
+      "</select></label><button type=\"submit\">Add Vehicle</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
       "</div></section>"
       "<section id=\"history-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER LOG</p><h1>HISTORY</h1></header><p class=\"empty\">Select a vehicle to review its records.</p></section>"

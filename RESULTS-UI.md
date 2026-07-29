@@ -904,3 +904,86 @@ Result: **PASS** - the Add Fill screen follows the ratified 16-field order,
 uses `Calculated Total`, keeps Energy Source conditional, preserves the
 visibly unset slider, and persists all newly supported evidence through the
 real pinned Obelisk agent.
+
+### Slice 5 - Vehicles and app default
+
+The Vehicles assertions landed before the dedicated controls. RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: FAIL - Vehicles screen lacks Add Vehicle
+```
+
+The singleton check was also run before the app-default report query was
+added. RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: FAIL - app-default-vehicle is not a one-row singleton after insert
+```
+
+The Vehicles screen now has Add Vehicle, Set Default, Remove, per-vehicle
+Add Fill / Add Charge / Add Odometer actions, and an expandable settings
+summary for Energy Source, Fuel Subtypes, Tank Size, Driving Modes, and
+Display Preference. Removal first deletes removable configuration children
+in the same atomic script; history and the `%app` default still fail closed
+through RESTRICT.
+
+The browser fixture inserts `%app`, changes it to another vehicle through
+`UPDATE`, confirms exactly one row throughout, and verifies that deleting the
+current default returns HTTP 409. It also adds and removes a new unreferenced
+vehicle. The direct second-INSERT probe is rejected by Obelisk's singleton
+primary key:
+
+```console
+$ PATH="$HOME/workspace/urbit/bin:$PATH" \
+>   click -k -i probes/try-second-app-default.hoon \
+>   "$HOME/piers/rover-bel" 2>/dev/null |
+>   tail -1 | grep -o '^\[0 %avow 0 %noun 0 0 1'
+[0 %avow 0 %noun 0 0 1
+```
+
+That leading result shape is the captured refusal (`%.n`); the underlying
+real error is `INSERT: cannot add duplicate key` on the `%app` row.
+
+GREEN, exact real-Eyre command and output:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: app default inserts once, changes via UPDATE, RESTRICTs deletion, and Vehicles add/remove round-trips
+ui-test: browser measurements: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset default=Mode Scope Vehicle subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+The same run proves:
+
+- all entry forms initialize to the `%app` vehicle;
+- a vehicle without `vehicle-tank-size` reports the distance estimate
+  unavailable because tank size is not recorded;
+- setting the known multi-source vehicle as default makes the hub offer both
+  Add Fill and Add Charge; and
+- Tow / Haul remains absent from Mode Scope Vehicle.
+
+Result: **PASS** - vehicle add/remove, default selection, per-vehicle entry
+actions and configuration summaries are live, while singleton and FK
+restrictions remain enforced by the real database.

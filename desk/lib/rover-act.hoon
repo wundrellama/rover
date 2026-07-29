@@ -536,6 +536,16 @@
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.digits, S.decimals, S.speed-unit; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.highway-percent; "
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, T.label AS tag;"
+    " FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id SELECT A.scope, V.label AS default-vehicle;"
+  ==
+::
+++  second-app-default
+  |=  now=@da
+  ^-  tape
+  ;:  weld
+    "INSERT INTO app-default-vehicle VALUES (%app, 0x1, "
+    (scow %da now)
+    ");"
   ==
 ::
 ++  seed-charging-evidence
@@ -808,6 +818,8 @@
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
     " FROM custom-field-definitions C WHERE C.target = %fill SELECT C.field-id, C.label, C.content-type, C.entry-type, C.mandatory, C.archived;"
     " FROM economy-breaks B SELECT B.acquisition-id, B.reason;"
+    " FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE A.scope = %app SELECT V.vehicle-id, V.label, A.recorded-at;"
+    " FROM vehicle-tank-size T SELECT T.vehicle-id, T.digits, T.decimals, T.size-unit;"
   ==
 ::
 ++  sql-quote
@@ -865,6 +877,85 @@
     "FROM vehicles V WHERE V.label = '"
     (sql-quote vehicle-label)
     "' SELECT V.vehicle-id;"
+  ==
+::
+++  app-default-lookup
+  |=  vehicle-label=@t
+  ^-  tape
+  ;:  weld
+    (vehicle-lookup vehicle-label)
+    " FROM app-default-vehicle A SELECT A.scope, A.vehicle-id, A.recorded-at;"
+  ==
+::
+++  write-app-default
+  |=  [vehicle-id=@ux exists=? recorded-at=@da]
+  ^-  tape
+  ?:  exists
+    ;:  weld
+      "UPDATE app-default-vehicle SET vehicle-id = "
+      (scow %ux vehicle-id)
+      ", recorded-at = "
+      (scow %da recorded-at)
+      " WHERE scope = %app;"
+    ==
+  ;:  weld
+    "INSERT INTO app-default-vehicle VALUES (%app, "
+    (scow %ux vehicle-id)
+    ", "
+    (scow %da recorded-at)
+    ");"
+  ==
+::
+++  delete-vehicle
+  |=  vehicle-id=@ux
+  ^-  tape
+  =/  id  (scow %ux vehicle-id)
+  ;:  weld
+    "DELETE FROM vehicle-display-preferences WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-default-energy-subtype WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-driving-modes WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-tank-size WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-default-energy-definitions WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-energy-definitions WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicles WHERE vehicle-id = "
+    id
+    ";"
+  ==
+::
+++  energy-definition-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM energy-definitions E WHERE E.label = '"
+    (sql-quote label)
+    "' SELECT E.energy-definition-id, E.label, E.archived;"
+  ==
+::
+++  insert-vehicle
+  |=  [vehicle-id=@ux label=@t definition-id=@ux recorded-at=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO vehicles VALUES ("
+    (scow %ux vehicle-id)
+    ", '"
+    (sql-quote label)
+    "', N, "
+    (scow %da recorded-at)
+    "); INSERT INTO vehicle-energy-definitions VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux definition-id)
+    ", N); INSERT INTO vehicle-default-energy-definitions VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux definition-id)
+    ");"
   ==
 ::
 ++  preference-lookup

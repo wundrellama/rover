@@ -595,4 +595,41 @@
       ==
     [%| %bad-shape 'preference.currency']
   [%& u.vehicle distance-unit ;;(currency:rover u.currency-term)]
+::
+++  decode-vehicle-label
+  |=  body=@t
+  ^-  (each vehicle-label-entry:rover entry-verdict:rover)
+  =/  parsed  (de:json:html body)
+  ?~  parsed
+    [%| %bad-shape 'vehicle']
+  ?.  ?=(%o -.u.parsed)
+    [%| %bad-shape 'vehicle']
+  =/  object=(map @t json)  +.u.parsed
+  =/  vehicle  (json-string 'vehicle' object)
+  ?~  vehicle
+    [%| %missing-key 'vehicle.vehicle']
+  ?.  (nonempty u.vehicle)
+    [%| %bad-shape 'vehicle.vehicle']
+  [%& u.vehicle]
+::
+++  decode-new-vehicle
+  |=  body=@t
+  ^-  (each new-vehicle-entry:rover entry-verdict:rover)
+  =/  parsed  (de:json:html body)
+  ?~  parsed
+    [%| %bad-shape 'vehicle']
+  ?.  ?=(%o -.u.parsed)
+    [%| %bad-shape 'vehicle']
+  =/  object=(map @t json)  +.u.parsed
+  =/  label  (json-string 'label' object)
+  ?~  label
+    [%| %missing-key 'vehicle.label']
+  ?.  (nonempty u.label)
+    [%| %bad-shape 'vehicle.label']
+  =/  energy  (json-string 'energy' object)
+  ?~  energy
+    [%| %missing-key 'vehicle.energy-source']
+  ?.  (nonempty u.energy)
+    [%| %bad-shape 'vehicle.energy-source']
+  [%& u.label u.energy]
 --

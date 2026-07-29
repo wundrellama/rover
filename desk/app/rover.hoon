@@ -211,6 +211,57 @@
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?:  =(%'POST' method.request.req)
+    ?:  =('/apps/rover/set-default-vehicle' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: vehicle')) sat]
+      =/  decoded  (decode-vehicle-label:entry `@t`q.u.body.request.req)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  wir=wire  /rover-default-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%tape %rover (app-default-lookup:act vehicle-label.p.decoded)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir 'set-default')
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ?:  =('/apps/rover/remove-vehicle' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: vehicle')) sat]
+      =/  decoded  (decode-vehicle-label:entry `@t`q.u.body.request.req)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  wir=wire  /rover-remove-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%tape %rover (vehicle-lookup:act vehicle-label.p.decoded)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir 'remove-vehicle')
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ?:  =('/apps/rover/add-vehicle' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: vehicle')) sat]
+      =/  decoded  (decode-new-vehicle:entry `@t`q.u.body.request.req)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  wir=wire  /rover-add-vehicle-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%tape %rover (energy-definition-lookup:act energy-label.p.decoded)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir vehicle-label.p.decoded)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/set-preference' url.request.req)
       ?~  body.request.req
         :_  sat
@@ -660,6 +711,13 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %try-second-app-default
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (second-app-default:act now.bowl)])
+        :_  this(pending (~(put by pending) wir 'try-second-app-default'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %verify-schema
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover verify-schema:act])
@@ -696,6 +754,198 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-default-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: default-vehicle'))
+      =/  vehicles  (rows-at:view p.res 0)
+      ?.  =(1 (lent vehicles))
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: default-vehicle'))
+      =/  write-wire=path  /rover-default-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script
+        %:  write-app-default:act
+            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+            ?=(^ (rows-at:view p.res 1))
+            now.bowl
+        ==
+      =/  jon  !>([%tape %rover script])
+      =/  new-state
+        %_  state
+          pending
+            (~(put by (~(del by pending) wire)) write-wire 'set-default-write')
+          http-pending
+            (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+        ==
+      :_  this(state new-state)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-default-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: default-vehicle'))
+      :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs 'Saved default vehicle'))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-remove-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: remove-vehicle'))
+      ?~  p.res
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: remove-vehicle'))
+      =/  vehicles  (result-rows:view i.p.res)
+      ?.  =(1 (lent vehicles))
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: remove-vehicle'))
+      =/  write-wire=path  /rover-remove-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  jon
+        !>([%tape %rover (delete-vehicle:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)))])
+      =/  new-state
+        %_  state
+          pending
+            (~(put by (~(del by pending) wire)) write-wire 'remove-vehicle-write')
+          http-pending
+            (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+        ==
+      :_  this(state new-state)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-remove-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%restricted: remove-vehicle'))
+      :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs 'Removed vehicle'))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-add-vehicle-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  label  (~(get by pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ label)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: add-vehicle'))
+      ?~  p.res
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.energy-source'))
+      =/  definitions  (result-rows:view i.p.res)
+      ?.  =(1 (lent definitions))
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.energy-source'))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  write-wire=path  /rover-add-vehicle-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script
+        %:  insert-vehicle:act
+            (fixture-id:act base 401)
+            u.label
+            `@ux`(cell-atom:view %energy-definition-id (snag 0 definitions))
+            now.bowl
+        ==
+      =/  jon  !>([%tape %rover script])
+      =/  new-state
+        %_  state
+          pending
+            (~(put by (~(del by pending) wire)) write-wire u.label)
+          http-pending
+            (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+        ==
+      :_  this(state new-state)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-add-vehicle-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  label  (~(get by pending) wire)
+      ?:  ?|  ?=(~ eyre-id)
+              ?=(~ label)
+          ==
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: add-vehicle'))
+      :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs (cat 3 'Added vehicle - ' u.label)))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-preference-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact

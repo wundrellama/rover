@@ -340,6 +340,27 @@
       gap: 0.75rem;
     }
 
+    #vehicle-add-form,
+    .vehicle-actions,
+    .vehicle-entry-actions {
+      display: grid;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .vehicle-settings {
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      border: 1px solid var(--rv-olive);
+    }
+
+    .vehicle-settings summary {
+      min-height: 44px;
+      cursor: pointer;
+      color: var(--rv-amber-bright);
+      text-transform: uppercase;
+    }
+
     .hub-actions {
       margin-bottom: 1rem;
     }
@@ -734,6 +755,8 @@
 
     function bindEntryScreens() {
       const screens = [...app.querySelectorAll('.app-screen')];
+      const defaultVehicle =
+        app.querySelector('#app-default-data')?.dataset.vehicle || '';
       app.querySelectorAll('[data-open-screen]').forEach((button) => {
         button.addEventListener('click', () => {
           screens.forEach((screen) => {
@@ -748,6 +771,73 @@
             screen.hidden = screen.id !== 'main-hub';
           });
           document.getElementById('main-hub')?.scrollIntoView();
+        });
+      });
+
+      const vehicleAddForm = app.querySelector('#vehicle-add-form');
+      if (vehicleAddForm) {
+        const energy = vehicleAddForm.elements.energy;
+        const seen = new Set();
+        [...energy.options].forEach((option) => {
+          if (seen.has(option.value)) option.remove();
+          else seen.add(option.value);
+        });
+        vehicleAddForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = vehicleAddForm.querySelector('output');
+          verdict.value = 'Saving…';
+          const response = await fetch('/apps/rover/add-vehicle', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(Object.fromEntries(new FormData(vehicleAddForm)))
+          });
+          verdict.value = await response.text();
+          if (response.ok) await loadView();
+        });
+      }
+
+      app.querySelectorAll('[data-set-default-vehicle]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const response = await fetch('/apps/rover/set-default-vehicle', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({vehicle: button.dataset.vehicle})
+          });
+          if (response.ok) await loadView();
+        });
+      });
+
+      app.querySelectorAll('[data-remove-vehicle]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          if (!confirm(`Remove ${button.dataset.vehicle}?`)) return;
+          const response = await fetch('/apps/rover/remove-vehicle', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({vehicle: button.dataset.vehicle})
+          });
+          if (response.ok) await loadView();
+        });
+      });
+
+      app.querySelectorAll('[data-vehicle-action]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const screenId = {
+            fill: 'add-fill',
+            charge: 'add-charge',
+            odometer: 'add-odometer'
+          }[button.dataset.vehicleAction];
+          screens.forEach((screen) => {
+            screen.hidden = screen.id !== screenId;
+          });
+          const target = app.querySelector(`#${screenId} [name="vehicle"]`);
+          if (target) {
+            target.value = button.dataset.vehicle;
+            target.dispatchEvent(new Event('change', {bubbles: true}));
+          }
+          document.getElementById(screenId)?.scrollIntoView();
         });
       });
 
@@ -774,6 +864,7 @@
       const driveBalanceState = app.querySelector('#fill-drive-balance-state');
       const tagsToggle = app.querySelector('#fill-tags-toggle');
       const tagsPicker = app.querySelector('#fill-tags-picker');
+      if (defaultVehicle) vehicle.value = defaultVehicle;
 
       const syncDefinitions = () => {
         const options = [...definition.options];
@@ -917,6 +1008,7 @@
       if (chargeForm) {
         const chargeVehicle = chargeForm.elements.vehicle;
         const chargeDefinition = chargeForm.elements.definition;
+        if (defaultVehicle) chargeVehicle.value = defaultVehicle;
         const syncChargeDefinitions = () => {
           const options = [...chargeDefinition.options];
           options.forEach((option) => {
@@ -958,6 +1050,7 @@
 
       const odometerForm = app.querySelector('#odometer-form');
       if (odometerForm) {
+        if (defaultVehicle) odometerForm.elements.vehicle.value = defaultVehicle;
         odometerForm.elements.observed.value = local.toISOString().slice(0, 16);
         odometerForm.elements.zone.value =
           Intl.DateTimeFormat().resolvedOptions().timeZone;
