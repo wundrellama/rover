@@ -1197,16 +1197,31 @@
         `this(last `res)
       =/  definitions  (rows-at:view p.res 0)
       =/  consumables  (rows-at:view p.res 1)
+      =/  additives  (rows-at:view p.res 2)
+      =/  driving-modes  (rows-at:view p.res 3)
       ?:  ?&  ?=(^ definitions)
               ?=(^ consumables)
+              ?=(^ additives)
+              ?=(^ driving-modes)
           ==
         `this(last `res, pending (~(del by pending) wire))
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  write-wire=path  /rover/starter-write/(scot %da now.bowl)
       =/  script=tape
-        ?:  ?=(^ definitions)
+        ;:  weld
+          ?:  ?=(^ definitions)
+            ~
+          (seed-energy-starters:act base now.bowl)
+          ?:  ?=(^ consumables)
+            ~
           (seed-consumables:act base now.bowl)
-        (seed-starters:act base now.bowl)
+          ?:  ?=(^ additives)
+            ~
+          (seed-additives:act base now.bowl)
+          ?:  ?=(^ driving-modes)
+            ~
+          (seed-driving-modes:act base now.bowl)
+        ==
       =/  jon  !>([%tape %rover script])
       =/  next-pending
         (~(put by (~(del by pending) wire)) write-wire 'seed-starters-write')

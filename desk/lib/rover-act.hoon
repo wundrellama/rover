@@ -180,6 +180,16 @@
   |=  [base=@ux now=@da]
   ^-  tape
   ;:  weld
+    (seed-energy-starters base now)
+    (seed-consumables base now)
+    (seed-additives base now)
+    (seed-driving-modes base now)
+  ==
+::
+++  seed-energy-starters
+  |=  [base=@ux now=@da]
+  ^-  tape
+  ;:  weld
     (starter-definition base 1 "Gasoline" %reservoir %gal now)
     (starter-definition base 2 "Diesel" %reservoir %gal now)
     (starter-definition base 3 "Electricity" %electricity %kwh now)
@@ -240,7 +250,6 @@
     (starter-subtype base 802 8 "E100 hydrous" now)
     (starter-blend base 801 %ethanol 85)
     (starter-blend base 802 %ethanol 100)
-    (seed-consumables base now)
   ==
 ::
 ++  seed-consumables
@@ -266,11 +275,55 @@
     ");"
   ==
 ::
+++  seed-additives
+  |=  [base=@ux now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO additive-definitions VALUES ("
+    (scow %ux (fixture-id base 9.101))
+    ", 'Injector cleaner', N, "
+    (scow %da now)
+    "); INSERT INTO additive-definitions VALUES ("
+    (scow %ux (fixture-id base 9.102))
+    ", 'Fuel stabilizer', N, "
+    (scow %da now)
+    ");"
+  ==
+::
+++  seed-driving-modes
+  |=  [base=@ux now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO driving-mode-definitions VALUES ("
+    (scow %ux (fixture-id base 9.201))
+    ", 'Normal', N, "
+    (scow %da now)
+    "); INSERT INTO driving-mode-definitions VALUES ("
+    (scow %ux (fixture-id base 9.202))
+    ", 'Economy', N, "
+    (scow %da now)
+    "); INSERT INTO driving-mode-definitions VALUES ("
+    (scow %ux (fixture-id base 9.203))
+    ", 'Sport', N, "
+    (scow %da now)
+    "); INSERT INTO driving-mode-definitions VALUES ("
+    (scow %ux (fixture-id base 9.204))
+    ", 'Towing', N, "
+    (scow %da now)
+    "); INSERT INTO driving-mode-definitions VALUES ("
+    (scow %ux (fixture-id base 9.205))
+    ", 'Winter', N, "
+    (scow %da now)
+    ");"
+  ==
+::
 ++  starter-check
   ^-  tape
   ;:  weld
     "FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.archived; "
-    "FROM consumable-definitions C SELECT C.consumable-id, C.label, C.archived;"
+    "FROM consumable-definitions C SELECT C.consumable-id, C.label, C.archived; "
+    "FROM additive-definitions A SELECT A.additive-id, A.label, A.archived; "
+    "FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived;"
   ==
 ::
 ++  starter-report

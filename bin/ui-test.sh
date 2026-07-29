@@ -133,6 +133,55 @@ if grep -Eq '<option[^>]+data-starter-source[^>]*>(Structure |Pricing |Location 
   fail "fixture 32 fixture-debris definition remains in served live data"
 fi
 note "fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels"
+if [ "${ROVER_FRESH_ONLY:-}" = 1 ]; then
+  fresh_summary="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+pairs = set(re.findall(
+    r"<option value=\"([^\"]+)\" data-definition=\"([^\"]+)\">",
+    document,
+))
+subtypes = "|".join(sorted(f"{definition}:{label}" for label, definition in pairs))
+additives = "|".join(sorted(set(re.findall(
+    r"name=\"additives\" value=\"([^\"]+)\"",
+    document,
+))))
+mode_match = re.search(
+    r"<select name=\"drivingModes\" multiple>(.*?)</select>",
+    document,
+    re.S,
+)
+modes = "|".join(sorted(set(re.findall(
+    r"<option[^>]*>([^<]+)</option>",
+    mode_match.group(1) if mode_match else "",
+))))
+consumable_match = re.search(
+    r"<select name=\"consumable\" required>(.*?)</select>",
+    document,
+    re.S,
+)
+consumables = "|".join(sorted(set(re.findall(
+    r"<option[^>]*>([^<]+)</option>",
+    consumable_match.group(1) if consumable_match else "",
+))))
+print(f"{subtypes}\n{additives}\n{modes}\n{consumables}")' <<<"$view"
+  )"
+  mapfile -t fresh_parts <<<"$fresh_summary"
+  expected_subtypes='CNG:CNG|Diesel:#1|Diesel:#2|Diesel:Arctic|Diesel:B20|Diesel:B7|Diesel:HVO100|Diesel:Off-road (dyed)|Diesel:Premium|Diesel:R99|Diesel:Winter|Electricity:AC Level 1|Electricity:AC Level 2|Electricity:DC Fast|Ethanol:E100 hydrous|Ethanol:E85|Gasoline:100|Gasoline:85|Gasoline:87|Gasoline:88|Gasoline:89|Gasoline:90|Gasoline:91|Gasoline:92|Gasoline:93|Gasoline:95|Gasoline:98|Hydrogen:H35|Hydrogen:H70|LNG:LNG|Propane:Autogas|Propane:HD-5'
+  [ "${fresh_parts[0]:-}" = "$expected_subtypes" ] ||
+    fail "fixture 57 starter subtype set mismatch; actual: ${fresh_parts[0]:-<none>}"
+  [ "${fresh_parts[1]:-}" = 'Fuel stabilizer|Injector cleaner' ] ||
+    fail "fixture 57 starter additive set mismatch; actual: ${fresh_parts[1]:-<none>}"
+  [ "${fresh_parts[2]:-}" = 'Economy|Normal|Sport|Towing|Winter' ] ||
+    fail "fixture 57 starter driving-mode set mismatch; actual: ${fresh_parts[2]:-<none>}"
+  [ "${fresh_parts[3]:-}" = 'Coolant|DEF|Motor Oil|Washer Fluid' ] ||
+    fail "fixture 57 starter consumable set mismatch; actual: ${fresh_parts[3]:-<none>}"
+  if grep -Eq 'Structure |Pricing |Location Fixture |Fixture Vehicle|Phase A Vehicle' <<<"$view"; then
+    fail "fixture 57 fresh served database contains scenario fixture data"
+  fi
+  note "fixture 57 PASS - fresh ship serves exact energy, subtype, additive, driving-mode, and consumable starter packs with zero scenario data"
+  exit 0
+fi
 if [ "${ROVER_FIXTURE_STOP:-}" = 32 ]; then
   exit 0
 fi

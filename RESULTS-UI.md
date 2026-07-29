@@ -60,6 +60,62 @@ schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constr
 
 Fixtures 55–56: **PASS**. Part 1's hard gate is closed.
 
+## 2026-07-29 fresh ship — Part 2 gate
+
+Starter-pack coverage was added test-first. The pre-change real Eyre response
+failed on the first genuinely absent category:
+
+```console
+$ ROVER_FRESH_ONLY=1 bash bin/ui-test.sh "$HOME/piers/rover-wanbel"
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: FAIL - fixture 57 starter additive set mismatch; actual: <none>
+```
+
+The final served ship is the newly booted child `~binbel`, at
+`~/piers/rover-binbel`. It was booted in tmux from
+`brass-408k-1.pill`; Ames is fixed at `31362`. After installation its
+Urbit process PID `1557158` owns Eyre public port `8085` and loopback
+port `12326`:
+
+```console
+$ ss -lntp | grep 'pid=1557158'
+LISTEN 0 16 127.0.0.1:12326 0.0.0.0:* users:(("urbit",pid=1557158,fd=85))
+LISTEN 0 16 0.0.0.0:8085    0.0.0.0:* users:(("urbit",pid=1557158,fd=84))
+```
+
+On that fresh ship, dev Obelisk is running and the live schema metadata
+proves the same 64-table, all-RESTRICT pour:
+
+```console
+> +vats %obelisk
+%obelisk
+  /sys/kelvin:            [%zuse 408] [%zuse 409] [%zuse 410] [%zuse 411]
+  %cz hash ends in:       hujs5
+  app status:             running
+
+$ bash bin/schema-test.sh "$HOME/piers/rover-binbel"
+schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
+```
+
+Only the starter action was run after the pour. The authenticated served HTML
+contains the exact 8 energy definitions, exact 32 market subtypes, 2 additive
+definitions, 5 driving modes, and 4 consumables. Its scenario-debris assertion
+also searches for the fixture label families and found none:
+
+```console
+$ ROVER_FRESH_ONLY=1 bash bin/ui-test.sh "$HOME/piers/rover-binbel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels
+ui-test: fixture 57 PASS - fresh ship serves exact energy, subtype, additive, driving-mode, and consumable starter packs with zero scenario data
+```
+
+Fixture 57: **PASS**. The old `~/piers/rover-bel` pier was left in place;
+the disposable dev gate `~wanbel` was also left in place. Neither is the
+served final database.
+
 All browser fixtures use the real `~bel` pier at
 `~/piers/rover-bel`, real Eyre cookies, and the pinned stock
 `%obelisk`. No browser response is mocked.
