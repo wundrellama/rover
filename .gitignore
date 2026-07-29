@@ -20,3 +20,10 @@ piers/
 # dangle and the agent should fall back to the repo's own docs + Brain pages.
 .codex-brief.md
 PHASE-A-REPORT.md
+
+# Third-party app exports — REAL personal vehicle history.
+# Never commit raw exports; sanitized same-format derivatives only.
+aCar export/
+aCar*export*/
+*.abp
+imports/raw/
