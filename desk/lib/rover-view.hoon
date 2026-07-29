@@ -6,6 +6,8 @@
 /+  act=rover-act, render=rover-render
 ::
 |%
++$  interval-proof
+  [distance-milli=@ud distance-unit=@tas elapsed-seconds=@ud]
 ++  result-rows
   |=  command=cmd-result:ast
   ^-  (list vector:ast)
@@ -1657,6 +1659,28 @@
     %.y
   $(fills t.fills)
 ::
+++  interval-break-reason
+  |=  $:  fills=(list vector:ast)
+          breaks=(list vector:ast)
+          vehicle-id=@
+          after=@da
+          through=@da
+      ==
+  ^-  (unit @tas)
+  ?~  fills
+    ~
+  =/  row  i.fills
+  =/  date=@da  `@da`(cell-atom %observed-start row)
+  =/  found
+    (rows-by %acquisition-id (cell-atom %acquisition-id row) breaks)
+  ?:  ?&  =(vehicle-id (cell-atom %vehicle-id row))
+          (gth date after)
+          (lte date through)
+          ?=(^ found)
+      ==
+    `(cell-term %reason i.found)
+  $(fills t.fills)
+::
 ++  economy-for-fill
   |=  $:  close=vector:ast
           fills=(list vector:ast)
@@ -1682,7 +1706,7 @@
     ==
   ?~  prior-fulls
     ~
-  =/  prior  (snag 0 (order-vectors:act %observed-start %.n prior-fulls))
+  =/  prior  (snag 0 (order-vectors:act %observed-start %.y prior-fulls))
   =/  prior-date=@da  `@da`(cell-atom %observed-start prior)
   ?:  (interval-has-break fills breaks vehicle-id prior-date close-date)
     ~
@@ -1726,6 +1750,183 @@
     (div (add (mul distance-milli 1.000) (div u.quantity 2)) u.quantity)
   `[economy-milli unit]
 ::
+++  fill-interval-break-reason
+  |=  $:  close=vector:ast
+          fills=(list vector:ast)
+          odometers=(list vector:ast)
+          breaks=(list vector:ast)
+      ==
+  ^-  (unit @tas)
+  ?.  =(%full (cell-term %tank-state close))
+    ~
+  =/  vehicle-id  (cell-atom %vehicle-id close)
+  =/  close-date=@da  `@da`(cell-atom %observed-start close)
+  =/  prior-fulls=(list vector:ast)
+    %+  skim  fills
+    |=  row=vector:ast
+    ?&  =(vehicle-id (cell-atom %vehicle-id row))
+        (lth (cell-atom %observed-start row) close-date)
+        =(%full (cell-term %tank-state row))
+        =(1 (lent (rows-by %acquisition-id (cell-atom %acquisition-id row) odometers)))
+    ==
+  ?~  prior-fulls
+    ~
+  =/  prior  (snag 0 (order-vectors:act %observed-start %.y prior-fulls))
+  (interval-break-reason fills breaks vehicle-id `@da`(cell-atom %observed-start prior) close-date)
+::
+++  interval-for-fill
+  |=  $:  close=vector:ast
+          fills=(list vector:ast)
+          odometers=(list vector:ast)
+          breaks=(list vector:ast)
+      ==
+  ^-  (unit interval-proof)
+  ?.  =(%full (cell-term %tank-state close))
+    ~
+  =/  close-odos
+    (rows-by %acquisition-id (cell-atom %acquisition-id close) odometers)
+  ?.  =(1 (lent close-odos))
+    ~
+  =/  vehicle-id  (cell-atom %vehicle-id close)
+  =/  close-date=@da  `@da`(cell-atom %observed-start close)
+  =/  prior-fulls=(list vector:ast)
+    %+  skim  fills
+    |=  row=vector:ast
+    ?&  =(vehicle-id (cell-atom %vehicle-id row))
+        (lth (cell-atom %observed-start row) close-date)
+        =(%full (cell-term %tank-state row))
+        =(1 (lent (rows-by %acquisition-id (cell-atom %acquisition-id row) odometers)))
+    ==
+  ?~  prior-fulls
+    ~
+  =/  prior  (snag 0 (order-vectors:act %observed-start %.y prior-fulls))
+  =/  prior-date=@da  `@da`(cell-atom %observed-start prior)
+  ?:  (interval-has-break fills breaks vehicle-id prior-date close-date)
+    ~
+  =/  prior-odo
+    (snag 0 (rows-by %acquisition-id (cell-atom %acquisition-id prior) odometers))
+  =/  close-odo  (snag 0 close-odos)
+  =/  distance-unit  (cell-term %unit close-odo)
+  ?.  =(distance-unit (cell-term %unit prior-odo))
+    ~
+  =/  prior-places  (cell-atom %decimal-places prior-odo)
+  =/  close-places  (cell-atom %decimal-places close-odo)
+  ?:  ?|((gth prior-places 3) (gth close-places 3))
+    ~
+  =/  prior-milli
+    (mul (cell-atom %value-digits prior-odo) (pow-ten:render (sub 3 prior-places)))
+  =/  close-milli
+    (mul (cell-atom %value-digits close-odo) (pow-ten:render (sub 3 close-places)))
+  ?.  (gth close-milli prior-milli)
+    ~
+  =/  elapsed  (sub close-date prior-date)
+  ?:  =(0 elapsed)
+    ~
+  `[(sub close-milli prior-milli) distance-unit (div elapsed (bex 64))]
+::
+++  statistic-interval-rows
+  |=  $:  fills=(list vector:ast)
+          all-fills=(list vector:ast)
+          vehicles=(list vector:ast)
+          odometers=(list vector:ast)
+          breaks=(list vector:ast)
+          tank-sizes=(list vector:ast)
+          mode=@tas
+      ==
+  ^-  tape
+  ?~  fills
+    ~
+  =/  row  i.fills
+  =/  rest
+    $(fills t.fills)
+  ?.  =(%full (cell-term %tank-state row))
+    rest
+  =/  vehicle-id  (cell-atom %vehicle-id row)
+  =/  vehicle  (vehicle-label vehicle-id vehicles)
+  =/  date  (trip (format-da:render `@da`(cell-atom %observed-start row)))
+  =/  interval
+    (interval-for-fill row all-fills odometers breaks)
+  =/  economy
+    (economy-for-fill row all-fills odometers breaks)
+  =/  tank  (rows-by %vehicle-id vehicle-id tank-sizes)
+  =/  break-reason
+    (fill-interval-break-reason row all-fills odometers breaks)
+  =/  break-label=tape
+    ?~(break-reason ~ (weld "%" (trip (scot %tas u.break-reason))))
+  =/  broken  !=(~ break-label)
+  =/  display=tape
+    ?+  mode  "Unavailable"
+      %distance
+        ?~  interval
+          "Unavailable"
+        ;:  weld
+          (trip (format-scaled:render distance-milli.u.interval 3 %.n))
+          " "
+          (trip (scot %tas distance-unit.u.interval))
+        ==
+      %time
+        ?~  interval
+          "Unavailable"
+        =/  hours-milli
+          (div (add (mul elapsed-seconds.u.interval 1.000) 1.800) 3.600)
+        (weld (trip (format-scaled:render hours-milli 3 %.n)) " h")
+      %tank
+        ?:  ?|  ?=(~ economy)
+                !=(1 (lent tank))
+            ==
+          "Unavailable"
+        =/  tank-row  (snag 0 tank)
+        =/  places  (cell-atom %decimals tank-row)
+        ?:  (gth places 3)
+          "Unavailable"
+        =/  tank-milli
+          (mul (cell-atom %digits tank-row) (pow-ten:render (sub 3 places)))
+        =/  distance-milli
+          (div (add (mul milli.u.economy tank-milli) 500) 1.000)
+        ;:  weld
+          (trip (format-scaled:render distance-milli 3 %.n))
+          " "
+          ?:  =('mpg' unit.u.economy)
+            "mi"
+          "km"
+        ==
+    ==
+  =/  reason=tape
+    ?:  broken
+      (weld break-label " breaks this interval.")
+    ?+  mode  "An eligible interval is required."
+      %distance  "Adjacent odometer-linked full fills are required."
+      %time  "Two eligible ordered fills are required for the selected vehicle."
+      %tank  "Tank size and an eligible economy interval are required; Rover never guesses tank size."
+    ==
+  =/  attribute=tape
+    ?:  =("Unavailable" display)
+      ~
+    ?+  mode  ~
+      %distance  (weld " data-distance-between-fills=\"" (weld display "\""))
+      %time  (weld " data-time-between-fills=\"" (weld display "\""))
+      %tank  (weld " data-distance-per-tank=\"" (weld display "\""))
+    ==
+  ;:  weld
+    "<tr data-stat-vehicle=\""
+    (escape vehicle)
+    "\""
+    attribute
+    ?:  broken
+      (weld " data-interval-break=\"" (weld break-label "\""))
+    ""
+    "><td>"
+    date
+    "</td><td>"
+    (escape vehicle)
+    "</td><td>"
+    display
+    "</td><td>"
+    ?:(=("Unavailable" display) reason "Eligible full-fill interval.")
+    "</td></tr>"
+    rest
+  ==
+::
 ++  statistic-fill-rows
   |=  $:  fills=(list vector:ast)
           all-fills=(list vector:ast)
@@ -1761,6 +1962,11 @@
     (format-unit-price:render (cell-atom %unit-price-mills row) (cell-term %currency row))
   =/  economy
     (economy-for-fill row all-fills odometers breaks)
+  =/  break-reason
+    (fill-interval-break-reason row all-fills odometers breaks)
+  =/  break-label=tape
+    ?~(break-reason ~ (weld "%" (trip (scot %tas u.break-reason))))
+  =/  broken  !=(~ break-label)
   =/  rendered=tape
     ?+  mode  ~
       %economy
@@ -1769,19 +1975,29 @@
           (escape vehicle)
           "\" data-economy=\""
           ?~(economy "Unavailable" (weld (trip (format-scaled:render milli.u.economy 3 %.n)) (weld " " (trip unit.u.economy))))
-          "\"><td>"
+          "\""
+          ?:  broken
+            (weld " data-economy-break=\"" (weld break-label "\""))
+          ""
+          "><td>"
           date
           "</td><td>"
           ?:(?=(~ subtype) "Not recorded" (escape (cell-text %subtype i.subtype)))
           "</td><td>"
           ?~(economy "Unavailable" (weld (trip (format-scaled:render milli.u.economy 3 %.n)) (weld " " (trip unit.u.economy))))
           "</td><td>"
-          ?:(?=(~ economy) "An eligible adjacent full-fill interval is required." "Eligible full-fill interval.")
+          ?:  ?=(~ economy)
+            ?:  broken
+              (weld break-label " breaks this interval.")
+            "An eligible adjacent full-fill interval is required."
+          "Eligible full-fill interval."
           "</td></tr>"
         ==
       %cost
         ;:  weld
-          "<tr><td>"
+          "<tr data-fuel-cost=\""
+          (escape total)
+          "\"><td>"
           date
           "</td><td>"
           (escape vehicle)
@@ -1791,7 +2007,9 @@
         ==
       %price
         ;:  weld
-          "<tr><td>"
+          "<tr data-average-price=\""
+          (escape price)
+          "\"><td>"
           date
           "</td><td>"
           (escape vehicle)
@@ -1808,6 +2026,7 @@
           subtype-links=(list vector:ast)
           odometers=(list vector:ast)
           breaks=(list vector:ast)
+          tank-sizes=(list vector:ast)
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
       ==
@@ -1826,12 +2045,18 @@
     "<section class=\"stat-table\" data-statistic=\"fuel-costs\"><h2>Fuel costs</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Total cost</th></tr></thead><tbody>"
     (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %cost)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"distance-between-fills\"><h2>Distance between fills</h2><table><tbody><tr><td>Unavailable</td><td>Adjacent odometer-linked full fills are required.</td></tr></tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><tbody><tr><td>Unavailable</td><td>Two eligible ordered fills are required for the selected vehicle.</td></tr></tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"distance-between-fills\"><h2>Distance between fills</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Distance</th><th>Eligibility</th></tr></thead><tbody>"
+    (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %distance)
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Elapsed time</th><th>Eligibility</th></tr></thead><tbody>"
+    (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %time)
+    "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Observed unit price</th></tr></thead><tbody>"
     (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %price)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><tbody><tr><td>Unavailable</td><td>Tank size and an eligible economy interval are required; Rover never guesses tank size.</td></tr></tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><thead><tr><th>Date</th><th>Vehicle</th><th>Estimated distance</th><th>Eligibility</th></tr></thead><tbody>"
+    (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %tank)
+    "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Vehicle</th><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
     (def-economy-stat-rows vehicles def-purchases def-odometers)
     "</tbody></table></section></section>"
@@ -1936,7 +2161,7 @@
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
       (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods)
-      (statistics-screen fills vehicles subtype-links fill-odometers economy-breaks def-purchases def-odometers)
+      (statistics-screen fills vehicles subtype-links fill-odometers economy-breaks tank-sizes def-purchases def-odometers)
       (settings-screen custom-definitions)
     ==
   (crip html)

@@ -137,9 +137,120 @@ ui-test: fixture 62 PASS - starter-only ship shows a no-data-yet instruction dis
 Fixture 62: **PASS**. The served empty state is `No data yet` followed by
 `Add a fill to begin tracking economy.`
 
-All browser fixtures use the real `~bel` pier at
-`~/piers/rover-bel`, real Eyre cookies, and the pinned stock
-`%obelisk`. No browser response is mocked.
+## 2026-07-29 computed statistics — Part 3 gate
+
+The fixture 58 assertion was red before the demo action and statistic
+derivations existed:
+
+```console
+$ ROVER_DEMO_ONLY=1 bash bin/ui-test.sh "$HOME/piers/rover-binbel"
+ui-test: FAIL - fixture 58 gasoline demo has fewer than four computed human-unit intervals: <none>
+```
+
+The final demo is stored in real Obelisk relations, not in Gall state or test
+mocks. `Rover Demo Gasoline` and `Rover Demo Diesel` each have six full fills
+and six linked ascending odometers. The rows alternate between two subtypes,
+two stations, and two payment methods; each vehicle has an exact tank-size
+row. The gasoline fill on 2026-07-04 carries the deliberate `%missed-fill`.
+Three odometer-linked DEF purchases belong to the diesel vehicle.
+
+The real-cookie gate passes on the final ship:
+
+```console
+$ ROVER_DEMO_ONLY=1 bash bin/ui-test.sh "$HOME/piers/rover-binbel"
+ui-test: fixture 58 PASS - six full fills per demo vehicle render real interval economy: gas=27.000 mpg|28.000 mpg|29.000 mpg|30.000 mpg diesel=30.000 mpg|32.000 mpg|32.000 mpg|32.500 mpg|32.800 mpg
+ui-test: fixture 60 PASS - missed-fill interval is unavailable with reason while 28.000 mpg and 27.000 mpg neighbours compute
+ui-test: fixture 59 PASS - every statistics table renders a computed demo row
+ui-test: fixture 61 PASS - DEF economy is 500.000 mi/gal DEF and diesel fuel economy is byte-identical before and after DEF purchases
+```
+
+The demo exposed one adjacency defect that single-fill fixtures could not:
+the prior-full candidate list was ordered oldest-first. Changing only that
+selection to newest-first makes the existing strict full-fill, odometer,
+quantity, unit, and break checks operate on the genuinely adjacent interval.
+No refusal precondition was removed.
+
+The following is verbatim HTML excerpted from the authenticated statistics
+screen after fixture 61. It includes a computed row from every table plus the
+unavailable break row and its reason:
+
+```html
+<section class="stat-table" data-statistic="economy-by-subtype">
+  <tr data-economy-vehicle="Rover Demo Gasoline" data-economy="28.000 mpg"><td>2026-07-03 12:00:00</td><td>Regular 87</td><td>28.000 mpg</td><td>Eligible full-fill interval.</td></tr>
+  <tr data-economy-vehicle="Rover Demo Gasoline" data-economy="Unavailable" data-economy-break="%missed-fill"><td>2026-07-04 12:00:00</td><td>Premium 93</td><td>Unavailable</td><td>%missed-fill breaks this interval.</td></tr>
+  <tr data-economy-vehicle="Rover Demo Gasoline" data-economy="27.000 mpg"><td>2026-07-05 12:00:00</td><td>Regular 87</td><td>27.000 mpg</td><td>Eligible full-fill interval.</td></tr>
+</section>
+<section class="stat-table" data-statistic="fuel-costs">
+  <tr data-fuel-cost="$34.99"><td>2026-07-02 12:00:00</td><td>Rover Demo Gasoline</td><td>$34.99</td></tr>
+</section>
+<section class="stat-table" data-statistic="distance-between-fills">
+  <tr data-stat-vehicle="Rover Demo Gasoline" data-distance-between-fills="300.000 mi"><td>2026-07-02 12:00:00</td><td>Rover Demo Gasoline</td><td>300.000 mi</td><td>Eligible full-fill interval.</td></tr>
+</section>
+<section class="stat-table" data-statistic="time-between-fills">
+  <tr data-stat-vehicle="Rover Demo Gasoline" data-time-between-fills="24.000 h"><td>2026-07-02 12:00:00</td><td>Rover Demo Gasoline</td><td>24.000 h</td><td>Eligible full-fill interval.</td></tr>
+</section>
+<section class="stat-table" data-statistic="average-price-per-unit">
+  <tr data-average-price="$3.499"><td>2026-07-02 12:00:00</td><td>Rover Demo Gasoline</td><td>$3.499</td></tr>
+</section>
+<section class="stat-table" data-statistic="distance-per-tank">
+  <tr data-stat-vehicle="Rover Demo Gasoline" data-distance-per-tank="465.000 mi"><td>2026-07-02 12:00:00</td><td>Rover Demo Gasoline</td><td>465.000 mi</td><td>Eligible full-fill interval.</td></tr>
+</section>
+<section class="stat-table" data-statistic="def-economy">
+  <tr data-def-economy-vehicle="Rover Demo Diesel" data-def-economy="500.000 mi/gal DEF"><td>Rover Demo Diesel</td><td>500.000 mi/gal DEF</td><td>Consecutive odometer-linked DEF purchases.</td></tr>
+</section>
+```
+
+### Restart persistence and legacy battery
+
+The final ship was stopped cleanly and restarted in tmux. Its new PID is
+`1581177`; the required post-restart listener check still maps that process to
+public port `8085` and loopback `12326`:
+
+```console
+$ ss -lntp | grep 'pid=1581177'
+LISTEN 0 16 127.0.0.1:12326 0.0.0.0:* users:(("urbit",pid=1581177,fd=155))
+LISTEN 0 16 0.0.0.0:8085    0.0.0.0:* users:(("urbit",pid=1581177,fd=154))
+
+> +vats %obelisk
+  %cz hash ends in:       hujs5
+  app status:             running
+> +vats %rover
+  %cz hash ends in:       f6l6j
+  app status:             running
+```
+
+Fixtures 58–61 then passed again with byte-identical figures. The full
+fixtures 1–54 command ran separately on the disposable dev-pinned
+`~wanbel`, keeping its accumulated scenario rows out of `~binbel`. It exited
+zero. Its terminal section was:
+
+```console
+$ bash bin/ui-test.sh "$HOME/piers/rover-wanbel"
+ui-test: fixture 48 PASS - create and edit mode memberships persist; the non-member mode is absent for the vehicle
+ui-test: fixture 49 PASS - enabled Diesel has an active DEF link; disabled Diesel has no link row
+ui-test: fixture 50 PASS - composite DEF tank size stores exact 55/1/gal, absence creates no row, and settings re-render 5.5 gal
+ui-test: fixture 51 PASS - two odometer-linked DEF purchases derive and render exact 500.000 mi/gal DEF
+ui-test: fixture 52 PASS - missing odometer evidence explicitly breaks the latest DEF interval with a human reason
+ui-test: fixture 53 PASS - DEF remains outside fuel acquisitions and leaves exact 9.000 mpg unchanged
+ui-test: fixture 54 PASS - DEF, washer fluid, motor oil, and coolant seed once; an owner rename survives re-seeding
+...
+ui-test: fixture 18 PASS - live Obelisk report ties the selected subtype to rating 93
+ui-test: fixture 22 PASS - live Obelisk break and served HTML both contain missed-fill
+ui-test: fixture 25 PASS - live HTTP and Obelisk report prove typed values, mandatory validation, and immutable used type
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+The browser harness now derives the `urbauth-*` cookie name instead of
+hard-coding `urbauth-~bel`, which is what permits the complete battery to run
+against a child fake ship. Fixture 48 now uses the ratified shipped `Towing`
+starter instead of depending on historical `Tow / Haul` fixture debris.
+
+Fixtures 58–62: **PASS**. Fixtures 1–57: **PASS on dev**.
+
+The historical milestone sections below retain their original `~bel` evidence.
+This run's gates above use `~wanbel` and `~binbel`, real Eyre cookies, and the
+dev-pinned stock `%obelisk`. No browser response is mocked.
 
 ## Eyre port diagnosis
 

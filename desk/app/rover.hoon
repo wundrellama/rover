@@ -821,6 +821,20 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      %seed-demo-fuel
+        =/  wir=path  /rover-demo-fuel/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover demo-fuel-check:act])
+        :_  this(pending (~(put by pending) wir 'seed-demo-fuel-check'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %seed-demo-def
+        =/  wir=path  /rover-demo-def/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover demo-def-check:act])
+        :_  this(pending (~(put by pending) wir 'seed-demo-def-check'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       %rename-energy-source
         =/  wir=path  /rover-energy-rename/(scot %da now.bowl)
         =/  jon  !>([%tape %rover (energy-definition-lookup:act old-label.a)])
@@ -1095,6 +1109,71 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-demo-fuel *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this(last `res, pending (~(del by pending) wire))
+      =/  existing  (rows-at:view p.res 0)
+      ?:  ?=(^ existing)
+        `this(last `res, pending (~(del by pending) wire))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  write-wire=path  /rover/demo-fuel-write/(scot %da now.bowl)
+      =/  jon  !>([%tape %rover (seed-demo-fuel:act base now.bowl)])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) write-wire 'seed-demo-fuel-write')
+      :_  this(pending next-pending)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-demo-def *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this(last `res, pending (~(del by pending) wire))
+      =/  vehicles  (rows-at:view p.res 0)
+      =/  definitions  (rows-at:view p.res 1)
+      =/  existing  (rows-at:view p.res 2)
+      ?:  ?=(^ existing)
+        `this(last `res, pending (~(del by pending) wire))
+      ?:  ?|  !=(1 (lent vehicles))
+              !=(1 (lent definitions))
+          ==
+        `this(last `res, pending (~(del by pending) wire))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  script=tape
+        %:  seed-demo-def:act
+            base
+            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+            `@ux`(cell-atom:view %consumable-id (snag 0 definitions))
+            now.bowl
+        ==
+      =/  write-wire=path  /rover/demo-def-write/(scot %da now.bowl)
+      =/  jon  !>([%tape %rover script])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) write-wire 'seed-demo-def-write')
+      :_  this(pending next-pending)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-consumable-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact

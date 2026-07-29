@@ -235,6 +235,8 @@
       [%charge-subtype-report vehicle-label=@t observed-start=@da]
       [%vehicle-settings-report vehicle-label=@t]
       [%seed-starters ~]
+      [%seed-demo-fuel ~]
+      [%seed-demo-def ~]
       [%starter-report ~]
       [%consumable-starter-report ~]
       [%seed-fuel-evidence ~]

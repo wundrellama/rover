@@ -127,12 +127,20 @@ document = html.unescape(sys.stdin.read())
 labels = re.findall(r"<option[^>]+data-starter-source[^>]*>([^<]+)</option>", document)
 print("|".join(sorted(set(label.strip() for label in labels))))' <<<"$view"
 )"
-[ "$starter_sources" = 'CNG|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane' ] \
+expected_sources='CNG|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane'
+if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
+  expected_sources='CNG|Demo Diesel Energy|Demo Gasoline Energy|Diesel|Electricity|Ethanol|Gasoline|Hydrogen|LNG|Propane'
+fi
+[ "$starter_sources" = "$expected_sources" ] \
   || fail "fixture 32 starter sources mismatch; actual served source labels: ${starter_sources:-<none>}"
 if grep -Eq '<option[^>]+data-starter-source[^>]*>(Structure |Pricing |Location Fixture )' <<<"$view"; then
   fail "fixture 32 fixture-debris definition remains in served live data"
 fi
-note "fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels"
+if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
+  note "fixture 32 PASS - exact eight-source starter set remains alongside two demo definitions with zero fixture-debris labels"
+else
+  note "fixture 32 PASS - live view contains exactly eight starter sources including Diesel and zero fixture-debris labels"
+fi
 if [ "${ROVER_FRESH_ONLY:-}" = 1 ]; then
   fresh_summary="$(
     python3 -c 'import html, re, sys
@@ -192,6 +200,105 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 32 ]; then
   exit 0
 fi
 
+if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-demo-fuel ~]))
+;<  ~  bind:m  (sleep ~s4)
+(pure:m !>(~))' >/dev/null
+  demo_before_def="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  demo_summary="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+def values(vehicle):
+    return sorted(v for v in re.findall(
+        rf"data-economy-vehicle=\"{re.escape(vehicle)}\" data-economy=\"([^\"]+)\"",
+        document,
+    ) if v != "Unavailable")
+gas = values("Rover Demo Gasoline")
+diesel = values("Rover Demo Diesel")
+computed = {
+    "economy": bool(gas and diesel),
+    "cost": "data-fuel-cost=" in document,
+    "distance": "data-distance-between-fills=" in document,
+    "time": "data-time-between-fills=" in document,
+    "price": "data-average-price=" in document,
+    "tank": "data-distance-per-tank=" in document,
+}
+print("|".join(gas))
+print("|".join(diesel))
+print("|".join(name for name, present in computed.items() if present))
+print("yes" if "data-economy-break=\"%missed-fill\"" in document else "no")' <<<"$demo_before_def"
+  )"
+  mapfile -t demo_parts <<<"$demo_summary"
+  [ "$(tr '|' '\n' <<<"${demo_parts[0]:-}" | grep -c ' mpg$')" -ge 4 ] ||
+    fail "fixture 58 gasoline demo has fewer than four computed human-unit intervals: ${demo_parts[0]:-<none>}"
+  [ "$(tr '|' '\n' <<<"${demo_parts[1]:-}" | grep -c ' mpg$')" -ge 5 ] ||
+    fail "fixture 58 diesel demo has fewer than five computed human-unit intervals: ${demo_parts[1]:-<none>}"
+  note "fixture 58 PASS - six full fills per demo vehicle render real interval economy: gas=${demo_parts[0]} diesel=${demo_parts[1]}"
+  [ "${demo_parts[2]:-}" = 'economy|cost|distance|time|price|tank' ] ||
+    fail "fixture 59 pre-DEF computed statistics mismatch: ${demo_parts[2]:-<none>}"
+  [ "${demo_parts[3]:-}" = yes ] ||
+    fail "fixture 60 deliberate missed-fill interval lacks its explicit reason"
+  grep -q '28.000 mpg' <<<"${demo_parts[0]}" ||
+    fail "fixture 60 computed gasoline interval before break is absent"
+  grep -q '27.000 mpg' <<<"${demo_parts[0]}" ||
+    fail "fixture 60 computed gasoline interval after break is absent"
+  note "fixture 60 PASS - missed-fill interval is unavailable with reason while 28.000 mpg and 27.000 mpg neighbours compute"
+
+  diesel_before_def="${demo_parts[1]}"
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-demo-def ~]))
+;<  ~  bind:m  (sleep ~s4)
+(pure:m !>(~))' >/dev/null
+  demo_after_def="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  after_summary="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+diesel = sorted(v for v in re.findall(
+    r"data-economy-vehicle=\"Rover Demo Diesel\" data-economy=\"([^\"]+)\"",
+    document,
+) if v != "Unavailable")
+def_values = re.findall(
+    r"data-def-economy-vehicle=\"Rover Demo Diesel\" data-def-economy=\"([^\"]+)\"",
+    document,
+)
+required = (
+    "data-economy=",
+    "data-fuel-cost=",
+    "data-distance-between-fills=",
+    "data-time-between-fills=",
+    "data-average-price=",
+    "data-distance-per-tank=",
+    "data-def-economy=",
+)
+print("|".join(diesel))
+print("|".join(def_values))
+print("yes" if all(item in document for item in required) else "no")' <<<"$demo_after_def"
+  )"
+  mapfile -t after_parts <<<"$after_summary"
+  [ "${after_parts[0]:-}" = "$diesel_before_def" ] ||
+    fail "fixture 61 diesel fuel economy changed after DEF purchases: before=$diesel_before_def after=${after_parts[0]:-<none>}"
+  [ "${after_parts[1]:-}" = '500.000 mi/gal DEF' ] ||
+    fail "fixture 61 DEF economy mismatch: ${after_parts[1]:-<none>}"
+  [ "${after_parts[2]:-}" = yes ] ||
+    fail "fixture 59 at least one statistics table lacks a computed row"
+  note "fixture 59 PASS - every statistics table renders a computed demo row"
+  note "fixture 61 PASS - DEF economy is 500.000 mi/gal DEF and diesel fuel economy is byte-identical before and after DEF purchases"
+  if [ "${ROVER_PRINT_STATISTICS:-}" = 1 ]; then
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+for table in re.findall(
+    r"<section class=\"stat-table\" data-statistic=\"[^\"]+\">.*?</section>",
+    document,
+    re.S,
+):
+    print(table)' <<<"$demo_after_def"
+  fi
+  exit 0
+fi
+
 gas_vehicle="Starter Gasoline $(date +%s%N)"
 diesel_vehicle="Starter Diesel $(date +%s%N)"
 for vehicle_source in "$gas_vehicle:Gasoline" "$diesel_vehicle:Diesel"; do
@@ -219,9 +326,9 @@ const fs = require('fs');
   });
   const page = await browser.newPage({viewport: {width: 390, height: 844}});
   const raw = fs.readFileSync(process.env.JAR, 'utf8');
-  const cookie = raw.match(/urbauth-~bel\s+([^\s]+)/);
+  const cookie = raw.match(/\s(urbauth-[^\s]+)\s+([^\s]+)/);
   await page.context().addCookies([{
-    name: 'urbauth-~bel', value: cookie[1], domain: 'localhost', path: '/'
+    name: cookie[1], value: cookie[2], domain: 'localhost', path: '/'
   }]);
   await page.goto(`${process.env.URL}/apps/rover`);
   await page.locator('#fill-form').waitFor({state: 'attached'});
@@ -765,7 +872,7 @@ fi
 mode_vehicle="Fixture 48 Modes $(date +%s%N)"
 mode_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[],"drivingModes":["Tow / Haul"]}' "$mode_vehicle")" \
+  --data-raw "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[],"drivingModes":["Towing"]}' "$mode_vehicle")" \
   "$URL/apps/rover/add-vehicle")"
 [ "$mode_created" = "Added vehicle - $mode_vehicle"$'\n201' ] \
   || fail "fixture 48 mode create failed: $mode_created"
@@ -777,7 +884,7 @@ mode_create_report="$(click_file "=/  m  (strand ,vase)
 =/  result
   (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
 (pure:m !>(result))")"
-grep -q "\\[%driving-mode 116 'Tow / Haul'\\].*\\[%link-archived 102 1\\]" <<<"$mode_create_report" \
+grep -q "\\[%driving-mode 116 'Towing'\\].*\\[%link-archived 102 1\\]" <<<"$mode_create_report" \
   || fail "fixture 48 create-mode membership missing: $mode_create_report"
 mode_edited="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
@@ -793,7 +900,7 @@ mode_edit_report="$(click_file "=/  m  (strand ,vase)
 =/  result
   (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
 (pure:m !>(result))")"
-grep -q "\\[%driving-mode 116 'Tow / Haul'\\].*\\[%link-archived 102 0\\]" <<<"$mode_edit_report" \
+grep -q "\\[%driving-mode 116 'Towing'\\].*\\[%link-archived 102 0\\]" <<<"$mode_edit_report" \
   || fail "fixture 48 removed mode was not retired with archived Y: $mode_edit_report"
 grep -q "\\[%driving-mode 116 'Mixed Driving'\\].*\\[%link-archived 102 1\\]" <<<"$mode_edit_report" \
   || fail "fixture 48 edit-mode membership missing: $mode_edit_report"
@@ -809,8 +916,8 @@ print("|".join(options))' <<<"$mode_view"
 )"
 grep -q 'Mixed Driving' <<<"$mode_options" \
   || fail "fixture 48 edited member mode is not selected in settings: $mode_options"
-if grep -q 'Tow / Haul' <<<"$mode_options"; then
-  fail "fixture 48 non-member Tow / Haul remains selected for the vehicle"
+if grep -q 'Towing' <<<"$mode_options"; then
+  fail "fixture 48 non-member Towing remains selected for the vehicle"
 fi
 note "fixture 48 PASS - create and edit mode memberships persist; the non-member mode is absent for the vehicle"
 if [ "${ROVER_FIXTURE_STOP:-}" = 48 ]; then
@@ -1274,11 +1381,11 @@ const fs = require('fs');
   const page = await browser.newPage({viewport: {width: 390, height: 844}});
   page.setDefaultTimeout(90000);
   const raw = fs.readFileSync(process.env.JAR, 'utf8');
-  const cookie = raw.match(/urbauth-~bel\s+([^\s]+)/);
+  const cookie = raw.match(/\s(urbauth-[^\s]+)\s+([^\s]+)/);
   if (!cookie) throw new Error('urbauth cookie missing');
   await page.context().addCookies([{
-    name: 'urbauth-~bel',
-    value: cookie[1],
+    name: cookie[1],
+    value: cookie[2],
     domain: 'localhost',
     path: '/'
   }]);
