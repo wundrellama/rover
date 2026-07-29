@@ -180,6 +180,12 @@ print(f"{subtypes}\n{additives}\n{modes}\n{consumables}")' <<<"$view"
     fail "fixture 57 fresh served database contains scenario fixture data"
   fi
   note "fixture 57 PASS - fresh ship serves exact energy, subtype, additive, driving-mode, and consumable starter packs with zero scenario data"
+  grep -q 'Add a fill to begin tracking economy' <<<"$view" ||
+    fail "fixture 62 no-fill statistics state lacks the dedicated getting-started message"
+  if grep -Eq 'Adjacent odometer-linked full fills|Two eligible ordered fills|Tank size and an eligible economy interval' <<<"$view"; then
+    fail "fixture 62 no-fill statistics state leaks interval-not-eligible wording"
+  fi
+  note "fixture 62 PASS - starter-only ship shows a no-data-yet instruction distinct from interval refusal reasons"
   exit 0
 fi
 if [ "${ROVER_FIXTURE_STOP:-}" = 32 ]; then

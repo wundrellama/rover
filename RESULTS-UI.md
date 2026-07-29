@@ -116,6 +116,27 @@ Fixture 57: **PASS**. The old `~/piers/rover-bel` pier was left in place;
 the disposable dev gate `~wanbel` was also left in place. Neither is the
 served final database.
 
+Before any demo data was added, the same starter-only `~binbel` database
+provided fixture 62's genuine no-fill state. The initial assertion failed
+against the old six-refusal rendering:
+
+```console
+ui-test: FAIL - fixture 62 no-fill statistics state lacks the dedicated getting-started message
+```
+
+After the empty-state branch was added, the real served page passed both the
+positive instruction assertion and the negative assertion against the three
+interval-eligibility messages:
+
+```console
+$ ROVER_FRESH_ONLY=1 bash bin/ui-test.sh "$HOME/piers/rover-binbel"
+ui-test: fixture 57 PASS - fresh ship serves exact energy, subtype, additive, driving-mode, and consumable starter packs with zero scenario data
+ui-test: fixture 62 PASS - starter-only ship shows a no-data-yet instruction distinct from interval refusal reasons
+```
+
+Fixture 62: **PASS**. The served empty state is `No data yet` followed by
+`Add a fill to begin tracking economy.`
+
 All browser fixtures use the real `~bel` pier at
 `~/piers/rover-bel`, real Eyre cookies, and the pinned stock
 `%obelisk`. No browser response is mocked.

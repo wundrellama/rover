@@ -1813,6 +1813,11 @@
       ==
   ^-  tape
   =/  recent  (order-vectors:act %observed-start %.n fills)
+  ?~  fills
+    ;:  weld
+      "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header>"
+      "<div class=\"empty-state\" data-statistics-state=\"no-data\"><h2>No data yet</h2><p>Add a fill to begin tracking economy.</p></div></section>"
+    ==
   ;:  weld
     "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1></header>"
     "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"
