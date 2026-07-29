@@ -39,6 +39,17 @@ derive_code() {
     | grep -oE '[a-z]{6}(-[a-z]{6}){3}' | head -1
 }
 
+read_structure_report() {
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%app-structure-report ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))'
+}
+
 CODE="$(derive_code "$PIER")"
 [ -n "$CODE" ] || fail "could not derive +code"
 JAR="$(mktemp /tmp/rover-ui-cookie.XXXXXX)"
@@ -93,7 +104,7 @@ grep -Eq '[0-9]{1,3}(,[0-9]{3})+\.[0-9]+ (mi|km)' <<<"$view" \
 grep -q '12.345 gal' <<<"$view" || fail "fill quantity is not human-formatted"
 grep -q '\$3\.499' <<<"$view" || fail "unit price is not human-formatted"
 grep -q '\$43\.20' <<<"$view" || fail "derived fill total is not rendered"
-grep -q 'DERIVED' <<<"$view" || fail "fill total is not labelled derived"
+grep -q 'CALCULATED TOTAL' <<<"$view" || fail "fill total is not labelled Calculated Total"
 grep -q 'FUEL SUBTYPE' <<<"$view" || fail "fill detail has no Fuel Subtype field"
 grep -q 'Regular 87 E10' <<<"$view" ||
   fail "fill detail does not render the subtype label"
@@ -103,6 +114,42 @@ fi
 note "vehicle list/detail render real rows in human units with no raw IDs"
 
 grep -q 'id="fill-form"' <<<"$view" || fail "add-fill form is missing"
+fill_html="${view#*id=\"add-fill\"}"
+fill_html="${fill_html%%</section>*}"
+field_order="$(
+  FILL_HTML="$fill_html" python3 - <<'PY'
+import os
+import re
+
+html = os.environ["FILL_HTML"]
+fields = re.findall(r'data-fill-field="([^"]+)"', html)
+print(",".join(fields))
+PY
+)"
+[ "$field_order" = 'vehicle,odometer,previous-odometer,price,quantity,calculated-total,partial-fill,missed-fill,fuel-subtype,additive,station,driving-mode,average-speed,drive-balance,tags,custom-fields' ] \
+  || fail "Add Fill field order is wrong: $field_order"
+grep -q '>Calculated Total<' <<<"$fill_html" \
+  || fail "Add Fill does not use the owner-facing Calculated Total name"
+grep -q 'name="partialFill" type="checkbox"' <<<"$fill_html" \
+  || fail "Add Fill lacks the default-unchecked Partial Fill control"
+grep -q 'name="missedFill" type="checkbox"' <<<"$fill_html" \
+  || fail "Add Fill lacks the default-unchecked Missed Fill control"
+grep -q 'name="subtype"' <<<"$fill_html" || fail "Fuel Subtype selector is missing"
+grep -q 'name="drivingMode"' <<<"$fill_html" || fail "Driving Mode selector is missing"
+grep -q 'name="averageSpeed"' <<<"$fill_html" || fail "Average Speed input is missing"
+grep -q 'id="fill-drive-balance".*data-state="unset"' <<<"$fill_html" \
+  || fail "city/highway slider does not start visibly unset"
+grep -q 'id="fill-tags"' <<<"$fill_html" || fail "Tags picker is missing"
+grep -q 'id="fill-custom-fields"' <<<"$fill_html" || fail "custom-field region is missing"
+for subtype in 'Structure 87 AKI' 'Structure 91 AKI' 'Structure 93 AKI'; do
+  grep -q "$subtype" <<<"$fill_html" ||
+    fail "Add Fill is missing allowed subtype: $subtype"
+done
+grep -q 'value="Tow / Haul" data-vehicle="Structure Vehicle"' <<<"$fill_html" \
+  || fail "vehicle-scoped driving mode is missing or unscoped"
+if grep -q '>Definition<' <<<"$fill_html"; then
+  fail "Add Fill exposes the retired Definition owner-facing name"
+fi
 grep -q 'id="fill-price-completed"' <<<"$view" || fail "completed-price preview is missing"
 grep -q '<output id="fill-derived-total"' <<<"$view" \
   || fail "derived total is not a non-input output"
@@ -171,8 +218,25 @@ const fs = require('fs');
   const fillForm = page.locator('#fill-form');
   await fillForm.waitFor({state: 'attached'});
   await page.locator('[data-open-screen="add-fill"]').click();
-  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Phase A Vehicle'});
-  await fillForm.locator('[name="definition"]').selectOption({label: 'Regular 87'});
+  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Structure Vehicle'});
+  const subtypeState = await fillForm.locator('[name="subtype"]').evaluate((select) => ({
+    selected: select.value,
+    visible: [...select.options]
+      .filter((option) => option.dataset.definition && !option.hidden)
+      .map((option) => option.value)
+      .sort()
+  }));
+  const structureModes = await fillForm.locator('[name="drivingMode"]').evaluate(
+    (select) => [...select.options]
+      .filter((option) => option.dataset.vehicle && !option.hidden)
+      .map((option) => option.value)
+  );
+  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Mode Scope Vehicle'});
+  const otherModes = await fillForm.locator('[name="drivingMode"]').evaluate(
+    (select) => [...select.options]
+      .filter((option) => option.dataset.vehicle && !option.hidden).length
+  );
+  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Fuel Evidence Vehicle'});
   await fillForm.locator('[name="quantity"]').fill('12.344');
   await fillForm.locator('[name="price"]').fill('$3.49');
   const read = selector => page.locator(selector).evaluate(element => element.value);
@@ -184,14 +248,21 @@ const fs = require('fs');
   await fillForm.locator('[name="price"]').fill('$3.50');
   const afterPrice = await read('#fill-derived-total');
   await fillForm.locator('[name="price"]').fill('$3.49');
-  await fillForm.locator('[name="tank"]').selectOption('partial');
+  await fillForm.locator('[name="partialFill"]').check();
   const afterTank = await read('#fill-derived-total');
   await fillForm.locator('[name="station"]').selectOption('Home Charger');
   const firstAdditive = fillForm.locator('[name="additives"]').first();
   if (await firstAdditive.count()) await firstAdditive.check();
   const afterEvidence = await read('#fill-derived-total');
-  await fillForm.locator('[name="settlement"]').selectOption('cash');
+  await fillForm.locator('[name="settlement"]').evaluate((element) => {
+    element.value = 'cash';
+    element.dispatchEvent(new Event('change', {bubbles: true}));
+  });
   const cash = await read('#fill-derived-total');
+  const energySourceVisible =
+    await fillForm.locator('.energy-source-control').isVisible();
+  const balanceState = await fillForm.locator('#fill-drive-balance')
+    .getAttribute('data-state');
   const shape = await page.locator('#fill-derived-total').evaluate(element => ({
     tag: element.tagName,
     editable: element.isContentEditable
@@ -235,6 +306,10 @@ const fs = require('fs');
     `after-tank=${afterTank} ` +
     `after-evidence=${afterEvidence} cash=${cash} ` +
     `total=${shape.tag}/${shape.editable ? 'editable' : 'readonly'} ` +
+    `energy-source=${energySourceVisible ? 'visible' : 'vehicle-property'} ` +
+    `balance=${balanceState} ` +
+    `subtypes=${subtypeState.selected}/${subtypeState.visible.join('|')} ` +
+    `modes=${structureModes.join('|')}/${otherModes} ` +
     `overflow=${overflow} touch=${mobile.touch} stacked=${mobile.stacked} ` +
     `font=${mobile.font} ordered=${mobile.ordered} stable=${mobile.stable}`
   );
@@ -245,10 +320,62 @@ const fs = require('fs');
 });
 NODE
 )"
-[ "$preview" = '$3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly overflow=false touch=true stacked=true font=true ordered=true stable=true' ] \
+[ "$preview" = '$3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 overflow=false touch=true stacked=true font=true ordered=true stable=true' ] \
   || fail "browser fill preview mismatch: $preview"
 note "browser measurements: $preview"
 note "browser completes \$3.49 to \$3.499 and derives an exact non-editable total"
+
+before_structure_report="$(read_structure_report)"
+before_balance_count="$(grep -o '\[%highway-percent ' <<<"$before_structure_report" | wc -l)"
+before_tag_count="$(grep -o '\[%tag 116 ' <<<"$before_structure_report" | wc -l)"
+
+unset_balance_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Structure Vehicle","definition":"Structure Gasoline","quantity":"1.111","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T20:10","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"Structure 93 AKI","missedFill":"yes","drivingMode":"Tow / Haul","averageSpeed":"55.5","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' \
+  "$URL/apps/rover/add-fill")"
+[ "$unset_balance_fill" = $'Saved fill - $3.499 - derived $3.89\n201' ] \
+  || fail "structured fill with untouched balance failed: $unset_balance_fill"
+
+unset_report="$(read_structure_report)"
+grep -q "\\[%subtype 116 'Structure 93 AKI'\\].*\\[%rating 25717 93\\]" \
+  <<<"$unset_report" || fail "fill subtype did not retain subtype-level octane"
+grep -q '\[%reason %tas %missed-fill\]' <<<"$unset_report" \
+  || fail "Missed Fill did not write an economy-breaks row"
+grep -q "\\[%driving-mode 116 'Tow / Haul'\\]" <<<"$unset_report" \
+  || fail "vehicle-scoped driving mode was not written"
+grep -q '\[%digits 25717 555\].*\[%decimals 25717 1\].*\[%speed-unit %tas' \
+  <<<"$unset_report" || fail "average speed did not retain exact evidence"
+after_unset_balance_count="$(grep -o '\[%highway-percent ' <<<"$unset_report" | wc -l)"
+after_unset_tag_count="$(grep -o '\[%tag 116 ' <<<"$unset_report" | wc -l)"
+if [ "$after_unset_balance_count" -ne "$before_balance_count" ]; then
+  fail "untouched city/highway slider wrote a drive-balance row"
+fi
+if [ "$after_unset_tag_count" -ne "$before_tag_count" ]; then
+  fail "zero selected tags wrote a synthetic tag row"
+fi
+
+inline_tag="Mountain-$(date +%s%N)"
+structured_payload="$(
+  printf '{"vehicle":"Structure Vehicle","definition":"Structure Gasoline","quantity":"2.222","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-28T20:20","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"Structure 87 AKI","missedFill":"no","drivingMode":"Tow / Haul","averageSpeed":"","speedUnit":"mph","driveBalance":"73","tags":["Road trip","Winter"],"newTag":"%s"}' "$inline_tag"
+)"
+touched_balance_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$structured_payload" \
+  "$URL/apps/rover/add-fill")"
+[ "$touched_balance_fill" = $'Saved fill - $3.499 - derived $7.77\n201' ] \
+  || fail "structured fill with asserted evidence failed: $touched_balance_fill"
+
+structure_report="$(read_structure_report)"
+grep -q '\[%highway-percent 25717 73\]' <<<"$structure_report" \
+  || fail "touched city/highway slider did not write asserted percentage"
+for tag in 'Road trip' 'Winter' "$inline_tag"; do
+  grep -q "\\[%tag 116 '$tag'\\]" <<<"$structure_report" \
+    || fail "selected or inline-created tag was not linked: $tag"
+done
+note "subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk"
+view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -Eq 'Unavailable - %?missed-fill' <<<"$view" \
+  || fail "missed-fill economy interval did not render unavailable with its reason"
 
 saved_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \

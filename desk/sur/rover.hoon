@@ -49,6 +49,7 @@
       zone=@t
   ==
 +$  odo-reading  [digits=@ud places=@ud odo-unit=distance-unit]
++$  scaled-entry  [digits=@ud places=@ud value-unit=@tas]
 +$  entry-verdict  [class=@tas field=@t]
 +$  new-station-entry
   [place-label=@t station-label=@t station-kind=station-kind]
@@ -70,6 +71,13 @@
       station-label=(unit @t)
       new-station=(unit new-station-entry)
       additive-labels=(list @t)
+      subtype-label=(unit @t)
+      missed-fill=?
+      driving-mode-label=(unit @t)
+      average-speed=(unit scaled-entry)
+      drive-balance=(unit @ud)
+      tag-labels=(list @t)
+      new-tag-label=(unit @t)
   ==
 +$  delivered-energy
   $:  digits=@ud
@@ -148,6 +156,7 @@
   ==
 +$  action
   $%  [%init-db ~]
+      [%app-structure-report ~]
       [%ensure-ui-schema ~]
       [%display-preference-report ~]
       [%charging-cost-report ~]
@@ -159,6 +168,7 @@
       [%pricing-report ~]
       [%run-integrity scenario=integrity-kind]
       [%seed-fuel-evidence ~]
+      [%seed-app-structure ~]
       [%seed-charging-evidence ~]
       [%seed-charging-cost ~]
       [%seed-consumption ~]

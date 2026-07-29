@@ -254,6 +254,77 @@
     [%| %missing-key 'fill.additives']
   ?.  (levy u.additive-labels nonempty)
     [%| %bad-shape 'fill.additives']
+  =/  subtype-text  (json-string 'subtype' object)
+  =/  subtype-label=(unit @t)
+    ?~  subtype-text
+      ~
+    ?:  (nonempty u.subtype-text)
+      `u.subtype-text
+    ~
+  =/  missed-text  (json-string 'missedFill' object)
+  =/  missed-fill=?
+    ?~  missed-text
+      %.n
+    =('yes' u.missed-text)
+  =/  mode-text  (json-string 'drivingMode' object)
+  =/  driving-mode-label=(unit @t)
+    ?~  mode-text
+      ~
+    ?:  (nonempty u.mode-text)
+      `u.mode-text
+    ~
+  =/  speed-text  (json-string 'averageSpeed' object)
+  =/  average-speed=(unit scaled-entry:rover)
+    ?~  speed-text
+      ~
+    ?.  (nonempty u.speed-text)
+      ~
+    =/  parsed-speed  (parse-decimal:render u.speed-text 3)
+    ?:  ?=(%| -.parsed-speed)
+      ~
+    =/  speed-unit-text  (json-string 'speedUnit' object)
+    ?~  speed-unit-text
+      ~
+    =/  speed-unit  (slaw %tas u.speed-unit-text)
+    ?~  speed-unit
+      ~
+    `[digits.p.parsed-speed places.p.parsed-speed u.speed-unit]
+  ?:  ?&  ?=(^ speed-text)
+          (nonempty u.speed-text)
+          ?=(~ average-speed)
+      ==
+    [%| %bad-shape 'fill.average-speed']
+  =/  balance-text  (json-string 'driveBalance' object)
+  =/  drive-balance=(unit @ud)
+    ?~  balance-text
+      ~
+    ?.  (nonempty u.balance-text)
+      ~
+    =/  parsed-balance  (slaw %ud u.balance-text)
+    ?~  parsed-balance
+      ~
+    ?:  (lte u.parsed-balance 100)
+      `u.parsed-balance
+    ~
+  ?:  ?&  ?=(^ balance-text)
+          (nonempty u.balance-text)
+          ?=(~ drive-balance)
+      ==
+    [%| %bad-range 'fill.drive-balance']
+  =/  tag-labels  (json-strings 'tags' object)
+  =/  safe-tag-labels=(list @t)
+    ?~  tag-labels
+      ~
+    u.tag-labels
+  ?.  (levy safe-tag-labels nonempty)
+    [%| %bad-shape 'fill.tags']
+  =/  new-tag-text  (json-string 'newTag' object)
+  =/  new-tag-label=(unit @t)
+    ?~  new-tag-text
+      ~
+    ?:  (nonempty u.new-tag-text)
+      `u.new-tag-text
+    ~
   :-  %&
   :*  u.vehicle
       u.definition
@@ -272,6 +343,13 @@
       station-label
       new-station
       u.additive-labels
+      subtype-label
+      missed-fill
+      driving-mode-label
+      average-speed
+      drive-balance
+      safe-tag-labels
+      new-tag-label
   ==
 ::
 ++  decode-odometer

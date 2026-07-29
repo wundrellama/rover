@@ -20,6 +20,7 @@
       [%6 state-6]
       [%7 state-7]
       [%8 state-8]
+      [%9 state-9]
   ==
 +$  fill-entry-5
   $:  vehicle-label=@t
@@ -36,6 +37,25 @@
       observed-start=@da
       source-zone=@t
       mileage=(unit odo-reading:rover)
+  ==
++$  fill-entry-8
+  $:  vehicle-label=@t
+      definition-label=@t
+      quantity-milli=@ud
+      unit-price-mills=@ud
+      price-display=@t
+      currency=currency:rover
+      price-profile=price-profile:rover
+      minor-unit-decimals=@ud
+      cash-increment-mills=@ud
+      tank-state=tank-state:rover
+      settlement-mode=settlement-mode:rover
+      observed-start=@da
+      source-zone=@t
+      mileage=(unit odo-reading:rover)
+      station-label=(unit @t)
+      new-station=(unit new-station-entry:rover)
+      additive-labels=(list @t)
   ==
 +$  state-0
   $:  pending=(map wire @t)
@@ -113,6 +133,19 @@
       charging-total=(unit charging-total-proof:rover)
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry-8)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+  ==
++$  state-9
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry:rover)
       charge-pending=(map wire charge-entry:rover)
       odometer-pending=(map wire odometer-entry:rover)
@@ -171,8 +204,8 @@
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
 ++  handle-http
-  |=  [sat=state-8 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-8]
+  |=  [sat=state-9 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-9]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -320,7 +353,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-8
+=|  state-9
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -332,7 +365,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%8 state])
+++  on-save  !>([%9 state])
 ::
 ++  on-load
   |=  old=vase
@@ -348,7 +381,8 @@
       %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ ~ ~])
       %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~])
       %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s ~])
-      %8  this(state +.s)
+      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s])
+      %9  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -369,6 +403,13 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover schema-m0:act])
         :_  this(pending (~(put by pending) wir 'init-db'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %app-structure-report
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover app-structure-report:act])
+        :_  this(pending (~(put by pending) wir 'app-structure-report'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -493,6 +534,25 @@
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%tape %rover (seed-fuel-evidence:act ids now.bowl)])
         :_  this(pending (~(put by pending) wir 'seed-fuel-evidence'))
+        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
+      %seed-app-structure
+        =/  base=@ux  (cut 7 [0 1] eny.bowl)
+        =/  ids=app-structure-ids:act
+          :*  (fixture-id:act base 201)
+              (fixture-id:act base 202)
+              (fixture-id:act base 203)
+              (fixture-id:act base 204)
+              (fixture-id:act base 205)
+              (fixture-id:act base 206)
+              (fixture-id:act base 207)
+              (fixture-id:act base 208)
+              (fixture-id:act base 209)
+          ==
+        =/  wir=path  /rover/(scot %da now.bowl)
+        =/  jon  !>([%tape %rover (seed-app-structure:act ids now.bowl)])
+        :_  this(pending (~(put by pending) wir 'seed-app-structure'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -1010,7 +1070,7 @@
             ['content-type' 'text/plain']~
             `(text-octs '%unit-mismatch: fill.profile')
         ==
-      ?.  (gte (lent p.res) 3)
+      ?.  (gte (lent p.res) 7)
         :_  this
         %:  http-give
             u.eyre-id
@@ -1020,6 +1080,9 @@
         ==
       =/  station-rows  (rows-at:view p.res 1)
       =/  additive-rows  (rows-at:view p.res 2)
+      =/  subtype-rows  (rows-at:view p.res 3)
+      =/  driving-mode-rows  (rows-at:view p.res 5)
+      =/  tag-rows  (rows-at:view p.res 6)
       =/  station-id=(unit @ux)
         ?~  station-label.u.input
           ~
@@ -1047,12 +1110,69 @@
             ['content-type' 'text/plain']~
             `(text-octs '%not-found: fill.additives')
         ==
+      =/  subtype-id=(unit @ux)
+        ?~  subtype-label.u.input
+          ~
+        =/  found
+          (row-by-text:view %label u.subtype-label.u.input subtype-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %subtype-id u.found)
+      ?:  ?&  ?=(^ subtype-label.u.input)
+              ?=(~ subtype-id)
+          ==
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: fill.subtype')
+        ==
+      =/  driving-mode-id=(unit @ux)
+        ?~  driving-mode-label.u.input
+          ~
+        =/  found
+          (row-by-text:view %label u.driving-mode-label.u.input driving-mode-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %mode-id u.found)
+      ?:  ?&  ?=(^ driving-mode-label.u.input)
+              ?=(~ driving-mode-id)
+          ==
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: fill.driving-mode')
+        ==
+      =/  tag-proof
+        (ids-for-labels:view tag-labels.u.input tag-rows %label %tag-id)
+      ?:  ?=(%| -.tag-proof)
+        :_  this
+        %:  http-give
+            u.eyre-id
+            422
+            ['content-type' 'text/plain']~
+            `(text-octs '%not-found: fill.tags')
+        ==
+      ?:  ?&  ?=(^ new-tag-label.u.input)
+              ?=(^ (row-by-text:view %label u.new-tag-label.u.input tag-rows))
+          ==
+        :_  this
+        %:  http-give
+            u.eyre-id
+            409
+            ['content-type' 'text/plain']~
+            `(text-octs '%already-exists: fill.new-tag')
+        ==
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  ids=entry-ids:act
         :*  (fixture-id:act base 101)
             (fixture-id:act base 102)
             (fixture-id:act base 103)
             (fixture-id:act base 104)
+            (fixture-id:act base 105)
         ==
       =/  write-wire=path
         /rover-fill-write/(scot %da now.bowl)/[u.eyre-id]
@@ -1064,6 +1184,9 @@
             quantity-unit
             station-id
             p.additive-proof
+            subtype-id
+            driving-mode-id
+            p.tag-proof
             u.input
             now.bowl
         ==

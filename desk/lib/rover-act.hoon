@@ -85,6 +85,18 @@
       odometer=@ux
       place=@ux
       station=@ux
+      tag=@ux
+  ==
++$  app-structure-ids
+  $:  definition=@ux
+      subtype-87=@ux
+      subtype-91=@ux
+      subtype-93=@ux
+      vehicle=@ux
+      mode=@ux
+      other-vehicle=@ux
+      tag-a=@ux
+      tag-b=@ux
   ==
 +$  charge-ids
   $:  acquisition=@ux
@@ -481,6 +493,51 @@
     "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, B.reason;"
   ==
 ::
+++  seed-app-structure
+  |=  [ids=app-structure-ids now=@da]
+  ^-  tape
+  =/  def  (scow %ux definition.ids)
+  =/  sub87  (scow %ux subtype-87.ids)
+  =/  sub91  (scow %ux subtype-91.ids)
+  =/  sub93  (scow %ux subtype-93.ids)
+  =/  vehicle  (scow %ux vehicle.ids)
+  =/  mode  (scow %ux mode.ids)
+  =/  other  (scow %ux other-vehicle.ids)
+  =/  tag-a  (scow %ux tag-a.ids)
+  =/  tag-b  (scow %ux tag-b.ids)
+  =/  rec  (scow %da now)
+  ;:  weld
+    "INSERT INTO energy-definitions VALUES ({def}, 'Structure Gasoline', %reservoir, %gal, N, {rec}); "
+    "INSERT INTO energy-definition-subtypes VALUES ({sub87}, {def}, 'Structure 87 AKI', N, {rec}); "
+    "INSERT INTO energy-definition-subtypes VALUES ({sub91}, {def}, 'Structure 91 AKI', N, {rec}); "
+    "INSERT INTO energy-definition-subtypes VALUES ({sub93}, {def}, 'Structure 93 AKI', N, {rec}); "
+    "INSERT INTO energy-subtype-octane VALUES ({sub87}, 87, %aki); "
+    "INSERT INTO energy-subtype-octane VALUES ({sub91}, 91, %aki); "
+    "INSERT INTO energy-subtype-octane VALUES ({sub93}, 93, %aki); "
+    "INSERT INTO vehicles VALUES ({vehicle}, 'Structure Vehicle', N, {rec}); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({vehicle}, {def}, N); "
+    "INSERT INTO vehicle-default-energy-definitions VALUES ({vehicle}, {def}); "
+    "INSERT INTO vehicle-default-energy-subtype VALUES ({vehicle}, {sub91}, {rec}); "
+    "INSERT INTO vehicles VALUES ({other}, 'Mode Scope Vehicle', N, {rec}); "
+    "INSERT INTO vehicle-energy-definitions VALUES ({other}, {def}, N); "
+    "INSERT INTO vehicle-default-energy-definitions VALUES ({other}, {def}); "
+    "INSERT INTO driving-mode-definitions VALUES ({mode}, 'Tow / Haul', N, {rec}); "
+    "INSERT INTO vehicle-driving-modes VALUES ({vehicle}, {mode}, N); "
+    "INSERT INTO tag-definitions VALUES ({tag-a}, 'Road trip', N, {rec}); "
+    "INSERT INTO tag-definitions VALUES ({tag-b}, 'Winter', N, {rec});"
+  ==
+::
+++  app-structure-report
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.label AS subtype, O.rating, O.method; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.reason; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, D.label AS driving-mode; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.digits, S.decimals, S.speed-unit; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.highway-percent; "
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, T.label AS tag;"
+  ==
+::
 ++  seed-charging-evidence
   |=  [ids=charging-evidence-ids now=@da]
   ^-  tape
@@ -745,6 +802,12 @@
     " FROM fuel-fill-additives L JOIN additive-definitions D ON L.additive-id = D.additive-id SELECT L.acquisition-id, D.label AS additive;"
     " FROM vehicle-display-preferences P SELECT P.vehicle-id, P.distance-unit, P.currency;"
     " FROM fuel-fill-subtype L JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id SELECT L.acquisition-id, S.label AS subtype;"
+    " FROM energy-definition-subtypes S JOIN energy-definitions E ON S.energy-definition-id = E.energy-definition-id SELECT S.subtype-id, S.energy-definition-id, S.label, S.archived, E.label AS energy;"
+    " FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id SELECT V.label AS vehicle, S.label AS subtype;"
+    " FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id SELECT V.label AS vehicle, D.label, D.archived AS mode-archived, L.archived AS link-archived;"
+    " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
+    " FROM custom-field-definitions C WHERE C.target = %fill SELECT C.field-id, C.label, C.content-type, C.entry-type, C.mandatory, C.archived;"
+    " FROM economy-breaks B SELECT B.acquisition-id, B.reason;"
   ==
 ::
 ++  sql-quote
@@ -783,6 +846,16 @@
     "' SELECT V.vehicle-id, E.energy-definition-id, E.quantity-unit, E.physical-kind;"
     " FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.archived, P.label AS place;"
     " FROM additive-definitions D SELECT D.additive-id, D.label, D.archived;"
+    " FROM energy-definition-subtypes S JOIN energy-definitions E ON S.energy-definition-id = E.energy-definition-id WHERE E.label = '"
+    (sql-quote definition-label)
+    "' SELECT S.subtype-id, S.label, S.archived;"
+    " FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT S.subtype-id, S.label;"
+    " FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT D.mode-id, D.label, D.archived AS mode-archived, L.archived AS link-archived;"
+    " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
   ==
 ::
 ++  vehicle-lookup
@@ -846,6 +919,9 @@
           quantity-unit=@tas
           station-id=(unit @ux)
           additive-ids=(list @ux)
+          subtype-id=(unit @ux)
+          driving-mode-id=(unit @ux)
+          tag-ids=(list @ux)
           input=fill-entry:rover
           recorded-at=@da
       ==
@@ -967,7 +1043,92 @@
       ");"
     ==
   =/  additive-rows  (insert-fill-additives acquisition.ids additive-ids)
-  ;:(weld new-station-rows acquisition-row fill-row mileage-rows station-row additive-rows)
+  =/  subtype-row=tape
+    ?~  subtype-id
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-subtype VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.subtype-id)
+      ");"
+    ==
+  =/  economy-break-row=tape
+    ?.  missed-fill.input
+      ~
+    ;:  weld
+      " INSERT INTO economy-breaks VALUES ("
+      acquisition
+      ", %missed-fill, "
+      recorded
+      ");"
+    ==
+  =/  driving-mode-row=tape
+    ?~  driving-mode-id
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-driving-mode VALUES ("
+      acquisition
+      ", "
+      (scow %ux u.driving-mode-id)
+      ");"
+    ==
+  =/  average-speed-row=tape
+    ?~  average-speed.input
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-average-speed VALUES ("
+      acquisition
+      ", "
+      (sql-ud digits.u.average-speed.input)
+      ", "
+      (sql-ud places.u.average-speed.input)
+      ", "
+      (sql-term value-unit.u.average-speed.input)
+      ");"
+    ==
+  =/  drive-balance-row=tape
+    ?~  drive-balance.input
+      ~
+    ;:  weld
+      " INSERT INTO fuel-fill-drive-balance VALUES ("
+      acquisition
+      ", "
+      (sql-ud u.drive-balance.input)
+      ");"
+    ==
+  =/  new-tag-rows=tape
+    ?~  new-tag-label.input
+      ~
+    ;:  weld
+      " INSERT INTO tag-definitions VALUES ("
+      (scow %ux tag.ids)
+      ", '"
+      (sql-quote u.new-tag-label.input)
+      "', N, "
+      recorded
+      "); INSERT INTO fuel-fill-tags VALUES ("
+      acquisition
+      ", "
+      (scow %ux tag.ids)
+      ");"
+    ==
+  =/  tag-rows  (insert-fill-tags acquisition.ids tag-ids)
+  ;:  weld
+    new-station-rows
+    acquisition-row
+    fill-row
+    mileage-rows
+    station-row
+    additive-rows
+    subtype-row
+    economy-break-row
+    driving-mode-row
+    average-speed-row
+    drive-balance-row
+    new-tag-rows
+    tag-rows
+  ==
 ::
 ++  insert-fill-additives
   |=  [acquisition-id=@ux additive-ids=(list @ux)]
@@ -983,6 +1144,21 @@
       ");"
     ==
   (weld row $(additive-ids t.additive-ids))
+::
+++  insert-fill-tags
+  |=  [acquisition-id=@ux tag-ids=(list @ux)]
+  ^-  tape
+  ?~  tag-ids
+    ~
+  =/  row
+    ;:  weld
+      " INSERT INTO fuel-fill-tags VALUES ("
+      (scow %ux acquisition-id)
+      ", "
+      (scow %ux i.tag-ids)
+      ");"
+    ==
+  (weld row $(tag-ids t.tag-ids))
 ::
 ++  insert-odometer
   |=  $:  odometer-id=@ux

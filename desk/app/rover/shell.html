@@ -387,6 +387,12 @@
       display: none;
     }
 
+    .energy-source-control[hidden],
+    #fill-tags-picker[hidden],
+    #fill-new-station[hidden] {
+      display: none;
+    }
+
     .entry-screen header {
       margin-bottom: 1rem;
       border-bottom: 1px solid var(--rv-olive);
@@ -476,14 +482,20 @@
     }
 
     .station-field,
-    #fill-additives {
+    #fill-additives,
+    #fill-tags,
+    #fill-custom-fields,
+    .drive-balance {
       margin: 0;
       padding: 0.8rem;
-      border: 1px solid var(--rv-line);
+      border: 1px solid var(--rv-olive);
     }
 
     .station-field legend,
-    #fill-additives legend {
+    #fill-additives legend,
+    #fill-tags legend,
+    #fill-custom-fields legend,
+    .drive-balance legend {
       padding: 0 0.35rem;
       color: var(--rv-amber-bright);
       letter-spacing: 0.08em;
@@ -492,7 +504,7 @@
     #fill-new-station {
       margin-top: 0.75rem;
       padding-top: 0.75rem;
-      border-top: 1px dashed var(--rv-line);
+      border-top: 1px dashed var(--rv-olive);
     }
 
     .check-grid {
@@ -517,6 +529,43 @@
       min-height: 1.2rem;
       margin: 0;
       accent-color: var(--rv-amber);
+    }
+
+    .read-only-row,
+    .drive-balance {
+      display: grid;
+      gap: 0.5rem;
+    }
+
+    .read-only-row {
+      padding: 0.65rem 0;
+      color: var(--rv-amber-dim);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .read-only-row output,
+    .drive-balance output {
+      color: var(--rv-amber-bright);
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .drive-balance input[data-state="unset"] {
+      opacity: 0.35;
+    }
+
+    .balance-ends {
+      display: flex;
+      justify-content: space-between;
+      color: var(--rv-amber-dim);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+    }
+
+    #fill-tags-picker {
+      margin-top: 0.75rem;
     }
 
     .chips {
@@ -717,6 +766,14 @@
       const station = app.querySelector('#fill-station');
       const stationSearch = app.querySelector('#fill-station-search');
       const newStation = app.querySelector('#fill-new-station');
+      const energySourceControl = form.querySelector('.energy-source-control');
+      const subtype = form.elements.subtype;
+      const drivingMode = form.elements.drivingMode;
+      const partialFill = form.elements.partialFill;
+      const driveBalance = form.elements.driveBalance;
+      const driveBalanceState = app.querySelector('#fill-drive-balance-state');
+      const tagsToggle = app.querySelector('#fill-tags-toggle');
+      const tagsPicker = app.querySelector('#fill-tags-picker');
 
       const syncDefinitions = () => {
         const options = [...definition.options];
@@ -726,11 +783,48 @@
         if (definition.selectedOptions[0]?.hidden) {
           definition.value = options.find((option) => !option.hidden)?.value || '';
         }
+        const available = options.filter((option) => !option.hidden);
+        const availableSources = new Set(available.map((option) => option.value));
+        energySourceControl.hidden = availableSources.size <= 1;
         const selected = definition.selectedOptions[0];
         unit.textContent = selected?.dataset.unit || 'unit';
         if (selected?.dataset.unit === 'gal') profile.value = 'us-usd-gal';
         if (selected?.dataset.unit === 'litre') profile.value = 'eu-eur-litre';
+        syncSubtypes();
         updatePreview();
+      };
+
+      const syncSubtypes = () => {
+        const options = [...subtype.options];
+        options.forEach((option) => {
+          if (!option.dataset.definition) return;
+          option.hidden = option.dataset.definition !== definition.value;
+        });
+        const selectedUnavailable =
+          subtype.selectedOptions[0]?.dataset.definition &&
+          subtype.selectedOptions[0]?.hidden;
+        if (!subtype.value || selectedUnavailable) {
+          const marker = app.querySelector(
+            `[data-default-subtype-vehicle="${CSS.escape(vehicle.value)}"]`
+          );
+          const preferred = marker?.dataset.defaultSubtype;
+          const preferredOption = options.find(
+            (option) => !option.hidden && option.value === preferred
+          );
+          subtype.value =
+            preferredOption?.value ||
+            options.find((option) => option.dataset.definition && !option.hidden)?.value ||
+            '';
+        }
+      };
+
+      const syncDrivingModes = () => {
+        const options = [...drivingMode.options];
+        options.forEach((option) => {
+          if (!option.dataset.vehicle) return;
+          option.hidden = option.dataset.vehicle !== vehicle.value;
+        });
+        if (drivingMode.selectedOptions[0]?.hidden) drivingMode.value = '';
       };
 
       const updatePreview = () => {
@@ -758,13 +852,29 @@
       const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
       form.elements.observed.value = local.toISOString().slice(0, 16);
       form.elements.zone.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      vehicle.addEventListener('change', syncDefinitions);
+      vehicle.addEventListener('change', () => {
+        syncDefinitions();
+        syncDrivingModes();
+      });
       definition.addEventListener('change', syncDefinitions);
       [quantity, price, profile, settlement].forEach((field) => {
         field.addEventListener('input', updatePreview);
         field.addEventListener('change', updatePreview);
       });
       syncDefinitions();
+      syncDrivingModes();
+      partialFill.addEventListener('change', () => {
+        form.elements.tank.value = partialFill.checked ? 'partial' : 'full';
+      });
+      driveBalance.addEventListener('input', () => {
+        driveBalance.dataset.state = 'set';
+        driveBalanceState.value =
+          `${100 - Number(driveBalance.value)}% city / ${driveBalance.value}% highway`;
+      });
+      tagsToggle?.addEventListener('click', () => {
+        tagsPicker.hidden = !tagsPicker.hidden;
+        tagsToggle.setAttribute('aria-expanded', String(!tagsPicker.hidden));
+      });
       station?.addEventListener('change', () => {
         newStation.hidden = station.value !== 'new';
       });
@@ -784,6 +894,10 @@
         const formData = new FormData(form);
         const payload = Object.fromEntries(formData.entries());
         payload.additives = formData.getAll('additives');
+        payload.tags = formData.getAll('tags');
+        payload.missedFill = form.elements.missedFill.checked ? 'yes' : 'no';
+        payload.driveBalance =
+          driveBalance.dataset.state === 'set' ? driveBalance.value : '';
         try {
           const response = await fetch('/apps/rover/add-fill', {
             method: 'POST',

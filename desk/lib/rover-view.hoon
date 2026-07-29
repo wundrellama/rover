@@ -194,6 +194,84 @@
     rest
   ==
 ::
+++  subtype-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  =/  rest  (subtype-options t.rows)
+  ?:  archived
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  =/  definition  (escape (cell-text %energy i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\" data-definition=\""
+    definition
+    "\">"
+    label
+    "</option>"
+    rest
+  ==
+::
+++  default-subtype-data
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  ;:  weld
+    "<span hidden data-default-subtype-vehicle=\""
+    (escape (cell-text %vehicle i.rows))
+    "\" data-default-subtype=\""
+    (escape (cell-text %subtype i.rows))
+    "\"></span>"
+    (default-subtype-data t.rows)
+  ==
+::
+++  driving-mode-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  archived  ?|  =(0 (cell-atom %mode-archived i.rows))
+                         =(0 (cell-atom %link-archived i.rows))
+                     ==
+  =/  rest  (driving-mode-options t.rows)
+  ?:  archived
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\" data-vehicle=\""
+    (escape (cell-text %vehicle i.rows))
+    "\">"
+    label
+    "</option>"
+    rest
+  ==
+::
+++  tag-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  =/  rest  (tag-options t.rows)
+  ?:  archived
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<label class=\"check-option\"><input type=\"checkbox\" name=\"tags\" value=\""
+    label
+    "\"><span>"
+    label
+    "</span></label>"
+    rest
+  ==
+::
 ++  main-hub
   ^-  tape
   ;:  weld
@@ -222,44 +300,67 @@
           definitions=(list vector:ast)
           stations=(list vector:ast)
           additives=(list vector:ast)
+          subtypes=(list vector:ast)
+          default-subtypes=(list vector:ast)
+          driving-modes=(list vector:ast)
+          tags=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
   =/  definition-html  (definition-options definitions vehicles)
   =/  station-html  (station-options stations)
   =/  additive-html  (additive-options additives)
+  =/  subtype-html  (subtype-options subtypes)
+  =/  default-subtype-html  (default-subtype-data default-subtypes)
+  =/  driving-mode-html  (driving-mode-options driving-modes)
+  =/  tag-html  (tag-options tags)
   ;:  weld
     "<section id=\"add-fill\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW ACQUISITION</p><h2>Add fill</h2></header>"
     "<form id=\"fill-form\">"
-    "<label>Vehicle<select name=\"vehicle\" required>"
+    "<label data-fill-field=\"vehicle\">Vehicle<select name=\"vehicle\" required>"
     vehicle-html
     "</select></label>"
-    "<label>Definition<select name=\"definition\" required>"
+    "<label class=\"energy-source-control\" hidden>Energy Source<select name=\"definition\" required>"
     definition-html
     "</select></label>"
-    "<label>Quantity<div class=\"input-unit\"><input name=\"quantity\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"12.345\" required><output id=\"fill-unit\">unit</output></div></label>"
-    "<label>Price profile<select name=\"profile\"><option value=\"us-usd-gal\">US &middot; USD per gallon</option><option value=\"eu-eur-litre\">EU &middot; EUR per litre</option></select></label>"
-    "<label>Price per unit<input name=\"price\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$3.49\" required></label>"
-    "<div class=\"preview-row\"><span>Completed price</span><output id=\"fill-price-completed\">&mdash;</output></div>"
-    "<label>Tank state<select name=\"tank\"><option value=\"full\">Full</option><option value=\"partial\">Partial</option></select></label>"
-    "<label>Settlement<select name=\"settlement\"><option value=\"standard\">Standard</option><option value=\"cash\">Cash</option></select></label>"
-    "<label>Observed at<input name=\"observed\" type=\"datetime-local\" required></label>"
-    "<input name=\"zone\" type=\"hidden\">"
-    "<label>Optional mileage<input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"10012.5\"></label>"
-    "<label>Mileage unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label>"
-    "<fieldset class=\"station-field\"><legend>Station <span class=\"optional\">optional</span></legend>"
-    "<label>Search saved stations<input id=\"fill-station-search\" type=\"search\" autocomplete=\"off\" placeholder=\"Search recent or saved\"></label>"
+    "<label data-fill-field=\"odometer\">Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"10012.5\"></label>"
+    "<div class=\"read-only-row\" data-fill-field=\"previous-odometer\"><span>Previous odometer reading</span><output id=\"fill-previous-odometer\">Unavailable - no prior reading selected</output></div>"
+    "<div data-fill-field=\"price\"><label>Fuel price<input name=\"price\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$3.49\" required></label><div class=\"preview-row\"><span>Completed price</span><output id=\"fill-price-completed\">&mdash;</output></div></div>"
+    "<label data-fill-field=\"quantity\">Quantity<div class=\"input-unit\"><input name=\"quantity\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"12.345\" required><output id=\"fill-unit\">unit</output></div></label>"
+    "<div class=\"preview-row derived-preview\" data-fill-field=\"calculated-total\"><span>Calculated Total</span><output id=\"fill-derived-total\" aria-live=\"polite\">&mdash;</output><small>Calculated from quantity and completed unit price</small></div>"
+    "<label class=\"check-option\" data-fill-field=\"partial-fill\"><input name=\"partialFill\" type=\"checkbox\"><span>Partial Fill</span></label>"
+    "<label class=\"check-option\" data-fill-field=\"missed-fill\"><input name=\"missedFill\" type=\"checkbox\"><span>Missed Fill</span></label>"
+    "<label data-fill-field=\"fuel-subtype\">Fuel Subtype<select name=\"subtype\"><option value=\"\">Not recorded</option>"
+    subtype-html
+    "</select></label>"
+    default-subtype-html
+    "<fieldset id=\"fill-additives\" data-fill-field=\"additive\"><legend>Additive <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
+    additive-html
+    "</div></fieldset>"
+    "<fieldset class=\"station-field\" data-fill-field=\"station\"><legend>Station <span class=\"optional\">optional</span></legend>"
+    "<label>Search / select<input id=\"fill-station-search\" type=\"search\" autocomplete=\"off\" placeholder=\"Search recent or saved\"></label>"
     "<select id=\"fill-station\" name=\"station\"><option value=\"none\">No station recorded</option>"
     station-html
     "<option value=\"new\">Add new station&hellip;</option></select>"
-    "<div id=\"fill-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\" placeholder=\"Home charger\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\" placeholder=\"Home\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div>"
+    "<div id=\"fill-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\" placeholder=\"Home pump\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\" placeholder=\"Home\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div>"
     "</fieldset>"
-    "<fieldset id=\"fill-additives\"><legend>Additives <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
-    additive-html
-    "</div></fieldset>"
-    "<div class=\"preview-row derived-preview\"><span>Derived total</span><output id=\"fill-derived-total\" aria-live=\"polite\">&mdash;</output><small>Calculated from quantity and completed unit price</small></div>"
+    "<label data-fill-field=\"driving-mode\">Driving Mode <span class=\"optional\">optional</span><select name=\"drivingMode\"><option value=\"\">Not recorded</option>"
+    driving-mode-html
+    "</select></label>"
+    "<label data-fill-field=\"average-speed\">Average Speed <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"averageSpeed\" inputmode=\"decimal\" autocomplete=\"off\"><select name=\"speedUnit\"><option value=\"mph\">mph</option><option value=\"kph\">km/h</option></select></div></label>"
+    "<fieldset class=\"drive-balance\" data-fill-field=\"drive-balance\"><legend>City &larr;&rarr; Highway <span class=\"optional\">optional</span></legend><output id=\"fill-drive-balance-state\">UNSET</output><input id=\"fill-drive-balance\" name=\"driveBalance\" type=\"range\" min=\"0\" max=\"100\" value=\"50\" data-state=\"unset\"><div class=\"balance-ends\"><span>City</span><span>Highway</span></div></fieldset>"
+    "<fieldset id=\"fill-tags\" data-fill-field=\"tags\"><legend>Tags <span class=\"optional\">optional</span></legend><button type=\"button\" id=\"fill-tags-toggle\" aria-expanded=\"false\">Choose or add tags</button><div id=\"fill-tags-picker\" hidden><div class=\"check-grid\">"
+    tag-html
+    "</div><label>Add new tag<input name=\"newTag\" autocomplete=\"off\"></label></div></fieldset>"
+    "<fieldset id=\"fill-custom-fields\" data-fill-field=\"custom-fields\"><legend>Custom fields</legend><p class=\"empty\">No custom fields target Add Fill.</p></fieldset>"
+    "<input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\">"
+    "<input name=\"tank\" type=\"hidden\" value=\"full\">"
+    "<input name=\"settlement\" type=\"hidden\" value=\"standard\">"
+    "<input name=\"observed\" type=\"hidden\">"
+    "<input name=\"zone\" type=\"hidden\">"
+    "<input name=\"mileageUnit\" type=\"hidden\" value=\"mi\">"
     "<div class=\"form-actions\"><button type=\"submit\">Save fill</button><button type=\"button\" data-close-screen>Cancel</button></div>"
     "<output id=\"fill-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
     "</form></section>"
@@ -404,12 +505,14 @@
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
+          economy-breaks=(list vector:ast)
       ==
   ^-  tape
   =/  acquisition-id  (cell-atom %acquisition-id row)
   =/  stations  (rows-by %acquisition-id acquisition-id station-links)
   =/  additives  (rows-by %acquisition-id acquisition-id additive-links)
   =/  subtypes   (rows-by %acquisition-id acquisition-id subtype-links)
+  =/  breaks     (rows-by %acquisition-id acquisition-id economy-breaks)
   =/  quantity
     %+  format-quantity:render
       (cell-atom %quantity-milli row)
@@ -453,8 +556,15 @@
     (escape unit-price)
     "</dd></div><div><dt>TANK</dt><dd>"
     (escape (scot %tas (cell-term %tank-state row)))
-    "</dd></div><div class=\"derived\"><dt>DERIVED TOTAL</dt><dd>"
+    "</dd></div><div class=\"derived\"><dt>CALCULATED TOTAL</dt><dd>"
     (escape total)
+    "</dd></div><div><dt>ECONOMY</dt><dd>"
+    ?:  ?=(~ breaks)
+      "Unavailable - another eligible full fill is required"
+    ;:  weld
+      "Unavailable - "
+      (escape (scot %tas (cell-term %reason i.breaks)))
+    ==
     "</dd></div><div><dt>STATION</dt><dd>"
     ?:(?=(~ stations) "No station recorded" (escape (cell-text %station i.stations)))
     "</dd></div><div><dt>ADDITIVES</dt><dd class=\"chips\">"
@@ -467,7 +577,7 @@
   ^-  tape
   ?~  rows
     ~
-  =/  card=tape  (fill-card i.rows ~ ~ ~)
+  =/  card=tape  (fill-card i.rows ~ ~ ~ ~)
   =/  rest=tape  (fill-cards t.rows)
   (weld card rest)
 ::
@@ -542,6 +652,7 @@
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
+          economy-breaks=(list vector:ast)
       ==
   ^-  tape
   ?~  rows
@@ -549,7 +660,7 @@
   =/  is-fill  (vector-key:act %quantity-milli i.rows)
   =/  card=tape
     ?^  is-fill
-      (fill-card i.rows station-links additive-links subtype-links)
+      (fill-card i.rows station-links additive-links subtype-links economy-breaks)
     (charge-card i.rows measurements batteries)
   (weld card $(rows t.rows))
 ::
@@ -561,12 +672,13 @@
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
+          economy-breaks=(list vector:ast)
       ==
   ^-  tape
   =/  ordered  (order-vectors:act %observed-start %.n (weld fills charges))
   ?:  ?=(~ ordered)
     "<p class=\"empty\">No acquisition history.</p>"
-  (history-cards ordered measurements batteries station-links additive-links subtype-links)
+  (history-cards ordered measurements batteries station-links additive-links subtype-links economy-breaks)
 ::
 ++  vehicle-card
   |=  $:  row=vector:ast
@@ -581,6 +693,7 @@
           additive-links=(list vector:ast)
           preferences=(list vector:ast)
           subtype-links=(list vector:ast)
+          economy-breaks=(list vector:ast)
       ==
   ^-  tape
   =/  id  (cell-atom %vehicle-id row)
@@ -602,6 +715,7 @@
         station-links
         additive-links
         subtype-links
+        economy-breaks
     ==
   ;:  weld
     "<article class=\"vehicle-card\"><header><div><p class=\"eyebrow\">VEHICLE</p><h2>"
@@ -635,18 +749,23 @@
   =/  additive-links  (rows-at commands 11)
   =/  preferences  (rows-at commands 12)
   =/  subtype-links  (rows-at commands 13)
+  =/  subtypes  (rows-at commands 14)
+  =/  default-subtypes  (rows-at commands 15)
+  =/  driving-modes  (rows-at commands 16)
+  =/  tags  (rows-at commands 17)
+  =/  economy-breaks  (rows-at commands 19)
   =/  cards=tape
     |-
     ?~  vehicles
       ~
     =/  card
-      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries station-links additive-links preferences subtype-links)
+      (vehicle-card i.vehicles odometers definition-rows default-rows fills charges measurements batteries station-links additive-links preferences subtype-links economy-breaks)
     =/  rest=tape  $(vehicles t.vehicles)
     (weld card rest)
   =/  html=tape
     ;:  weld
       main-hub
-      (entry-screens vehicles definition-rows stations additives)
+      (entry-screens vehicles definition-rows stations additives subtypes default-subtypes driving-modes tags)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><div id=\"vehicle-view\"><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" cards)
       "</div></section>"

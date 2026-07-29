@@ -824,3 +824,83 @@ back destination label: &lsaquo; MAIN
 Result: **PASS** - the hub is the initial screen, purpose-built destinations
 are one tap away, all back controls name `MAIN`, and unavailable fresh-state
 derivations carry human reasons.
+
+### Slice 4 - Add Fill
+
+The exact-order assertion was added before rebuilding the form. RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: FAIL - Add Fill field order is wrong:
+```
+
+The real-substrate subtype fixture was also asserted before it was poured.
+RED:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: FAIL - Add Fill is missing allowed subtype: Structure 87 AKI
+```
+
+`%seed-app-structure` then poured a single reservoir energy source with three
+subtypes (87, 91, and 93 AKI), defaulted the vehicle to 91, linked Tow / Haul
+only to Structure Vehicle, and created two real tag definitions. The form
+offers all three subtypes and merely preselects 91. Switching to Mode Scope
+Vehicle removes Tow / Haul from the selector. A single-source vehicle keeps
+Energy Source as a vehicle property; the browser reports
+`energy-source=vehicle-property`.
+
+The Add Fill POST now writes the optional evidence as child/link rows in the
+same mutation-only atomic script. Two POST fixtures prove both sides of the
+unset rules: the first writes subtype 93, `%missed-fill`, Tow / Haul, and
+55.5 mph while adding neither a drive-balance row nor a tag row; the second
+writes an asserted 73% highway balance, two existing tags, and one
+inline-created tag. The read path renders the affected economy interval as
+unavailable with the missed-fill reason.
+
+GREEN, exact real-Eyre command and output:
+
+```console
+$ bin/ui-test.sh "$HOME/piers/rover-bel"
+ui-test: logged-out browser receives login redirect with no Rover body
+ui-test: authenticated Rover shell served over real Eyre
+ui-test: UA 571-C palette, fonts, glow control, and mobile rules served
+ui-test: vehicle list/detail render real rows in human units with no raw IDs
+ui-test: malformed fill refuses as %bad-shape: fill.quantity
+ui-test: browser measurements: $3.499 standard=$43.19 quantity=$43.20 price=$43.32 after-tank=$43.19 after-evidence=$43.19 cash=$43.20 total=OUTPUT/readonly energy-source=vehicle-property balance=unset subtypes=Structure 91 AKI/Structure 87 AKI|Structure 91 AKI|Structure 93 AKI modes=Tow / Haul/0 overflow=false touch=true stacked=true font=true ordered=true stable=true
+ui-test: browser completes $3.49 to $3.499 and derives an exact non-editable total
+ui-test: subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk
+ui-test: valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived $22.89
+ui-test: station none/saved/new and additive zero/one/several render honestly
+ui-test: per-vehicle km preference converts and labels one vehicle without rewriting evidence
+ui-test: charge and standalone odometer save through Obelisk and render source-native evidence
+ui-test: tile and four font faces have exact bytes and content-types
+ui-test: PASS - docket charge is site /apps/rover with same-origin tile and no glob
+```
+
+Compile and pure-Hoon regression gates:
+
+```console
+$ for probe in run-test-render run-test-entry run-test-pricing compile-rover; do
+>   PATH="$HOME/workspace/urbit/bin:$PATH" \
+>     click -k -i "probes/$probe.hoon" "$HOME/piers/rover-bel" 2>/dev/null |
+>     tail -1
+> done
+[0 %avow 0 %noun %render-tests-pass]
+[0 %avow 0 %noun %entry-tests-pass]
+[0 %avow 0 %noun %pricing-tests-pass]
+[0 %avow 0 %noun 0]
+```
+
+Result: **PASS** - the Add Fill screen follows the ratified 16-field order,
+uses `Calculated Total`, keeps Energy Source conditional, preserves the
+visibly unset slider, and persists all newly supported evidence through the
+real pinned Obelisk agent.
