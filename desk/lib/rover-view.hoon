@@ -1052,6 +1052,16 @@
     (trip unit)
   ==
 ::
+++  economy-break-text
+  |=  reason=@tas
+  ^-  @t
+  ?+  reason
+    'An economy-chain break makes this interval unavailable.'
+    %missed-fill  'A missed fill was recorded, so this economy interval is unavailable.'
+    %excluded     'The owner excluded this fill from economy calculations.'
+    %owner-marked  'The owner marked this fill as an economy-chain break.'
+  ==
+::
 ++  main-hub
   |=  $:  app-default=(list vector:ast)
           definition-rows=(list vector:ast)
@@ -1511,7 +1521,7 @@
       "Unavailable - another eligible full fill is required"
     ;:  weld
       "Unavailable - "
-      (escape (scot %tas (cell-term %reason i.breaks)))
+      (escape (economy-break-text (cell-term %reason i.breaks)))
     ==
     "</dd></div><div><dt>STATION</dt><dd>"
     ?:(?=(~ stations) "No station recorded" (escape (cell-text %station i.stations)))
@@ -2352,6 +2362,8 @@
     break-reason.u.derived
   =/  break-label=tape
     ?~(break-reason ~ (weld "%" (trip (scot %tas u.break-reason))))
+  =/  break-text=tape
+    ?~(break-reason ~ (trip (economy-break-text u.break-reason)))
   =/  broken  !=(~ break-label)
   =/  display=tape
     ?+  mode  "Unavailable"
@@ -2392,7 +2404,7 @@
     ==
   =/  reason=tape
     ?:  broken
-      (weld break-label " breaks this interval.")
+      break-text
     ?+  mode  "An eligible interval is required."
       %distance  "Adjacent odometer-linked full fills are required."
       %time  "Two eligible ordered fills are required for the selected vehicle."
@@ -2466,6 +2478,8 @@
     break-reason.u.derived
   =/  break-label=tape
     ?~(break-reason ~ (weld "%" (trip (scot %tas u.break-reason))))
+  =/  break-text=tape
+    ?~(break-reason ~ (trip (economy-break-text u.break-reason)))
   =/  broken  !=(~ break-label)
   =/  rendered=tape
     ?+  mode  ~
@@ -2490,7 +2504,7 @@
           "</td><td>"
           ?:  ?=(~ economy)
             ?:  broken
-              (weld break-label " breaks this interval.")
+              break-text
             "An eligible adjacent full-fill interval is required."
           "Eligible full-fill interval."
           "</td></tr>"
