@@ -2612,9 +2612,9 @@ done
 note "fixture 27 PASS - live Obelisk counts stayed equal for zero tags and linked existing plus inline tags"
 note "subtypes, missed-fill break, scoped mode, exact speed, unset/asserted balance, and zero/many tags persist through real Obelisk"
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-grep -Eq 'Unavailable - %?missed-fill' <<<"$view" \
+grep -q 'Unavailable - A missed fill was recorded, so this economy interval is unavailable.' <<<"$view" \
   || fail "fixture 22 missed-fill reason did not render; actual served HTML: $view"
-note "fixture 22 PASS - live Obelisk break and served HTML both contain missed-fill"
+note "fixture 22 PASS - live Obelisk break and served HTML retain the missed-fill reason in human text"
 
 history_vehicle="History Vehicle $(date +%s%N)"
 history_vehicle_payload="$(
