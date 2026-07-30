@@ -1,0 +1,260 @@
+{
+  "rover-import": 1,
+  "source": {
+    "app": "synthetic"
+  },
+  "definitions": {
+    "energy": [
+      {
+        "label": "Synthetic Gasoline",
+        "physicalKind": "reservoir",
+        "quantityUnit": "gal",
+        "subtypes": [
+          {
+            "label": "Synthetic 87 AKI",
+            "octane": "87",
+            "method": "aki"
+          }
+        ]
+      },
+      {
+        "label": "Synthetic Diesel",
+        "physicalKind": "reservoir",
+        "quantityUnit": "gal",
+        "subtypes": [
+          {
+            "label": "Synthetic ULSD 45",
+            "cetane": "45"
+          }
+        ]
+      }
+    ],
+    "additives": [
+      {
+        "label": "Synthetic Cleaner"
+      }
+    ],
+    "driving-modes": [
+      {
+        "label": "Synthetic Normal"
+      }
+    ],
+    "tags": [
+      {
+        "label": "Synthetic Trip"
+      }
+    ],
+    "payment-methods": [
+      {
+        "label": "Synthetic Card"
+      }
+    ]
+  },
+  "places": [
+    {
+      "label": "Synthetic Alpha Fuel",
+      "address": {
+        "formatted": "100 Test Ave, Example, IL",
+        "parts": {
+          "line1": "100 Test Ave",
+          "locality": "Example",
+          "region": "IL"
+        }
+      },
+      "coordinates": {
+        "lat": "41.1000000",
+        "lon": "-87.1000000",
+        "source": "directory"
+      }
+    },
+    {
+      "label": "Synthetic Parts Depot",
+      "address": {
+        "parts": {
+          "line1": "200 Parts Rd",
+          "locality": "Example"
+        }
+      }
+    }
+  ],
+  "vehicles": [
+    {
+      "label": "Synthetic Gas Car",
+      "distanceUnit": "mi",
+      "volumeUnit": "gal",
+      "tankSize": {
+        "value": "12.500",
+        "unit": "gal"
+      },
+      "defaultEnergy": "Synthetic Gasoline",
+      "fills": [
+        {
+          "vehicle": "Synthetic Gas Car",
+          "definition": "Synthetic Gasoline",
+          "quantity": "10.000",
+          "price": "3.000",
+          "profile": "us-usd-gal",
+          "tank": "full",
+          "settlement": "standard",
+          "observed": "2026-01-01T08:00",
+          "zone": "America/Chicago",
+          "mileage": "1000.0",
+          "mileageUnit": "mi",
+          "station": "new",
+          "newStationLabel": "Synthetic Alpha Fuel",
+          "newPlaceLabel": "Synthetic Alpha Fuel",
+          "newStationKind": "fuel",
+          "newAddressFormatted": "100 Test Ave, Example, IL",
+          "newAddressLine1": "100 Test Ave",
+          "newLocality": "Example",
+          "newRegion": "IL",
+          "newLatitude": "41.1000000",
+          "newLongitude": "-87.1000000",
+          "additives": [
+            "Synthetic Cleaner"
+          ],
+          "subtype": "Synthetic 87 AKI",
+          "missedFill": "no",
+          "drivingMode": "Synthetic Normal",
+          "averageSpeed": "42.5",
+          "speedUnit": "mph",
+          "driveBalance": "70",
+          "tags": [
+            "Synthetic Trip"
+          ],
+          "notes": "Synthetic happy-path note",
+          "paymentMethod": "Synthetic Card",
+          "sourceApp": "synthetic",
+          "sourceRecordId": "gas-1",
+          "sourceTotal": "30.00"
+        },
+        {
+          "vehicle": "Synthetic Gas Car",
+          "definition": "Synthetic Gasoline",
+          "quantity": "5.000",
+          "price": "4.000",
+          "profile": "us-usd-gal",
+          "tank": "partial",
+          "settlement": "standard",
+          "observed": "2026-01-02T08:00",
+          "zone": "America/Chicago",
+          "mileage": "1100.0",
+          "mileageUnit": "mi",
+          "station": "none",
+          "additives": [],
+          "subtype": "Synthetic 87 AKI",
+          "missedFill": "yes",
+          "drivingMode": "Synthetic Normal",
+          "tags": [],
+          "sourceApp": "synthetic",
+          "sourceRecordId": "gas-2",
+          "sourceTotal": "20.00"
+        },
+        {
+          "vehicle": "Synthetic Gas Car",
+          "definition": "Synthetic Gasoline",
+          "quantity": "8.000",
+          "price": "2.500",
+          "profile": "us-usd-gal",
+          "tank": "full",
+          "settlement": "standard",
+          "observed": "2026-01-03T08:00",
+          "zone": "America/Chicago",
+          "mileage": "1200.0",
+          "mileageUnit": "mi",
+          "station": "new",
+          "newStationLabel": "Synthetic Parts Depot",
+          "newPlaceLabel": "Synthetic Parts Depot",
+          "newStationKind": "fuel",
+          "newAddressLine1": "200 Parts Rd",
+          "newLocality": "Example",
+          "additives": [],
+          "subtype": "Synthetic 87 AKI",
+          "missedFill": "no",
+          "tags": [],
+          "sourceApp": "synthetic",
+          "sourceRecordId": "gas-3",
+          "sourceTotal": "20.00"
+        }
+      ]
+    },
+    {
+      "label": "Synthetic Diesel Truck",
+      "distanceUnit": "mi",
+      "volumeUnit": "gal",
+      "defaultEnergy": "Synthetic Diesel",
+      "fills": [
+        {
+          "vehicle": "Synthetic Diesel Truck",
+          "definition": "Synthetic Diesel",
+          "quantity": "20.000",
+          "price": "4.000",
+          "profile": "us-usd-gal",
+          "tank": "full",
+          "settlement": "standard",
+          "observed": "2026-01-01T09:00",
+          "zone": "America/Chicago",
+          "mileage": "2000.0",
+          "mileageUnit": "mi",
+          "station": "new",
+          "newStationLabel": "Synthetic Alpha Fuel",
+          "newPlaceLabel": "Synthetic Alpha Fuel",
+          "newStationKind": "fuel",
+          "additives": [],
+          "subtype": "Synthetic ULSD 45",
+          "missedFill": "no",
+          "drivingMode": "Synthetic Normal",
+          "tags": [],
+          "sourceApp": "synthetic",
+          "sourceRecordId": "diesel-1",
+          "sourceTotal": "80.00"
+        },
+        {
+          "vehicle": "Synthetic Diesel Truck",
+          "definition": "Synthetic Diesel",
+          "quantity": "10.000",
+          "price": "4.000",
+          "profile": "us-usd-gal",
+          "tank": "partial",
+          "settlement": "cash",
+          "observed": "2026-01-02T09:00",
+          "zone": "America/Chicago",
+          "mileage": "2100.0",
+          "mileageUnit": "mi",
+          "station": "none",
+          "additives": [],
+          "subtype": "Synthetic ULSD 45",
+          "missedFill": "no",
+          "tags": [
+            "Synthetic Trip"
+          ],
+          "paymentMethod": "Synthetic Card",
+          "sourceApp": "synthetic",
+          "sourceRecordId": "diesel-2",
+          "sourceTotal": "40.00"
+        },
+        {
+          "vehicle": "Synthetic Diesel Truck",
+          "definition": "Synthetic Diesel",
+          "quantity": "12.000",
+          "price": "3.500",
+          "profile": "us-usd-gal",
+          "tank": "full",
+          "settlement": "standard",
+          "observed": "2026-01-03T09:00",
+          "zone": "America/Chicago",
+          "mileage": "2200.0",
+          "mileageUnit": "mi",
+          "station": "none",
+          "additives": [],
+          "subtype": "Synthetic ULSD 45",
+          "missedFill": "no",
+          "tags": [],
+          "sourceApp": "synthetic",
+          "sourceRecordId": "diesel-3",
+          "sourceTotal": "42.00"
+        }
+      ]
+    }
+  ]
+}

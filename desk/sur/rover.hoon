@@ -157,6 +157,43 @@
       places=(list import-place)
       vehicles=(list import-vehicle)
   ==
++$  import-simple-kind  ?(%additive %driving-mode %tag %payment-method)
++$  import-work
+  $%  [%energy value=import-energy-definition]
+      [%simple kind=import-simple-kind value=import-simple-definition]
+      [%place station-kind=station-kind value=import-place]
+      [%vehicle value=import-vehicle]
+      $:  %fill
+          distance-unit=distance-unit
+          volume-unit=@tas
+          value=import-fill
+      ==
+  ==
++$  import-report
+  $:  imported=@ud
+      already-imported=@ud
+      conflicts=@ud
+      failures=@ud
+      definitions-created=@ud
+      definitions-reused=@ud
+      places-created=@ud
+      places-reused=@ud
+      vehicles-created=@ud
+      vehicles-reused=@ud
+      station-none=@ud
+      total-exact=@ud
+      total-off-by-one=@ud
+      total-beyond=@ud
+      unit-mismatches=@ud
+      messages=(list @t)
+  ==
++$  import-run
+  $:  eyre-id=@ta
+      writing=?
+      serial=@ud
+      remaining=(list import-work)
+      report=import-report
+  ==
 +$  delivered-energy
   $:  digits=@ud
       places=@ud

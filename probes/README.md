@@ -115,6 +115,27 @@ two separate pokes because `CREATE DATABASE` and a query against it cannot
 share one request. It writes only to `addrq9probe`, never `%rover`, and is
 one-shot unless that throwaway database is dropped from the dojo.
 
+### `run-test-import.hoon`
+
+Compiles and executes `desk/gen/test-import.hoon` from the live `%rover` desk.
+It checks the import decoder, mandatory `defaultEnergy`, Q14 unit validation,
+source-total classification, the atomic fill-plus-provenance mutation script,
+and the split provenance/support lookup shapes. Expect:
+
+    [0 %avow 0 %noun %import-tests-pass]
+
+For the real-substrate import battery, run:
+
+    bin/import-test.sh ~/piers/rover-binbel
+
+That script swaps the owner database out, pours a disposable current schema,
+imports only `tests/fixtures/rover-import-synthetic.json`, proves happy path,
+re-import, conflict, per-record atomicity, provenance boundary, and restart
+persistence, then restores the owner database and compares the rendered view
+hash. A green run ends with:
+
+    import-test: COVERAGE - all 6 defined import fixtures executed
+
 ## PITFALL: `;<` bindings need explicit types
 
 `;<  [pour-mark pour-vase]  bind:m  (take-fact wire)` fails with `find pour-mark`. Bare

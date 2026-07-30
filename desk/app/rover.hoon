@@ -2,7 +2,7 @@
 ::  One path, proven. Other actions land as separate proven increments.
 ::
 /-  ast=obelisk-ast, rover
-/+  act=rover-act, default-agent, dbug, entry=rover-entry, render=rover-render, view=rover-view
+/+  act=rover-act, default-agent, dbug, entry=rover-entry, imp=rover-import, render=rover-render, view=rover-view
 /*  shell-html  %html  /app/rover/shell/html
 /*  tile-png    %png   /app/rover/assets/tile/png
 /*  font-regular       %woff2x  /app/rover/assets/fonts/berkeleymono-regular/woff2x
@@ -26,6 +26,7 @@
       [%12 state-12]
       [%13 state-13]
       [%14 state-14]
+      [%15 state-15]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -339,6 +340,21 @@
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
   ==
++$  state-15
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+      import-run=(unit import-run:rover)
+  ==
 +$  card  card:agent:gall
 --
 =>  |%
@@ -391,14 +407,107 @@
   ^-  @t
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
+++  import-lookup-cards
+  |=  [our=@p run=import-run:rover]
+  ^-  (list card)
+  ?~  remaining.run
+    ~
+  =/  wir=wire  /rover-import-lookup/(scot %ud serial.run)
+  =/  jon  !>([%tape %rover (work-lookup:imp i.remaining.run)])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  import-write-cards
+  |=  [our=@p serial=@ud script=tape]
+  ^-  (list card)
+  =/  wir=wire  /rover-import-write/(scot %ud serial)
+  =/  jon  !>([%tape %rover script])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  import-support-cards
+  |=  [our=@p serial=@ud fill=import-fill:rover]
+  ^-  (list card)
+  =/  wir=wire  /rover-import-support/(scot %ud serial)
+  =/  jon  !>([%tape %rover (fill-support-lookup:imp fill)])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  import-comparison-cards
+  |=  [our=@p serial=@ud fill=import-fill:rover]
+  ^-  (list card)
+  =/  wir=wire  /rover-import-comparison/(scot %ud serial)
+  =/  jon  !>([%tape %rover (fill-comparison-lookup:imp fill)])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  import-comparison-tail-cards
+  |=  [our=@p serial=@ud fill=import-fill:rover]
+  ^-  (list card)
+  =/  wir=wire  /rover-import-comparison-tail/(scot %ud serial)
+  =/  jon  !>([%tape %rover (fill-comparison-tail-lookup:imp fill)])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  continue-import
+  |=  [sat=state-15 our=@p run=import-run:rover]
+  ^-  [(list card) state-15]
+  ?~  remaining.run
+    :_  sat(import-run ~)
+    %:  http-give
+        eyre-id.run
+        200
+        ['content-type' 'text/plain']~
+        `(text-octs (report-text:imp report.run))
+    ==
+  [(import-lookup-cards our run) sat(import-run `run)]
+::
+++  import-detail
+  |=  [prefix=@t work=import-work:rover detail=@t]
+  ^-  @t
+  %-  crip
+  ;:  weld
+    (trip prefix)
+    ": "
+    (trip (work-name:imp work))
+    ?:  =(0 detail)
+      ""
+    ;:  weld
+      " - "
+      (trip detail)
+    ==
+  ==
+::
 ++  handle-http
-  |=  [sat=state-14 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-14]
+  |=  [sat=state-15 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-15]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?:  =(%'POST' method.request.req)
+    ?:  =('/apps/rover/import' url.request.req)
+      ?^  import-run.sat
+        [(http-give eyre-id 409 ['content-type' 'text/plain']~ `(text-octs 'An import is already running')) sat]
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: import')) sat]
+      =/  decoded  (decode-import:entry `@t`q.u.body.request.req)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  run=import-run:rover
+        :*  eyre-id
+            %.n
+            1
+            (import-works:imp p.decoded)
+            (initial-report:imp p.decoded)
+        ==
+      (continue-import sat our.bowl run)
+    ::
     ?:  =('/apps/rover/add-consumable' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: consumable')) sat]
@@ -764,7 +873,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-14
+=|  state-15
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -776,7 +885,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%14 state])
+++  on-save  !>([%15 state])
 ::
 ++  on-load
   |=  old=vase
@@ -784,21 +893,22 @@
   =/  s  !<(versioned-state old)
   =/  loaded=_this
     ?-  -.s
-      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ ~])
-      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~ ~])
-      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~ ~])
-      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~])
-      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~])
-      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~])
-      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~])
-      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~])
-      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~])
-      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~])
-      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
-      %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
-      %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
-      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
-      %14  this(state +.s)
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~ ~ ~])
+      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~ ~])
+      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~])
+      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~])
+      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~ ~])
+      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~ ~])
+      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~ ~])
+      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~ ~])
+      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -2582,6 +2692,463 @@
     ::
         %kick
       `this(http-pending (~(del by http-pending) wire), charge-pending (~(del by charge-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-import-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  run-unit  import-run
+      ?~  run-unit
+        `this
+      =/  run  u.run-unit
+      ?~  remaining.run
+        `this(import-run ~)
+      =/  work  i.remaining.run
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  advance
+        |=  next=import-run:rover
+        ^-  (quip card _this)
+        =/  continued=[(list card) state-15]
+          (continue-import state our.bowl next)
+        [-.continued this(state +.continued)]
+      =/  fail
+        |=  detail=@t
+        ^-  (quip card _this)
+        =/  report
+          %_  report.run
+            failures  +(failures.report.run)
+            messages  [(import-detail 'Failure' work detail) messages.report.run]
+          ==
+        (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+      ?:  ?=(%.n -.res)
+        (fail 'database lookup refused')
+      =/  commands  p.res
+      ?-  -.work
+        %energy
+          =/  rows  (rows-at:view commands 0)
+          ?:  (gth (lent rows) 1)
+            (fail 'ambiguous existing label')
+          ?^  rows
+            =/  report
+              report.run(definitions-reused +(definitions-reused.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script  (insert-energy:imp base value.work now.bowl)
+          =/  report
+            report.run(definitions-created +(definitions-created.report.run))
+          =/  next
+            run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        %simple
+          =/  rows  (rows-at:view commands 0)
+          ?:  (gth (lent rows) 1)
+            (fail 'ambiguous existing label')
+          ?^  rows
+            =/  report
+              report.run(definitions-reused +(definitions-reused.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script
+            (insert-simple:imp base kind.work label.value.work now.bowl)
+          =/  report
+            report.run(definitions-created +(definitions-created.report.run))
+          =/  next
+            run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        %place
+          =/  places  (rows-at:view commands 0)
+          =/  stations  (rows-at:view commands 1)
+          ?:  ?|  (gth (lent places) 1)
+                  (gth (lent stations) 1)
+              ==
+            (fail 'ambiguous existing label')
+          ?^  stations
+            ?~  places
+              (fail 'station label exists without the matching place label')
+            ?.  =((cell-atom:view %place-id i.places) (cell-atom:view %place-id i.stations))
+              (fail 'station label is linked to a different place')
+            =/  report
+              report.run(places-reused +(places-reused.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  existing-place-id=(unit @ux)
+            ?~  places
+              ~
+            ``@ux`(cell-atom:view %place-id i.places)
+          =/  report
+            ?^  existing-place-id
+              report.run(places-reused +(places-reused.report.run))
+            report.run(places-created +(places-created.report.run))
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script
+            %:  insert-place:imp
+                base
+                value.work
+                station-kind.work
+                existing-place-id
+                now.bowl
+            ==
+          =/  next
+            run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        %vehicle
+          =/  vehicles  (rows-at:view commands 0)
+          ?:  (gth (lent vehicles) 1)
+            (fail 'ambiguous existing label')
+          ?^  vehicles
+            =/  report
+              report.run(vehicles-reused +(vehicles-reused.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  definitions  (rows-at:view commands 1)
+          =/  modes  (rows-at:view commands 2)
+          =/  default
+            (row-by-text:view %label default-energy.value.work definitions)
+          ?~  default
+            (fail 'default energy definition was not found')
+          =/  definition-ids
+            %+  turn  definitions
+            |=  row=vector:ast
+            `@ux`(cell-atom:view %energy-definition-id row)
+          =/  mode-ids
+            %+  turn  modes
+            |=  row=vector:ast
+            `@ux`(cell-atom:view %mode-id row)
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script
+            %:  insert-import-vehicle:imp
+                base
+                value.work
+                `@ux`(cell-atom:view %energy-definition-id u.default)
+                definition-ids
+                mode-ids
+                now.bowl
+            ==
+          =/  report
+            report.run(vehicles-created +(vehicles-created.report.run))
+          =/  next
+            run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        %fill
+          ?.  (gte (lent commands) 1)
+            (fail 'incomplete database lookup result')
+          =/  existing  (rows-at:view commands 0)
+          ?:  (gth (lent existing) 1)
+            =/  report
+              %_  report.run
+                conflicts  +(conflicts.report.run)
+                messages
+                  [(import-detail 'Conflict' work 'ambiguous provenance') messages.report.run]
+              ==
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          ?^  existing
+            =/  differences  (existing-main-differences:imp value.work commands)
+            ?~  differences
+              :_  this
+              (import-comparison-cards our.bowl serial.run value.work)
+            =/  report
+              %_  report.run
+                conflicts  +(conflicts.report.run)
+                messages
+                  [(import-detail 'Conflict' work (join-fields:imp differences)) messages.report.run]
+              ==
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  mismatches
+            (fill-unit-mismatches:imp distance-unit.work volume-unit.work value.work)
+          ?^  mismatches
+            (fail (cat 3 'unit mismatch: ' (join-fields:imp mismatches)))
+          :_  this
+          (import-support-cards our.bowl serial.run value.work)
+      ==
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-import-comparison *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  run-unit  import-run
+      ?~  run-unit
+        `this
+      =/  run  u.run-unit
+      ?~  remaining.run
+        `this(import-run ~)
+      =/  work  i.remaining.run
+      =/  advance
+        |=  next=import-run:rover
+        ^-  (quip card _this)
+        =/  continued=[(list card) state-15]
+          (continue-import state our.bowl next)
+        [-.continued this(state +.continued)]
+      =/  fail
+        |=  detail=@t
+        ^-  (quip card _this)
+        =/  report
+          %_  report.run
+            failures  +(failures.report.run)
+            messages  [(import-detail 'Failure' work detail) messages.report.run]
+          ==
+        (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+      ?.  =(%fill -.work)
+        (fail 'internal comparison lookup mismatch')
+      =/  fill  (fill-work-value:imp work)
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        (fail 'database comparison lookup refused')
+      ?.  (gte (lent p.res) 6)
+        (fail 'incomplete database comparison lookup result')
+      =/  differences  (existing-child-differences:imp fill p.res)
+      ?~  differences
+        :_  this
+        (import-comparison-tail-cards our.bowl serial.run fill)
+      =/  report
+        %_  report.run
+          conflicts  +(conflicts.report.run)
+          messages
+            [(import-detail 'Conflict' work (join-fields:imp differences)) messages.report.run]
+        ==
+      (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-import-comparison-tail *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  run-unit  import-run
+      ?~  run-unit
+        `this
+      =/  run  u.run-unit
+      ?~  remaining.run
+        `this(import-run ~)
+      =/  work  i.remaining.run
+      =/  advance
+        |=  next=import-run:rover
+        ^-  (quip card _this)
+        =/  continued=[(list card) state-15]
+          (continue-import state our.bowl next)
+        [-.continued this(state +.continued)]
+      =/  fail
+        |=  detail=@t
+        ^-  (quip card _this)
+        =/  report
+          %_  report.run
+            failures  +(failures.report.run)
+            messages  [(import-detail 'Failure' work detail) messages.report.run]
+          ==
+        (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+      ?.  =(%fill -.work)
+        (fail 'internal comparison-tail lookup mismatch')
+      =/  fill  (fill-work-value:imp work)
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        (fail 'database comparison-tail lookup refused')
+      ?.  (gte (lent p.res) 5)
+        (fail 'incomplete database comparison-tail lookup result')
+      =/  differences  (existing-tail-differences:imp fill p.res)
+      ?~  differences
+        =/  report
+          report.run(already-imported +(already-imported.report.run))
+        (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+      =/  report
+        %_  report.run
+          conflicts  +(conflicts.report.run)
+          messages
+            [(import-detail 'Conflict' work (join-fields:imp differences)) messages.report.run]
+        ==
+      (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-import-support *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  run-unit  import-run
+      ?~  run-unit
+        `this
+      =/  run  u.run-unit
+      ?~  remaining.run
+        `this(import-run ~)
+      =/  work  i.remaining.run
+      =/  advance
+        |=  next=import-run:rover
+        ^-  (quip card _this)
+        =/  continued=[(list card) state-15]
+          (continue-import state our.bowl next)
+        [-.continued this(state +.continued)]
+      =/  fail
+        |=  detail=@t
+        ^-  (quip card _this)
+        =/  report
+          %_  report.run
+            failures  +(failures.report.run)
+            messages  [(import-detail 'Failure' work detail) messages.report.run]
+          ==
+        (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+      ?.  =(%fill -.work)
+        (fail 'internal support lookup mismatch')
+      =/  fill  (fill-work-value:imp work)
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        (fail 'database support lookup refused')
+      =/  commands  p.res
+      ?.  (gte (lent commands) 7)
+        (fail 'incomplete database support lookup result')
+      =/  input  (canonical-fill:imp input.fill)
+      =/  supports  (rows-at:view commands 0)
+      ?.  =(1 (lent supports))
+        (fail 'vehicle or energy definition was not found')
+      =/  support  (snag 0 supports)
+      ?.  =(%reservoir (cell-term:view %physical-kind support))
+        (fail 'energy definition is not a reservoir fuel')
+      =/  quantity-unit  (cell-term:view %quantity-unit support)
+      ?.  =((fill-volume-unit:imp price-profile.input) quantity-unit)
+        (fail 'fill profile and energy quantity unit differ')
+      =/  station-rows  (rows-at:view commands 1)
+      =/  station-id=(unit @ux)
+        ?~  station-label.input
+          ~
+        =/  found
+          (row-by-text:view %label u.station-label.input station-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %station-id u.found)
+      ?:  ?&  ?=(^ station-label.input)
+              ?=(~ station-id)
+          ==
+        (fail 'station was not found')
+      =/  additive-proof
+        (ids-for-labels:view additive-labels.input (rows-at:view commands 2) %label %additive-id)
+      ?:  ?=(%| -.additive-proof)
+        (fail 'an additive definition was not found')
+      =/  subtype-id=(unit @ux)
+        ?~  subtype-label.input
+          ~
+        =/  found
+          (row-by-text:view %label u.subtype-label.input (rows-at:view commands 3))
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %subtype-id u.found)
+      ?:  ?&  ?=(^ subtype-label.input)
+              ?=(~ subtype-id)
+          ==
+        (fail 'energy subtype was not found')
+      =/  driving-mode-id=(unit @ux)
+        ?~  driving-mode-label.input
+          ~
+        =/  found
+          (row-by-text:view %label u.driving-mode-label.input (rows-at:view commands 4))
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %mode-id u.found)
+      ?:  ?&  ?=(^ driving-mode-label.input)
+              ?=(~ driving-mode-id)
+          ==
+        (fail 'driving mode was not linked to the vehicle')
+      =/  tag-proof
+        (ids-for-labels:view tag-labels.input (rows-at:view commands 5) %label %tag-id)
+      ?:  ?=(%| -.tag-proof)
+        (fail 'a tag definition was not found')
+      =/  payment-method-id=(unit @ux)
+        ?~  payment-method-label.input
+          ~
+        =/  found
+          (row-by-text:view %label u.payment-method-label.input (rows-at:view commands 6))
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %method-id u.found)
+      ?:  ?&  ?=(^ payment-method-label.input)
+              ?=(~ payment-method-id)
+          ==
+        (fail 'payment method was not found')
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  ids=entry-ids:act
+        :*  (fixture-id:act base 101)
+            (fixture-id:act base 102)
+            (fixture-id:act base 103)
+            (fixture-id:act base 104)
+            (fixture-id:act base 105)
+        ==
+      =/  script
+        %:  insert-import-fill:imp
+            ids
+            `@ux`(cell-atom:view %vehicle-id support)
+            `@ux`(cell-atom:view %energy-definition-id support)
+            quantity-unit
+            station-id
+            p.additive-proof
+            subtype-id
+            driving-mode-id
+            p.tag-proof
+            payment-method-id
+            input
+            source-app.fill
+            source-record-id.fill
+            now.bowl
+        ==
+      =/  next
+        run(writing %.y, serial +(serial.run))
+      :_  this(import-run `next)
+      (import-write-cards our.bowl serial.run script)
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-import-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  run-unit  import-run
+      ?~  run-unit
+        `this
+      =/  run  u.run-unit
+      ?~  remaining.run
+        `this(import-run ~)
+      =/  work  i.remaining.run
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  report
+        ?:  ?=(%.n -.res)
+          %_  report.run
+            failures  +(failures.report.run)
+            messages
+              [(import-detail 'Failure' work 'atomic database mutation refused') messages.report.run]
+          ==
+        ?:  =(%fill -.work)
+          report.run(imported +(imported.report.run))
+        report.run
+      =/  next
+        run(writing %.n, remaining t.remaining.run, report report)
+      =/  continued=[(list card) state-15]
+        (continue-import state our.bowl next)
+      [-.continued this(state +.continued)]
+    ::
+        %kick
+      `this
     ::
         %watch-ack
       `this
