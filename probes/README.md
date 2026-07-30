@@ -95,9 +95,28 @@ Writes only to `impprobe`, never `%rover`. One-shot: re-running fails on
 (`DROP DATABASE impprobe`) to re-run, since the agent tooling blocks that as
 destructive.
 
+### `address-q9.hoon`
+Import Q9. Pours the amended address family into a **throwaway `addrq9probe`
+database** and inserts four synthetic places: formatted text plus parts,
+parts-only, formatted-only, and no address evidence.
+
+Expect four result sets:
+
+1. All four places exist.
+2. Exactly three have `place-addresses` parents; `No Address Place` does not.
+3. Exactly two have `place-address-formatted` children: `Both Evidence Place`
+   and `Formatted Only Place`.
+4. Parts read back for `Both Evidence Place` and `Parts Only Place`; the
+   parts-only place has both `%line1` and `%locality`.
+
+The parts-only row is the rejected-alternative hazard: the pre-Q9 schema could
+not store it because `formatted` was mandatory on the parent. The probe uses
+two separate pokes because `CREATE DATABASE` and a query against it cannot
+share one request. It writes only to `addrq9probe`, never `%rover`, and is
+one-shot unless that throwaway database is dropped from the dojo.
+
 ## PITFALL: `;<` bindings need explicit types
 
 `;<  [pour-mark pour-vase]  bind:m  (take-fact wire)` fails with `find pour-mark`. Bare
 names are not a valid binding pattern. Use `[mark =vase]` or annotate:
 `[pour-mark=@tas pour-vase=vase]`.
-

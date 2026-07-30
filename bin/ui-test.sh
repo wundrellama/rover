@@ -1532,9 +1532,9 @@ name_only_report="$(click_file "=/  m  (strand ,vase)
 (pure:m !>(result))")"
 grep -Fq "$name_only_station" <<<"$name_only_report" \
   || fail "fixture 41 station row missing: $name_only_report"
-[ "$(grep -oF '[%vector-count 0]' <<<"$name_only_report" | wc -l)" -eq 3 ] \
-  || fail "fixture 41 name-only station wrote address/part/coordinate evidence: $name_only_report"
-note "fixture 41 PASS - name-only manual station writes no empty address rows and no zero-coordinate row"
+[ "$(grep -oF '[%vector-count 0]' <<<"$name_only_report" | wc -l)" -eq 4 ] \
+  || fail "fixture 41 name-only station wrote address/formatted/part/coordinate evidence: $name_only_report"
+note "fixture 41 PASS - name-only manual station writes no empty address or formatted rows and no zero-coordinate row"
 if [ "${ROVER_FIXTURE_STOP:-}" = 41 ]; then
   exit 0
 fi
@@ -1979,6 +1979,30 @@ if ! grep -q 'Phase A Vehicle' <<<"$view"; then
     grep -q '%noun 0' <<<"$support_result" \
       || fail "real-substrate support seed failed ($support_action): $support_result"
   done
+fi
+location_q9_report="$(click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%location-report ~]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))')"
+for expected in \
+  "\\[%place 116 'Parts Only Depot'\\] \\[%part %tas 'line1'\\] \\[%value 116 '900 Depot Rd'\\]" \
+  "\\[%place 116 'Parts Only Depot'\\] \\[%part %tas %locality\\] \\[%value 116 'Aurora'\\]"; do
+  grep -q "$expected" <<<"$location_q9_report" ||
+    fail "fixture 93 parts-only address evidence missing ($expected): $location_q9_report"
+done
+if grep -q '\[%parts-only-with-formatted ' <<<"$location_q9_report"; then
+  fail "fixture 93 parts-only place unexpectedly has formatted text: $location_q9_report"
+fi
+if grep -q '\[%private-place-with-address ' <<<"$location_q9_report"; then
+  fail "fixture 93 no-address place unexpectedly has an address parent: $location_q9_report"
+fi
+note "fixture 93 PASS - parts-only address reads line1/locality with no formatted child, while no-address place remains unaffected"
+if [ "${ROVER_FIXTURE_STOP:-}" = 93 ]; then
+  exit 0
 fi
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "seeded vehicle view not 200"

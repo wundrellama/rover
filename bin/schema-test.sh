@@ -34,10 +34,10 @@ import sys
 source = pathlib.Path(sys.argv[1]).read_text()
 ddl = "\n".join(line.split("--", 1)[0] for line in source.splitlines())
 tables = re.findall(r"CREATE TABLE rover\.\.([a-z0-9-]+)", source)
-if len(tables) != 64 or len(set(tables)) != 64:
+if len(tables) != 67 or len(set(tables)) != 67:
     raise SystemExit(
         f"schema-test: FAIL - DDL has {len(tables)} tables, "
-        f"{len(set(tables))} unique (want 64/64)"
+        f"{len(set(tables))} unique (want 67/67)"
     )
 
 seen = set()
@@ -59,19 +59,81 @@ fk_count = len(re.findall(r"\bREFERENCES [a-z0-9-]+", ddl))
 restrict_count = len(re.findall(
     r"ON DELETE RESTRICT ON UPDATE RESTRICT", ddl
 ))
-if fk_count != 71 or restrict_count != 71:
+if fk_count != 74 or restrict_count != 74:
     raise SystemExit(
         f"schema-test: FAIL - DDL has {fk_count} FKs and "
-        f"{restrict_count} explicit RESTRICT pairs (want 71/71)"
+        f"{restrict_count} explicit RESTRICT pairs (want 74/74)"
     )
 print(
-    "schema-test: PASS - DDL has 64 unique tables, "
-    "71 explicit RESTRICT FKs, zero forward references"
+    "schema-test: PASS - DDL has 67 unique tables, "
+    "74 explicit RESTRICT FKs, zero forward references"
 )
 PY
 
 [ -S "$PIER/.urb/conn.sock" ] ||
   fail "no conn.sock under $PIER"
+
+click_file() {
+  local body="$1" file out
+  file="$(mktemp /tmp/rover-schema-test.XXXXXX.hoon)"
+  printf '%s\n' "$body" > "$file"
+  out="$(click -k -i "$file" "$PIER" 2>/dev/null | tail -1)"
+  rm -f "$file"
+  printf '%s\n' "$out"
+}
+
+database_report() {
+  click -k -i "$REPO/probes/live-database-list.hoon" "$PIER" 2>/dev/null |
+    tail -1
+}
+
+database_exists() {
+  local report="$1" database="$2"
+  grep -Fq "[%database %tas %$database]" <<<"$report"
+}
+
+obelisk_mutate() {
+  local database="$1" query="$2"
+  click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+=/  wire  /rover-schema-test-mutation
+;<  ~  bind:m  (watch wire [our %obelisk] /server)
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %$database \"$query\"]))
+;<  [mark =vase]  bind:m  (take-fact wire)
+;<  ~  bind:m  (take-kick wire)
+(pure:m vase)"
+}
+
+BACKUP_DB="roverschematestowner"
+DB_SWAPPED=0
+
+restore_database() {
+  local report
+  [ "$DB_SWAPPED" -eq 1 ] || return 0
+  report="$(database_report)"
+  database_exists "$report" "$BACKUP_DB" ||
+    { echo "schema-test: cleanup refused: owner backup database is absent" >&2; return 1; }
+  if database_exists "$report" rover; then
+    obelisk_mutate sys "DROP DATABASE FORCE rover" >/dev/null || return 1
+  fi
+  obelisk_mutate sys "ALTER DATABASE $BACKUP_DB RENAME TO rover" >/dev/null || return 1
+  DB_SWAPPED=0
+}
+trap restore_database EXIT
+
+report="$(database_report)"
+database_exists "$report" rover ||
+  fail "owner-facing rover database is absent"
+database_exists "$report" "$BACKUP_DB" &&
+  fail "fixture isolation backup database already exists: $BACKUP_DB"
+obelisk_mutate sys "ALTER DATABASE rover RENAME TO $BACKUP_DB" >/dev/null
+DB_SWAPPED=1
+click -k -i "$REPO/probes/init-db.hoon" "$PIER" >/dev/null 2>&1
+report="$(database_report)"
+database_exists "$report" rover ||
+  fail "fixture isolation did not create a disposable rover database"
+database_exists "$report" "$BACKUP_DB" ||
+  fail "fixture isolation lost the renamed owner database"
 
 live="$(click -k -i "$REPO/probes/verify-schema.hoon" "$PIER" 2>/dev/null |
   tail -1)"
@@ -80,10 +142,10 @@ mapfile -t counts < <(
 )
 [ "${#counts[@]}" -eq 3 ] ||
   fail "could not read table/column/FK counts from live metadata"
-[ "${counts[0]}" -eq 64 ] ||
-  fail "live Obelisk has ${counts[0]} relations (want 64)"
-[ "${counts[2]}" -eq 74 ] ||
-  fail "live Obelisk has ${counts[2]} FK metadata rows (want 74)"
+[ "${counts[0]}" -eq 67 ] ||
+  fail "live Obelisk has ${counts[0]} relations (want 67)"
+[ "${counts[2]}" -eq 77 ] ||
+  fail "live Obelisk has ${counts[2]} FK metadata rows (want 77)"
 
 if grep -Eq '\[%on-(delete|update) %tas %(cascade|set-default)\]' <<<"$live"; then
   fail "live Obelisk metadata contains cascade or set-default"
@@ -91,9 +153,10 @@ fi
 
 restrict_delete="$(grep -o '\[%on-delete %tas %restrict\]' <<<"$live" | wc -l)"
 restrict_update="$(grep -o '\[%on-update %tas %restrict\]' <<<"$live" | wc -l)"
-[ "$restrict_delete" -eq 74 ] ||
-  fail "live metadata has $restrict_delete RESTRICT deletes (want 74)"
-[ "$restrict_update" -eq 74 ] ||
-  fail "live metadata has $restrict_update RESTRICT updates (want 74)"
+[ "$restrict_delete" -eq 77 ] ||
+  fail "live metadata has $restrict_delete RESTRICT deletes (want 77)"
+[ "$restrict_update" -eq 77 ] ||
+  fail "live metadata has $restrict_update RESTRICT updates (want 77)"
 
-pass "fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default"
+pass "fixture 17 - isolated live Obelisk has 67 relations; all 74 FK constraints (77 column rows) are RESTRICT; zero cascade/set-default"
+pass "COVERAGE - all 1 defined fixtures executed"
