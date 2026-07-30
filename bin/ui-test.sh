@@ -1512,7 +1512,32 @@ grep -Fq '[%latitude-scaled 25715 0x31ec2fa0] [%longitude-scaled 25715 0x68767df
 if grep -Fq "[%part %tas %line2]" <<<"$address_station_report"; then
   fail "fixture 40 omitted address line2 wrote a child row: $address_station_report"
 fi
-note "fixture 40 PASS - manual station persists owner address parts and scale-7 coordinates while omitted parts create no rows"
+parts_only_station="Parts Address Station $(date +%s%N)"
+parts_only_place="Parts Address Place $(date +%s%N)"
+parts_only_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"4.000","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-28T13:00","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"new","newStationLabel":"%s","newPlaceLabel":"%s","newStationKind":"fuel","newAddressLine1":"20 Example Road","newLocality":"Sampletown","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' "$fill_edit_vehicle" "$parts_only_station" "$parts_only_place")" \
+  "$URL/apps/rover/add-fill")"
+[ "$parts_only_result" = $'Saved fill - $3.499 - derived $14.00\n201' ] \
+  || fail "fixture 40 parts-only station create failed: $parts_only_result"
+parts_only_report="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%station-report (crip \"$parts_only_station\")]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
+(pure:m !>(result))")"
+grep -Fq "$parts_only_station" <<<"$parts_only_report" \
+  || fail "fixture 40 parts-only station row missing: $parts_only_report"
+grep -Fq '20 Example Road' <<<"$parts_only_report" \
+  || fail "fixture 40 parts-only line1 missing: $parts_only_report"
+grep -Fq 'Sampletown' <<<"$parts_only_report" \
+  || fail "fixture 40 parts-only locality missing: $parts_only_report"
+if grep -Fq '[%formatted ' <<<"$parts_only_report"; then
+  fail "fixture 40 parts-only station synthesized a formatted child: $parts_only_report"
+fi
+note "fixture 40 PASS - manual stations persist formatted+parts and parts-only address evidence; omitted children create no rows"
 
 name_only_station="Name Only Station $(date +%s%N)"
 name_only_place="Name Only Place $(date +%s%N)"

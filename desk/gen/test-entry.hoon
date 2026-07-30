@@ -22,6 +22,19 @@
 ?>  =(%private station-kind.u.new-station.p.good)
 ?>  =(2 (lent additive-labels.p.good))
 ::
+=/  parts-only
+  %-  decode-fill:entry
+  '{"vehicle":"Fixture Vehicle","definition":"Fixture Fuel","quantity":"4.250","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-30T09:15","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"new","newStationLabel":"Parts Station","newPlaceLabel":"Parts Place","newStationKind":"fuel","newAddressLine1":"20 Example Road","newLocality":"Sampletown","additives":[]}'
+?>  ?=(%& -.parts-only)
+?>  ?=(^ new-station.p.parts-only)
+?>  ?=(^ address.u.new-station.p.parts-only)
+=/  parts-address  u.address.u.new-station.p.parts-only
+?>  ?=(~ formatted.parts-address)
+?>  ?=(^ line1.parts-address)
+?>  =('20 Example Road' u.line1.parts-address)
+?>  ?=(^ locality.parts-address)
+?>  =('Sampletown' u.locality.parts-address)
+::
 =/  bad
   %-  decode-fill:entry
   '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"twelve","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T21:30","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[]}'

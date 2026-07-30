@@ -294,14 +294,12 @@
           ?=(^ postal-code)
           ?=(^ country)
       ==
-    ?:  ?&  any-part
-            ?=(~ formatted)
-        ==
-      ~
     =/  address=(unit station-address-entry:rover)
-      ?~  formatted
+      ?.  ?|  ?=(^ formatted)
+              any-part
+          ==
         ~
-      `[u.formatted line1 line2 locality region postal-code country]
+      `[formatted line1 line2 locality region postal-code country]
     =/  latitude-text  (optional-text 'newLatitude' object)
     =/  longitude-text  (optional-text 'newLongitude' object)
     ?:  !=(?=(~ latitude-text) ?=(~ longitude-text))

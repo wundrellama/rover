@@ -25,9 +25,54 @@
       [%11 state-11]
       [%12 state-12]
       [%13 state-13]
+      [%14 state-14]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
++$  station-address-entry-13
+  $:  formatted=@t
+      line1=(unit @t)
+      line2=(unit @t)
+      locality=(unit @t)
+      region=(unit @t)
+      postal-code=(unit @t)
+      country=(unit @t)
+  ==
++$  new-station-entry-13
+  $:  place-label=@t
+      station-label=@t
+      station-kind=station-kind:rover
+      address=(unit station-address-entry-13)
+      coordinates=(unit station-coordinate-entry:rover)
+  ==
++$  fill-entry-13
+  $:  vehicle-label=@t
+      definition-label=@t
+      quantity-milli=@ud
+      unit-price-mills=@ud
+      price-display=@t
+      currency=currency:rover
+      price-profile=price-profile:rover
+      minor-unit-decimals=@ud
+      cash-increment-mills=@ud
+      tank-state=tank-state:rover
+      settlement-mode=settlement-mode:rover
+      observed-start=@da
+      source-zone=@t
+      mileage=(unit odo-reading:rover)
+      station-label=(unit @t)
+      new-station=(unit new-station-entry-13)
+      additive-labels=(list @t)
+      subtype-label=(unit @t)
+      missed-fill=?
+      driving-mode-label=(unit @t)
+      average-speed=(unit scaled-entry:rover)
+      drive-balance=(unit @ud)
+      tag-labels=(list @t)
+      new-tag-label=(unit @t)
+      notes=(unit @t)
+      payment-method-label=(unit @t)
+  ==
 +$  fill-entry-5
   $:  vehicle-label=@t
       definition-label=@t
@@ -274,6 +319,20 @@
       charging-total=(unit charging-total-proof:rover)
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry-13)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+  ==
++$  state-14
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry:rover)
       charge-pending=(map wire charge-entry:rover)
       odometer-pending=(map wire odometer-entry:rover)
@@ -333,8 +392,8 @@
   (cat 3 '%' (cat 3 (scot %tas class.verdict) (cat 3 ': ' field.verdict)))
 ::
 ++  handle-http
-  |=  [sat=state-13 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-13]
+  |=  [sat=state-14 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-14]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -705,7 +764,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-13
+=|  state-14
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -717,7 +776,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%13 state])
+++  on-save  !>([%14 state])
 ::
 ++  on-load
   |=  old=vase
@@ -738,7 +797,8 @@
       %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
       %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
       %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
-      %13  this(state +.s)
+      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s])
+      %14  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::

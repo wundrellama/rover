@@ -58,7 +58,7 @@
 +$  scaled-entry  [digits=@ud places=@ud value-unit=@tas]
 +$  entry-verdict  [class=@tas field=@t]
 +$  station-address-entry
-  $:  formatted=@t
+  $:  formatted=(unit @t)
       line1=(unit @t)
       line2=(unit @t)
       locality=(unit @t)

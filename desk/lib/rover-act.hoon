@@ -2655,21 +2655,25 @@
           (sql-quote u.value)
           "');"
         ==
+      =/  formatted-row=tape
+        ?~  formatted.address
+          ~
+        ;:  weld
+          " INSERT INTO place-address-formatted VALUES ("
+          place
+          ", '"
+          (sql-quote u.formatted.address)
+          "');"
+        ==
       ;:  weld
         " INSERT INTO place-addresses VALUES ("
         place
         ", %owner, "
         recorded
         ");"
-        ::  Q9: formatted is its own child row now, so a source supplying only
-        ::  structured parts is recordable. This owner-entry path always has
-        ::  formatted text (decode-fill requires it here), so it always writes
-        ::  the child - satisfying the at-least-one-child invariant either way.
-        " INSERT INTO place-address-formatted VALUES ("
-        place
-        ", '"
-        (sql-quote formatted.address)
-        "');"
+        ::  Q9: parent evidence may have formatted text, structured parts, or
+        ::  both. decode-fill enforces that at least one child is present.
+        formatted-row
         (part-row %line1 line1.address)
         (part-row %line2 line2.address)
         (part-row %locality locality.address)
