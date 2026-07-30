@@ -2025,7 +2025,10 @@ fi
 if grep -q '\[%private-place-with-address ' <<<"$location_q9_report"; then
   fail "fixture 93 no-address place unexpectedly has an address parent: $location_q9_report"
 fi
-note "fixture 93 PASS - parts-only address reads line1/locality with no formatted child, while no-address place remains unaffected"
+location_q9_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+grep -q 'Aurora' <<<"$location_q9_view" \
+  || fail "fixture 93 parts-only locality is stored but absent from the served view"
+note "fixture 93 PASS - parts-only address reads and renders locality with no formatted child, while no-address place remains unaffected"
 if [ "${ROVER_FIXTURE_STOP:-}" = 93 ]; then
   exit 0
 fi
