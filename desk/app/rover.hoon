@@ -2879,7 +2879,7 @@
           u.eyre-id
           200
           ['content-type' 'text/html']~
-          `(as-octs:mimes:html (page:view p.res))
+          `(as-octs:mimes:html (page:view our.bowl p.res))
       ==
     ::
         %kick

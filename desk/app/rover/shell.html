@@ -44,6 +44,8 @@
       --rv-olive: #4e451f;
       --rv-warn: #e07b2c;
       --rv-ok: #b8b95e;
+      --rv-glow-alpha: 0.32;
+      --rv-glow-blur: 0.32rem;
       color-scheme: dark;
       font-family: "Berkeley Mono", "DejaVu Sans Mono", ui-monospace, monospace;
       font-variant-numeric: tabular-nums;
@@ -122,7 +124,7 @@
     }
 
     .wide-designation {
-      display: none;
+      display: inline;
     }
 
     main {
@@ -348,6 +350,77 @@
       margin-bottom: 1rem;
     }
 
+    .vehicle-settings-form,
+    .preference-form {
+      display: grid;
+      min-width: 0;
+      gap: 0.9rem;
+      margin: 1rem 0;
+    }
+
+    .vehicle-settings-form > label,
+    .vehicle-settings-group > label:not(.check-option),
+    .preference-form label {
+      display: grid;
+      min-width: 0;
+      gap: 0.35rem;
+      color: var(--rv-amber-dim);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .vehicle-settings-form input:not([type="checkbox"]),
+    .vehicle-settings-form select,
+    .preference-form select {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      padding: 0.65rem;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .vehicle-settings-group {
+      min-width: 0;
+      margin: 0;
+      padding: 0.8rem;
+      border: 1px solid var(--rv-olive);
+    }
+
+    .vehicle-settings-group legend {
+      padding: 0 0.35rem;
+      color: var(--rv-amber-bright);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .vehicle-settings-group > label + label,
+    .vehicle-settings-group > button + label {
+      margin-top: 0.75rem;
+    }
+
+    .vehicle-settings-group > button {
+      width: 100%;
+      margin-top: 0.75rem;
+    }
+
+    .vehicle-settings-group .input-unit {
+      grid-template-columns: minmax(0, 1fr) minmax(5.5rem, 0.35fr);
+      gap: 0.5rem;
+    }
+
+    label[data-def-tank-row][hidden] {
+      display: none;
+    }
+
+    .archive-vehicle-control {
+      width: 100%;
+      margin-bottom: 1rem;
+      border-color: var(--rv-warn);
+      color: var(--rv-warn);
+    }
+
     .vehicle-settings {
       margin-bottom: 1rem;
       padding: 0.75rem;
@@ -565,6 +638,38 @@
       color: var(--rv-warn);
     }
 
+    .theme-glow-control {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+
+    .theme-glow-control label {
+      display: grid;
+      gap: 0.35rem;
+      min-width: 0;
+    }
+
+    .theme-glow-control input {
+      width: 100%;
+    }
+
+    .theme-glow-control input:disabled {
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+
+    .theme-glow-control output {
+      display: grid;
+      min-width: 3.5rem;
+      min-height: 44px;
+      place-items: center;
+      border: 1px solid var(--rv-olive);
+      color: var(--rv-amber-bright);
+    }
+
     .station-field,
     #fill-additives,
     #fill-tags,
@@ -684,14 +789,10 @@
     }
 
     .glow body {
-      text-shadow: 0 0 0.32rem rgba(216, 184, 67, 0.32);
+      text-shadow: 0 0 var(--rv-glow-blur) rgba(216, 184, 67, var(--rv-glow-alpha));
     }
 
     @media (min-width: 48rem) {
-      .wide-designation {
-        display: inline;
-      }
-
       main {
         padding-inline: 1.5rem;
       }
@@ -732,8 +833,8 @@
 </head>
 <body>
   <header class="terminal-header">
-    <p class="designation">
-      ROVER · VEHICLE LOG<span class="wide-designation"> · UA 571-C · UNIT 01</span>
+    <p id="rover-designation" class="designation">
+      ROVER · VEHICLE LOG<span class="wide-designation"> · <span id="header-ship">SHIP UNAVAILABLE</span> · <span id="header-vehicle">NO DEFAULT VEHICLE</span></span>
     </p>
     <button id="glow-toggle" type="button" aria-pressed="false">Glow off</button>
   </header>
@@ -750,18 +851,55 @@
     const status = document.getElementById('status');
     const refreshTime = document.getElementById('refresh-time');
     const glowToggle = document.getElementById('glow-toggle');
+    const headerShip = document.getElementById('header-ship');
+    const headerVehicle = document.getElementById('header-vehicle');
 
     let glow = false;
+    let glowIntensity = 20;
     try {
       glow = localStorage.getItem('rover-glow') === 'on';
+      const storedGlowIntensity =
+        localStorage.getItem('rover-glow-intensity');
+      const storedIntensity = Number(storedGlowIntensity);
+      if (
+        storedGlowIntensity !== null &&
+        Number.isInteger(storedIntensity) &&
+        storedIntensity >= 0 &&
+        storedIntensity <= 100
+      ) {
+        glowIntensity = storedIntensity;
+      }
     } catch (_) {
       glow = false;
+      glowIntensity = 20;
     }
 
     function showGlow() {
+      const alpha = Math.min(0.95, glowIntensity * 0.016);
+      const blur = glowIntensity * 0.016;
+      document.documentElement.style.setProperty(
+        '--rv-glow-intensity',
+        String(glowIntensity)
+      );
+      document.documentElement.style.setProperty(
+        '--rv-glow-alpha',
+        alpha.toFixed(3)
+      );
+      document.documentElement.style.setProperty(
+        '--rv-glow-blur',
+        `${blur.toFixed(3)}rem`
+      );
       document.documentElement.classList.toggle('glow', glow);
       glowToggle.setAttribute('aria-pressed', String(glow));
       glowToggle.textContent = glow ? 'Glow on' : 'Glow off';
+      app.querySelectorAll('[data-glow-intensity]').forEach((slider) => {
+        slider.value = String(glowIntensity);
+        slider.disabled = !glow;
+      });
+      app.querySelectorAll('[data-glow-intensity-output]').forEach((output) => {
+        output.value = `${glowIntensity}%`;
+        output.textContent = `${glowIntensity}%`;
+      });
     }
 
     glowToggle.addEventListener('click', () => {
@@ -774,6 +912,13 @@
       }
     });
     showGlow();
+
+    function syncHeader() {
+      const context = app.querySelector('#rover-header-data');
+      headerShip.textContent = context?.dataset.ship || 'SHIP UNAVAILABLE';
+      headerVehicle.textContent =
+        context?.dataset.vehicle || 'NO DEFAULT VEHICLE';
+    }
 
     function parseScaled(text, places) {
       const cleaned = text.trim().replaceAll(',', '');
@@ -817,6 +962,22 @@
     }
 
     function bindEntryScreens() {
+      app.querySelectorAll('[data-glow-intensity]').forEach((slider) => {
+        slider.value = String(glowIntensity);
+        slider.addEventListener('input', () => {
+          glowIntensity = Number(slider.value);
+          showGlow();
+          try {
+            localStorage.setItem(
+              'rover-glow-intensity',
+              String(glowIntensity)
+            );
+          } catch (_) {
+            // The live preference still works when storage is unavailable.
+          }
+        });
+      });
+      showGlow();
       const screens = [...app.querySelectorAll('.app-screen')];
       const defaultVehicle =
         app.querySelector('#app-default-data')?.dataset.vehicle || '';
@@ -929,6 +1090,17 @@
           input.addEventListener('change', syncDefaultEnergy);
         });
         syncDefaultEnergy();
+        const defToggle = settingsForm.elements.defEnabled;
+        const defTankRow = settingsForm.querySelector('[data-def-tank-row]');
+        const syncDefConfiguration = () => {
+          if (!defToggle || !defTankRow) return;
+          defTankRow.hidden = !defToggle.checked;
+          defTankRow.querySelectorAll('input, select').forEach((control) => {
+            control.disabled = !defToggle.checked;
+          });
+        };
+        defToggle?.addEventListener('change', syncDefConfiguration);
+        syncDefConfiguration();
         settingsForm.querySelector('[data-add-energy-source]')?.addEventListener('click', async () => {
           const label = prompt('Energy source label');
           if (!label?.trim()) return;
@@ -1464,6 +1636,7 @@
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         app.innerHTML = await response.text();
+        syncHeader();
         bindEntryScreens();
         status.textContent = 'Connected · current on navigation';
         refreshTime.textContent = `Updated ${new Date().toLocaleTimeString()}`;

@@ -2736,6 +2736,9 @@ asset_check() {
 
 asset_check /apps/rover/assets/tile.png image/png \
   "$REPO/desk/app/rover/assets/tile.png"
+tile_sha="$(sha256sum "$REPO/desk/app/rover/assets/tile.png" | awk '{print $1}')"
+[ "$tile_sha" = '26ad34c372e85691ff2953299fa3b6e27afe43f266eec87158be6b83c0f37a30' ] ||
+  fail "fixture 88 desk tile is not the supplied new image: $tile_sha"
 for face in Regular Bold Oblique Bold-Oblique; do
   asset_check "/apps/rover/assets/fonts/BerkeleyMono-$face.woff2" font/woff2 \
     "$REPO/desk/app/rover/assets/fonts/BerkeleyMono-$face.woff2"
@@ -2761,6 +2764,7 @@ note "PASS - docket charge is site /apps/rover with same-origin tile and no glob
     ;;
   *) fail "Rover site/tile docket charge not found: $charge" ;;
 esac
+note "fixture 88 PASS - new PNG serves exact bytes as image/png and the docket charges its same-origin tile path"
 
 type_suffix="$(date +%s%N)"
 added_energy_type="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
@@ -2818,6 +2822,124 @@ grep -q 'data-vehicle-settings-panel data-vehicle="Fuel Evidence Vehicle".*ARCHI
   <<<"$(tr '\n' ' ' <<<"$archived_view")" \
   || fail "fixture 80 archived vehicle history is not intact and viewable"
 note "fixture 80 PASS - literal-Y archive hides selectors, preserves history, and refuses the app default until redesignation"
+
+no_default_result="$(
+  obelisk_mutate rover \
+    "DELETE FROM app-default-vehicle WHERE scope = %app"
+)"
+if grep -q '%error' <<<"$no_default_result"; then
+  fail "fixture 85 could not clear the disposable app default: $no_default_result"
+fi
+running_ship="$(
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+(pure:m !>((scot %p our)))' |
+    grep -oE '~[a-z]+(-[a-z]+)*' | tail -1
+)"
+[ -n "$running_ship" ] ||
+  fail "fixture 84 could not read the running ship from the real pier"
+auth_cookie_name="$(awk 'index($6, "urbauth") == 1 {print $6}' "$JAR" | tail -1)"
+auth_cookie="$(awk 'index($6, "urbauth") == 1 {print $7}' "$JAR" | tail -1)"
+[ -n "$auth_cookie_name" ] ||
+  fail "fixture 84 could not read the real Eyre authentication cookie name"
+[ -n "$auth_cookie" ] ||
+  fail "fixture 84 could not read the real Eyre authentication cookie"
+playwright_module="${ROVER_PLAYWRIGHT_MODULE:-$HOME/.hermes/hermes-agent/apps/desktop/node_modules/playwright}"
+chromium_binary="${ROVER_CHROMIUM:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
+[ -f "$playwright_module/package.json" ] ||
+  fail "fixture 84 Playwright module is unavailable at $playwright_module"
+[ -x "$chromium_binary" ] ||
+  fail "fixture 84 Chromium is unavailable at $chromium_binary"
+header_browser="$(
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/ui-browser-fixtures.cjs" \
+      header-scenarios "$URL" "$auth_cookie_name" "$auth_cookie" "$running_ship" \
+      'Rover Demo Gasoline' 'Rover Demo Diesel'
+)" ||
+  fail "fixtures 84-86 live browser header assertions failed: $header_browser"
+grep -q '^HEADER_FIRST=' <<<"$header_browser" ||
+  fail "fixture 84 live browser did not report its rendered header: $header_browser"
+note "fixture 84 PASS - rendered header contains the running ship and current default vehicle, with no decorative placeholders"
+grep -q '^HEADER_NONE=.*NO DEFAULT VEHICLE' <<<"$header_browser" ||
+  fail "fixture 85 live browser did not report an explicit no-default slot: $header_browser"
+note "fixture 85 PASS - rendered header states NO DEFAULT VEHICLE when the singleton row is absent"
+grep -q '^HEADER_SECOND=.*ROVER DEMO DIESEL' <<<"$header_browser" ||
+  fail "fixture 86 live browser did not report the changed default: $header_browser"
+note "fixture 86 PASS - changing the app default refreshes the rendered header vehicle label"
+grep -q '^GLOW=' <<<"$header_browser" ||
+  fail "fixture 87 live browser did not report the persisted maximum glow: $header_browser"
+note "fixture 87 PASS - bounded glow slider disables with the toggle, persists across reload, and drives a materially stronger CSS shadow"
+
+settings_layout_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+settings_layout_report="$(
+  python3 -c 'import re, sys
+document = sys.stdin.read()
+marker = "data-vehicle-settings-panel data-vehicle=\"Rover Demo Diesel\""
+at = document.find(marker)
+start = document.rfind("<article", 0, at)
+end = document.find("<article", at + len(marker))
+panel = document[start:] if end < 0 else document[start:end]
+fuel = re.search(r"<fieldset[^>]*data-settings-group=\"fuel-system\".*?</fieldset>", panel, re.S)
+energy = re.search(r"<fieldset[^>]*data-settings-group=\"energy-sources\".*?</fieldset>", panel, re.S)
+driving = re.search(r"<fieldset[^>]*data-settings-group=\"driving-modes\".*?</fieldset>", panel, re.S)
+def_group = re.search(r"<fieldset[^>]*data-settings-group=\"def\".*?</fieldset>", panel, re.S)
+fuel_text = fuel.group(0) if fuel else ""
+energy_text = energy.group(0) if energy else ""
+print("DEFDEF=" + ("yes" if "DEFDEF" in document else "no"))
+print("DEF_SEPARATE=" + ("yes" if (
+    "data-def-toggle-row" in panel and
+    "data-def-tank-row" in panel and
+    panel.find("data-def-toggle-row") < panel.find("data-def-tank-row")
+) else "no"))
+print("ENERGY_DEFAULT=" + ("yes" if (
+    energy and
+    energy_text.find("data-add-energy-source") >= 0 and
+    energy_text.find("name=\"defaultEnergy\"") > energy_text.find("data-add-energy-source")
+) else "no"))
+print("FUEL_FIELDS=" + ("yes" if (
+    fuel and
+    all(name in fuel_text for name in (
+        "name=\"defaultSubtype\"", "name=\"tankSize\"", "name=\"tankUnit\""
+    ))
+) else "no"))
+positions = [
+    panel.find("data-settings-group=\"fuel-system\""),
+    panel.find("data-settings-group=\"energy-sources\""),
+    panel.find("data-settings-group=\"driving-modes\""),
+    panel.find("data-settings-group=\"def\""),
+]
+print("ORDER=" + ("yes" if all(value >= 0 for value in positions) and positions == sorted(positions) else "no"))
+print("GROUPS=" + ("yes" if all((fuel, energy, driving, def_group)) else "no"))' \
+    <<<"$settings_layout_view"
+)"
+grep -q '^DEFDEF=no$' <<<"$settings_layout_report" ||
+  fail "fixture 89 served HTML contains DEFDEF: $settings_layout_report"
+grep -q '^DEF_SEPARATE=yes$' <<<"$settings_layout_report" ||
+  fail "fixture 89 DEF enablement and tank size are not separate labelled rows: $settings_layout_report"
+note "fixture 89 PASS - Enable DEF and DEF tank size are separate labelled controls and DEFDEF is absent"
+
+grep -q '^ENERGY_DEFAULT=yes$' <<<"$settings_layout_report" ||
+  fail "fixture 90 default energy source is not inside Energy Sources after its add button: $settings_layout_report"
+forged_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Rover Demo Diesel","label":"Rover Demo Diesel","tankSize":"30","tankUnit":"gal","defaultSubtype":"#2","defaultEnergy":"Gasoline","energySources":["Diesel"],"drivingModes":[],"defEnabled":"yes","defTankSize":"5","defTankUnit":"gal"}' \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$forged_default" = $'%not-allowed: vehicle.default-energy-source\n422' ] ||
+  fail "fixture 90 forged disallowed default reached the database path: $forged_default"
+note "fixture 90 PASS - default energy is inside its source group and Rover rejects a forged disallowed default before writing"
+
+grep -q '^GROUPS=yes$' <<<"$settings_layout_report" ||
+  fail "fixture 91 one or more vehicle settings groups are absent: $settings_layout_report"
+grep -q '^FUEL_FIELDS=yes$' <<<"$settings_layout_report" ||
+  fail "fixture 91 Fuel System does not contain subtype, size, and units: $settings_layout_report"
+grep -q '^ORDER=yes$' <<<"$settings_layout_report" ||
+  fail "fixture 91 vehicle settings group order is wrong: $settings_layout_report"
+note "fixture 91 PASS - Fuel System contains all three primary tank fields and precedes Energy Sources, Driving Modes, and DEF"
+
+grep -q '^LAYOUT=' <<<"$header_browser" ||
+  fail "fixture 92 live browser did not report its 390px settings measurement: $header_browser"
+note "fixture 92 PASS - at 390px the reorganised settings has no horizontal overflow and every enabled touch target is at least 44px"
 
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"

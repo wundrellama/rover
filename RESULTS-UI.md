@@ -221,6 +221,146 @@ schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero for
 schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
 ```
 
+## Header, glow intensity, tile, and vehicle-settings layout - fixtures 84-92
+
+Run 2026-07-29 on branch `master` against the real `rover-binbel` pier.
+The pier remained PID 1581177, with Eyre re-verified on public port 8085 after
+the desk reload. No schema file or relation changed.
+
+### Genuine pre-change failures
+
+The existing exact-byte tile assertion first proved that the new committed art
+had not yet reached the pier:
+
+```console
+served: 103252 bytes 487fbc117a149a2a755ad667ea59de1d2bafb0504637f9390e1dc01f1be2e228
+source: 373667 bytes 26ad34c372e85691ff2953299fa3b6e27afe43f266eec87158be6b83c0f37a30
+ui-test: FAIL - asset /apps/rover/assets/tile.png differs from desk source
+```
+
+After the already-committed tile was deployed, the new live Chromium header
+fixture failed against the old decorative header:
+
+```console
+ui-browser-fixtures: FAIL - page.waitForFunction: Timeout 3000ms exceeded.; header=ROVER · VEHICLE LOG
+```
+
+The next vertical slice passed all three live header states, then failed for
+the absent Settings slider:
+
+```console
+HEADER_NONE=ROVER · VEHICLE LOG · ~BINBEL · NO DEFAULT VEHICLE
+HEADER_FIRST=ROVER · VEHICLE LOG · ~BINBEL · ROVER DEMO GASOLINE
+HEADER_SECOND=ROVER · VEHICLE LOG · ~BINBEL · ROVER DEMO DIESEL
+ui-browser-fixtures: FAIL - settings glow intensity slider is missing
+```
+
+The independent 390px layout fixture failed on the old settings markup:
+
+```console
+ui-browser-fixtures: FAIL - vehicle settings layout failed:
+{"legends":[],"defSeparate":false,"fuelFields":false,
+"defaultInsideEnergy":false,"overflow":false,
+"shortTargets":["input[defEnabled]=19"]}
+```
+
+### Complete real-pier green
+
+```console
+$ ROVER_DEMO_ONLY=1 bin/ui-test.sh ~/piers/rover-binbel
+ui-test: fixture 84 PASS - rendered header contains the running ship and current default vehicle, with no decorative placeholders
+ui-test: fixture 85 PASS - rendered header states NO DEFAULT VEHICLE when the singleton row is absent
+ui-test: fixture 86 PASS - changing the app default refreshes the rendered header vehicle label
+ui-test: fixture 87 PASS - bounded glow slider disables with the toggle, persists across reload, and drives a materially stronger CSS shadow
+ui-test: fixture 88 PASS - new PNG serves exact bytes as image/png and the docket charges its same-origin tile path
+ui-test: fixture 89 PASS - Enable DEF and DEF tank size are separate labelled controls and DEFDEF is absent
+ui-test: fixture 90 PASS - default energy is inside its source group and Rover rejects a forged disallowed default before writing
+ui-test: fixture 91 PASS - Fuel System contains all three primary tank fields and precedes Energy Sources, Driving Modes, and DEF
+ui-test: fixture 92 PASS - at 390px the reorganised settings has no horizontal overflow and every enabled touch target is at least 44px
+ui-test: fixture 75 PASS - after the full disposable battery the owner database serves only the two demo vehicles
+ui-test: COVERAGE - all 73 defined fixtures executed
+```
+
+Fixture 90 submitted a forged `defaultEnergy: Gasoline` with only Diesel in
+`energySources`; Rover returned
+`%not-allowed: vehicle.default-energy-source` / HTTP 422 before constructing
+the mutation script.
+
+The schema and compatibility-unit gates remained green:
+
+```console
+$ bin/schema-test.sh ~/piers/rover-binbel
+schema-test: PASS - DDL has 64 unique tables, 71 explicit RESTRICT FKs, zero forward references
+schema-test: PASS - fixture 17 - live Obelisk has 64 relations; all 71 FK constraints (74 column rows) are RESTRICT; zero cascade/set-default
+
+$ bin/dev-pin-test.sh
+dev-pin-test: PASS - fixture 55 source gate - dev commit and compatibility mold SHA match
+```
+
+Tile verification after deployment:
+
+```console
+26ad34c372e85691ff2953299fa3b6e27afe43f266eec87158be6b83c0f37a30  desk/app/rover/assets/tile.png
+26ad34c372e85691ff2953299fa3b6e27afe43f266eec87158be6b83c0f37a30  ~/piers/rover-binbel/rover/app/rover/assets/tile.png
+```
+
+### Served header HTML
+
+The full authenticated Chromium DOM is
+[served-header.html](artifacts/served-header.html). The exact rendered header
+was:
+
+```html
+<header class="terminal-header">
+  <p id="rover-designation" class="designation">
+    ROVER · VEHICLE LOG<span class="wide-designation"> · <span id="header-ship">~binbel</span> · <span id="header-vehicle">Rover Demo Diesel</span></span>
+  </p>
+  <button id="glow-toggle" type="button" aria-pressed="false">Glow off</button>
+</header>
+```
+
+The stored ship and label retain their source case; the designation's existing
+CSS `text-transform: uppercase` produces `~BINBEL · ROVER DEMO DIESEL`.
+
+### Served vehicle-settings HTML
+
+The complete authenticated Diesel settings `<article>` is
+[served-vehicle-settings-def.html](artifacts/served-vehicle-settings-def.html)
+(10,409 bytes, SHA-256
+`3919b11af2ef06587f0e70393632933edf7be36b4f735005ddc04592b657118e`).
+The served group boundaries are excerpted below in document order; only the
+repetitive option and checkbox children marked `...` are collapsed. The linked
+artifact is exact and unabridged.
+
+```html
+<label class="settings-identity-row">Vehicle name<input name="label" value="Rover Demo Diesel" required=""></label>
+<fieldset class="vehicle-settings-group" data-settings-group="fuel-system">
+  <legend>Fuel System</legend>
+  <label>Default subtype<select name="defaultSubtype">...</select></label>
+  <label>Tank size<input name="tankSize" inputmode="decimal" value="34"></label>
+  <label>Tank units<select name="tankUnit">...</select></label>
+</fieldset>
+<fieldset class="vehicle-settings-group membership-checks" data-settings-group="energy-sources" data-energy-source-checks="">
+  <legend>Energy Sources</legend>
+  <div class="check-grid">...</div>
+  <button type="button" data-add-energy-source="">Add energy source type</button>
+  <label>Default energy source<select name="defaultEnergy">...</select></label>
+</fieldset>
+<fieldset class="vehicle-settings-group membership-checks" data-settings-group="driving-modes" data-driving-mode-checks="">
+  <legend>Driving Modes</legend>
+  <div class="check-grid">...</div>
+  <button type="button" data-add-driving-mode="">Add driving mode type</button>
+</fieldset>
+<fieldset class="vehicle-settings-group" data-settings-group="def" data-def-configuration="">
+  <legend>DEF</legend>
+  <label class="check-option" data-def-toggle-row=""><input type="checkbox" name="defEnabled" value="yes" checked=""><span>Enable DEF</span></label>
+  <label data-def-tank-row="">DEF tank size<span class="input-unit"><input name="defTankSize" inputmode="decimal" value="15"><select name="defTankUnit" aria-label="DEF tank unit">...</select></span></label>
+</fieldset>
+```
+
+The unabridged owner Gasoline settings response is also captured at
+[served-vehicle-settings.html](artifacts/served-vehicle-settings.html).
+
 ## 2026-07-29 statistics correctness, fill screen, and vehicle settings
 
 This slice started from the requested `master` HEAD `88b1cf3`. Stock Obelisk

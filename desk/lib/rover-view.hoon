@@ -707,7 +707,7 @@
   ^-  tape
   ;:  weld
     "<section id=\"settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER CONFIGURATION</p><h1>SETTINGS</h1></header>"
-    "<section data-settings-section=\"theme\"><h2>Theme</h2><p>Colors use the UA 571-C palette. Glow can be toggled from the header.</p><div class=\"theme-swatches\"><span>Background</span><span>Amber</span><span>Warning</span></div></section>"
+    "<section data-settings-section=\"theme\"><h2>Theme</h2><p>Colors use the UA 571-C palette. Use the header toggle to switch glow on or off.</p><div class=\"theme-swatches\"><span>Background</span><span>Amber</span><span>Warning</span></div><div class=\"theme-glow-control\"><label for=\"glow-intensity\">Glow intensity<input id=\"glow-intensity\" data-glow-intensity type=\"range\" min=\"0\" max=\"100\" step=\"1\" value=\"20\"></label><output data-glow-intensity-output for=\"glow-intensity\">20%</output></div></section>"
     "<section data-settings-section=\"custom-fields\"><h2>Custom fields</h2><form id=\"custom-field-definition-form\"><label>Label<input name=\"label\" required></label><label>Content type<select name=\"contentType\"><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select></label><label class=\"check-option\"><input type=\"checkbox\" name=\"mandatory\"><span>Mandatory on Add Fill</span></label><button type=\"submit\">Create custom field</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form><ul id=\"custom-field-definitions\">"
     (custom-definition-list custom-definitions)
     "</ul></section><section class=\"settings-placeholder\"><h2>IMPORT / EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
@@ -1570,9 +1570,7 @@
     "</span></header><div class=\"vehicle-actions\">"
     "<button type=\"button\" data-set-default-vehicle data-vehicle=\""
     (escape (cell-text %label row))
-    "\">Set Default</button><button type=\"button\" data-remove-vehicle data-vehicle=\""
-    (escape (cell-text %label row))
-    "\">Archive</button></div><div class=\"vehicle-entry-actions\">"
+    "\">Set Default</button></div><div class=\"vehicle-entry-actions\">"
     ?:  can-fill
       ;:  weld
         "<button type=\"button\" data-vehicle-action=\"fill\" data-vehicle=\""
@@ -1591,37 +1589,43 @@
     (escape (cell-text %label row))
     "\">Add Odometer</button></div><form class=\"vehicle-settings-form\"><input type=\"hidden\" name=\"vehicle\" value=\""
     (escape label)
-    "\"><label>Vehicle name<input name=\"label\" value=\""
+    "\"><label class=\"settings-identity-row\">Vehicle name<input name=\"label\" value=\""
     (escape label)
-    "\" required></label><fieldset class=\"membership-checks\" data-energy-source-checks><legend>Energy sources</legend><div class=\"check-grid\">"
+    "\" required></label><fieldset class=\"vehicle-settings-group\" data-settings-group=\"fuel-system\"><legend>Fuel System</legend><label>Default subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
+    subtype-controls
+    "</select></label><label>Tank size<input name=\"tankSize\" inputmode=\"decimal\" value=\""
+    tank-value
+    "\"></label><label>Tank units<select name=\"tankUnit\"><option value=\"gal\""
+    ?:(=(%gal tank-unit) " selected" "")
+    ">gal</option><option value=\"litre\""
+    ?:(=(%litre tank-unit) " selected" "")
+    ">litre</option></select></label></fieldset><fieldset class=\"vehicle-settings-group membership-checks\" data-settings-group=\"energy-sources\" data-energy-source-checks><legend>Energy Sources</legend><div class=\"check-grid\">"
     energy-controls
-    "</div><button type=\"button\" data-add-energy-source>Add energy source type</button></fieldset><label>Default energy source<select name=\"defaultEnergy\"><option value=\"\">Not set</option>"
+    "</div><button type=\"button\" data-add-energy-source>Add energy source type</button><label>Default energy source<select name=\"defaultEnergy\"><option value=\"\">Not set</option>"
     default-energy-controls
-    "</select></label><fieldset class=\"membership-checks\" data-driving-mode-checks><legend>Driving modes</legend><div class=\"check-grid\">"
+    "</select></label></fieldset><fieldset class=\"vehicle-settings-group membership-checks\" data-settings-group=\"driving-modes\" data-driving-mode-checks><legend>Driving Modes</legend><div class=\"check-grid\">"
     mode-controls
     "</div><button type=\"button\" data-add-driving-mode>Add driving mode type</button></fieldset>"
     ?:  show-def
       ;:  weld
-        "<fieldset data-def-configuration><legend>DEF configuration</legend><label><input type=\"checkbox\" name=\"defEnabled\" value=\"yes\""
+        "<fieldset class=\"vehicle-settings-group\" data-settings-group=\"def\" data-def-configuration><legend>DEF</legend><label class=\"check-option\" data-def-toggle-row><input type=\"checkbox\" name=\"defEnabled\" value=\"yes\""
         ?:(def-enabled " checked" "")
-        "> Enable DEF</label><label>DEF tank size<input name=\"defTankSize\" inputmode=\"decimal\" value=\""
+        "><span>Enable DEF</span></label><label data-def-tank-row"
+        ?:(def-enabled "" " hidden")
+        ">DEF tank size<span class=\"input-unit\"><input name=\"defTankSize\" inputmode=\"decimal\" value=\""
         def-tank-value
-        "\"></label><label>DEF tank unit<select name=\"defTankUnit\"><option value=\"gal\""
+        "\"><select name=\"defTankUnit\" aria-label=\"DEF tank unit\"><option value=\"gal\""
         ?:(=(%gal def-tank-unit) " selected" "")
         ">gal</option><option value=\"litre\""
         ?:(=(%litre def-tank-unit) " selected" "")
-        ">litre</option></select></label></fieldset>"
+        ">litre</option></select></span></label></fieldset>"
       ==
     ~
-    "<label>Default Subtype<select name=\"defaultSubtype\"><option value=\"\">Not set</option>"
-    subtype-controls
-    "</select></label><label>Tank Size<input name=\"tankSize\" inputmode=\"decimal\" value=\""
-    tank-value
-    "\"></label><label>Tank Unit<select name=\"tankUnit\"><option value=\"gal\""
-    ?:(=(%gal tank-unit) " selected" "")
-    ">gal</option><option value=\"litre\""
-    ?:(=(%litre tank-unit) " selected" "")
-    ">litre</option></select></label><button type=\"submit\">Save Vehicle Settings</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form><details class=\"vehicle-settings\"><summary>Configuration summary</summary>"
+    "<button type=\"submit\">Save Vehicle Settings</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form>"
+    preference-control
+    "<button type=\"button\" class=\"archive-vehicle-control\" data-remove-vehicle data-vehicle=\""
+    (escape (cell-text %label row))
+    "\">Archive vehicle</button><details class=\"vehicle-settings\"><summary>Configuration summary</summary>"
     "<dl><div><dt>ENERGY SOURCE</dt><dd>Configured below</dd></div>"
     "<div><dt>FUEL SUBTYPES</dt><dd>"
     ?~(default-subtype "No default subtype; all source subtypes remain selectable" (escape (cell-text %subtype u.default-subtype)))
@@ -1633,7 +1637,6 @@
     "</dd></div><div><dt>DISPLAY PREFERENCE</dt><dd>Source-native unless selected</dd></div></dl></details><section class=\"odometer\"><span class=\"key\">CURRENT ODOMETER - DERIVED</span><strong>"
     odometer
     "</strong></section>"
-    preference-control
     defs
     "<section class=\"history\"><h3>ORDERED HISTORY</h3>"
     history
@@ -2416,7 +2419,7 @@
   ==
 ::
 ++  page
-  |=  commands=(list cmd-result:ast)
+  |=  [ship=@p commands=(list cmd-result:ast)]
   ^-  @t
   =/  vehicles  (rows-at commands 0)
   =/  odometers  (rows-at commands 1)
@@ -2496,6 +2499,17 @@
     (weld card rest)
   =/  html=tape
     ;:  weld
+      "<span id=\"rover-header-data\" hidden data-ship=\""
+      (trip (scot %p ship))
+      "\""
+      ?~  app-default
+        ~
+      ;:  weld
+        " data-vehicle=\""
+        (escape (cell-text %label i.app-default))
+        "\""
+      ==
+      "></span>"
       (main-hub app-default definition-rows odometers tank-sizes fills fill-odometers economy-breaks def-purchases def-odometers)
       (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
