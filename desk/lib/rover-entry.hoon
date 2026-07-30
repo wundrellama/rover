@@ -42,6 +42,23 @@
     ~
   $(values t.values, texts [+.i.values texts])
 ::
+++  json-array
+  |=  [key=@t object=(map @t json)]
+  ^-  (unit (list json))
+  =/  value  (~(get by object) key)
+  ?~  value
+    ~
+  ?.  ?=(%a -.u.value)
+    ~
+  `+.u.value
+::
+++  json-map
+  |=  value=json
+  ^-  (unit (map @t json))
+  ?.  ?=(%o -.value)
+    ~
+  `+.value
+::
 ++  json-object
   |=  body=@t
   ^-  (unit (map @t json))
@@ -131,12 +148,14 @@
 ++  decode-fill
   |=  body=@t
   ^-  (each fill-entry:rover entry-verdict:rover)
-  =/  parsed  (de:json:html body)
-  ?~  parsed
+  =/  object  (json-object body)
+  ?~  object
     [%| %bad-shape 'fill']
-  ?.  ?=(%o -.u.parsed)
-    [%| %bad-shape 'fill']
-  =/  object=(map @t json)  +.u.parsed
+  (decode-fill-object u.object)
+::
+++  decode-fill-object
+  |=  object=(map @t json)
+  ^-  (each fill-entry:rover entry-verdict:rover)
   =/  vehicle  (json-string 'vehicle' object)
   ?~  vehicle
     [%| %missing-key 'fill.vehicle']
@@ -448,6 +467,406 @@
       notes
       payment-method-label
   ==
+::
+++  decode-import-simple
+  |=  [field=@t values=(list json)]
+  ^-  (each (list import-simple-definition:rover) entry-verdict:rover)
+  =/  out=(list import-simple-definition:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape field]
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape field]
+  $(values t.values, out [[u.label] out])
+::
+++  decode-import-subtypes
+  |=  values=(list json)
+  ^-  (each (list import-energy-subtype:rover) entry-verdict:rover)
+  =/  out=(list import-energy-subtype:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.definitions.energy.subtypes']
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.definitions.energy.subtypes.label']
+  =/  octane-text  (json-string 'octane' u.object)
+  =/  cetane-text  (json-string 'cetane' u.object)
+  ?:  ?&  ?=(^ octane-text)
+          ?=(^ cetane-text)
+      ==
+    [%| %bad-shape 'import.definitions.energy.subtypes.rating']
+  =/  octane=(unit @ud)
+    ?~  octane-text
+      ~
+    (slaw %ud u.octane-text)
+  =/  cetane=(unit @ud)
+    ?~  cetane-text
+      ~
+    (slaw %ud u.cetane-text)
+  ?:  ?|  ?&  ?=(^ octane-text)
+              ?=(~ octane)
+          ==
+          ?&  ?=(^ cetane-text)
+              ?=(~ cetane)
+          ==
+      ==
+    [%| %bad-shape 'import.definitions.energy.subtypes.rating']
+  =/  method-text  (json-string 'method' u.object)
+  =/  method=(unit octane-method:rover)
+    ?~  method-text
+      ~
+    =/  term  (slaw %tas u.method-text)
+    ?.  ?&  ?=(^ term)
+            ?|  =(%aki u.term)
+                =(%ron u.term)
+            ==
+        ==
+      ~
+    `;;(octane-method:rover u.term)
+  ?:  !=(?=(^ octane) ?=(^ method))
+    [%| %bad-shape 'import.definitions.energy.subtypes.method']
+  ?:  ?&  ?=(^ cetane)
+          ?=(^ method)
+      ==
+    [%| %bad-shape 'import.definitions.energy.subtypes.method']
+  =/  row=import-energy-subtype:rover
+    [u.label octane method cetane]
+  $(values t.values, out [row out])
+::
+++  decode-import-energy
+  |=  values=(list json)
+  ^-  (each (list import-energy-definition:rover) entry-verdict:rover)
+  =/  out=(list import-energy-definition:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.definitions.energy']
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.definitions.energy.label']
+  =/  kind-text  (json-string 'physicalKind' u.object)
+  ?~  kind-text
+    [%| %missing-key 'import.definitions.energy.physicalKind']
+  =/  kind-term  (slaw %tas u.kind-text)
+  ?.  ?&  ?=(^ kind-term)
+          ?|  =(%reservoir u.kind-term)
+              =(%electricity u.kind-term)
+          ==
+      ==
+    [%| %bad-shape 'import.definitions.energy.physicalKind']
+  =/  unit-text  (json-string 'quantityUnit' u.object)
+  ?~  unit-text
+    [%| %missing-key 'import.definitions.energy.quantityUnit']
+  =/  unit-term  (slaw %tas u.unit-text)
+  ?~  unit-term
+    [%| %bad-shape 'import.definitions.energy.quantityUnit']
+  =/  subtype-json  (json-array 'subtypes' u.object)
+  ?~  subtype-json
+    [%| %missing-key 'import.definitions.energy.subtypes']
+  =/  subtypes  (decode-import-subtypes u.subtype-json)
+  ?:  ?=(%| -.subtypes)
+    subtypes
+  =/  row=import-energy-definition:rover
+    :*  u.label
+        ;;(physical-kind:rover u.kind-term)
+        u.unit-term
+        p.subtypes
+    ==
+  $(values t.values, out [row out])
+::
+++  import-part
+  |=  [key=@t part=address-part:rover object=(map @t json)]
+  ^-  (unit [part=address-part:rover value=@t])
+  =/  value  (json-string key object)
+  ?~  value
+    ~
+  ?.  (nonempty u.value)
+    ~
+  `[part u.value]
+::
+++  decode-import-places
+  |=  values=(list json)
+  ^-  (each (list import-place:rover) entry-verdict:rover)
+  =/  out=(list import-place:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.places']
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.places.label']
+  =/  address-value  (~(get by u.object) 'address')
+  =/  address=(unit import-place-address:rover)
+    ?~  address-value
+      ~
+    =/  address-object  (json-map u.address-value)
+    ?~  address-object
+      ~
+    =/  formatted  (optional-text 'formatted' u.address-object)
+    =/  parts-value  (~(get by u.address-object) 'parts')
+    =/  parts=(list [part=address-part:rover value=@t])  ~
+    =.  parts
+      ?:  ?=(^ parts-value)
+        =/  parts-object  (json-map u.parts-value)
+        ?:  ?=(^ parts-object)
+          =/  country  (import-part 'country' %country u.parts-object)
+          =/  locality  (import-part 'locality' %locality u.parts-object)
+          =/  region  (import-part 'region' %region u.parts-object)
+          =/  postal  (import-part 'postal-code' %postal-code u.parts-object)
+          =/  sublocality  (import-part 'sublocality' %sublocality u.parts-object)
+          =/  line1  (import-part 'line1' %line1 u.parts-object)
+          =/  line2  (import-part 'line2' %line2 u.parts-object)
+          =.  parts  ?~(line2 parts [u.line2 parts])
+          =.  parts  ?~(line1 parts [u.line1 parts])
+          =.  parts  ?~(sublocality parts [u.sublocality parts])
+          =.  parts  ?~(postal parts [u.postal parts])
+          =.  parts  ?~(region parts [u.region parts])
+          =.  parts  ?~(locality parts [u.locality parts])
+          =.  parts  ?~(country parts [u.country parts])
+          parts
+        ~
+      parts
+    ?:  ?|  ?=(^ formatted)
+            ?=(^ parts)
+        ==
+      `[formatted parts]
+    ~
+  ?:  ?&  ?=(^ address-value)
+          ?=(~ address)
+      ==
+    [%| %bad-shape 'import.places.address']
+  =/  coordinates-value  (~(get by u.object) 'coordinates')
+  =/  coordinates=(unit import-place-coordinates:rover)
+    ?~  coordinates-value
+      ~
+    =/  coordinates-object  (json-map u.coordinates-value)
+    ?~  coordinates-object
+      ~
+    =/  lat-text  (json-string 'lat' u.coordinates-object)
+    =/  lon-text  (json-string 'lon' u.coordinates-object)
+    =/  source-text  (json-string 'source' u.coordinates-object)
+    ?:  ?|  ?=(~ lat-text)
+            ?=(~ lon-text)
+            ?=(~ source-text)
+        ==
+      ~
+    =/  latitude  (parse-coordinate u.lat-text)
+    =/  longitude  (parse-coordinate u.lon-text)
+    =/  source-term  (slaw %tas u.source-text)
+    ?:  ?|  ?=(~ latitude)
+            ?=(~ longitude)
+            ?=(~ source-term)
+        ==
+      ~
+    ?.  ?|  =(%owner u.source-term)
+            =(%gps u.source-term)
+            =(%receipt u.source-term)
+            =(%directory u.source-term)
+            =(%geocoder u.source-term)
+            =(%imported u.source-term)
+        ==
+      ~
+    `[(need latitude) (need longitude) ;;(coordinate-source:rover u.source-term)]
+  ?:  ?&  ?=(^ coordinates-value)
+          ?=(~ coordinates)
+      ==
+    [%| %bad-shape 'import.places.coordinates']
+  =/  row=import-place:rover  [u.label address coordinates]
+  $(values t.values, out [row out])
+::
+++  decode-import-fills
+  |=  [vehicle=@t values=(list json)]
+  ^-  (each (list import-fill:rover) entry-verdict:rover)
+  =/  out=(list import-fill:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.fills']
+  =/  decoded  (decode-fill-object u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.fills.vehicle']
+  =/  app-text  (json-string 'sourceApp' u.object)
+  ?~  app-text
+    [%| %missing-key 'import.vehicle.fills.sourceApp']
+  =/  app-term  (slaw %tas u.app-text)
+  ?~  app-term
+    [%| %bad-shape 'import.vehicle.fills.sourceApp']
+  =/  record-id  (json-string 'sourceRecordId' u.object)
+  ?:  ?|  ?=(~ record-id)
+          =(%.n (nonempty u.record-id))
+      ==
+    [%| %missing-key 'import.vehicle.fills.sourceRecordId']
+  =/  source-total  (optional-text 'sourceTotal' u.object)
+  =/  row=import-fill:rover
+    [p.decoded u.app-term u.record-id source-total]
+  $(values t.values, out [row out])
+::
+++  decode-import-vehicles
+  |=  values=(list json)
+  ^-  (each (list import-vehicle:rover) entry-verdict:rover)
+  =/  out=(list import-vehicle:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicles']
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.vehicle.label']
+  =/  distance-text  (json-string 'distanceUnit' u.object)
+  ?~  distance-text
+    [%| %missing-key 'import.vehicle.distanceUnit']
+  =/  distance-term  (slaw %tas u.distance-text)
+  ?.  ?&  ?=(^ distance-term)
+          ?|  =(%mi u.distance-term)
+              =(%km u.distance-term)
+          ==
+      ==
+    [%| %bad-shape 'import.vehicle.distanceUnit']
+  =/  volume-text  (json-string 'volumeUnit' u.object)
+  ?~  volume-text
+    [%| %missing-key 'import.vehicle.volumeUnit']
+  =/  volume-term  (slaw %tas u.volume-text)
+  ?~  volume-term
+    [%| %bad-shape 'import.vehicle.volumeUnit']
+  =/  tank-value  (~(get by u.object) 'tankSize')
+  =/  tank-size=(unit scaled-entry:rover)
+    ?~  tank-value
+      ~
+    =/  tank-object  (json-map u.tank-value)
+    ?~  tank-object
+      ~
+    =/  value-text  (json-string 'value' u.tank-object)
+    =/  unit-text  (json-string 'unit' u.tank-object)
+    ?:  ?|  ?=(~ value-text)
+            ?=(~ unit-text)
+        ==
+      ~
+    =/  parsed  (parse-decimal:render u.value-text 3)
+    ?:  ?=(%| -.parsed)
+      ~
+    =/  unit-term  (slaw %tas u.unit-text)
+    ?~  unit-term
+      ~
+    `[digits.p.parsed places.p.parsed u.unit-term]
+  ?:  ?&  ?=(^ tank-value)
+          ?=(~ tank-size)
+      ==
+    [%| %bad-shape 'import.vehicle.tankSize']
+  =/  default  (json-string 'defaultEnergy' u.object)
+  ?~  default
+    =/  field
+      (crip (weld "import.vehicle " (weld (trip u.label) ".defaultEnergy")))
+    [%| %missing-key field]
+  ?.  (nonempty u.default)
+    [%| %bad-shape 'import.vehicle.defaultEnergy']
+  =/  fill-json  (json-array 'fills' u.object)
+  ?~  fill-json
+    [%| %missing-key 'import.vehicle.fills']
+  =/  fills  (decode-import-fills u.label u.fill-json)
+  ?:  ?=(%| -.fills)
+    fills
+  =/  row=import-vehicle:rover
+    :*  u.label
+        ;;(distance-unit:rover u.distance-term)
+        u.volume-term
+        tank-size
+        u.default
+        p.fills
+    ==
+  $(values t.values, out [row out])
+::
+++  decode-import
+  |=  body=@t
+  ^-  (each import-document:rover entry-verdict:rover)
+  =/  object  (json-object body)
+  ?~  object
+    [%| %bad-shape 'import']
+  =/  version  (~(get by u.object) 'rover-import')
+  ?.  ?&  ?=(^ version)
+          ?=(%n -.u.version)
+          =('1' +.u.version)
+      ==
+    [%| %bad-shape 'import.rover-import']
+  =/  source  (~(get by u.object) 'source')
+  ?.  ?&  ?=(^ source)
+          ?=(%o -.u.source)
+      ==
+    [%| %bad-shape 'import.source']
+  =/  definitions-value  (~(get by u.object) 'definitions')
+  ?~  definitions-value
+    [%| %missing-key 'import.definitions']
+  =/  definitions-object  (json-map u.definitions-value)
+  ?~  definitions-object
+    [%| %bad-shape 'import.definitions']
+  =/  energy-json  (json-array 'energy' u.definitions-object)
+  =/  additive-json  (json-array 'additives' u.definitions-object)
+  =/  mode-json  (json-array 'driving-modes' u.definitions-object)
+  =/  tag-json  (json-array 'tags' u.definitions-object)
+  =/  payment-json  (json-array 'payment-methods' u.definitions-object)
+  ?:  ?|  ?=(~ energy-json)
+          ?=(~ additive-json)
+          ?=(~ mode-json)
+          ?=(~ tag-json)
+          ?=(~ payment-json)
+      ==
+    [%| %bad-shape 'import.definitions']
+  =/  energy  (decode-import-energy u.energy-json)
+  ?:  ?=(%| -.energy)
+    energy
+  =/  additives  (decode-import-simple 'import.definitions.additives' u.additive-json)
+  ?:  ?=(%| -.additives)
+    additives
+  =/  modes  (decode-import-simple 'import.definitions.driving-modes' u.mode-json)
+  ?:  ?=(%| -.modes)
+    modes
+  =/  tags  (decode-import-simple 'import.definitions.tags' u.tag-json)
+  ?:  ?=(%| -.tags)
+    tags
+  =/  payments  (decode-import-simple 'import.definitions.payment-methods' u.payment-json)
+  ?:  ?=(%| -.payments)
+    payments
+  =/  place-json  (json-array 'places' u.object)
+  ?~  place-json
+    [%| %missing-key 'import.places']
+  =/  places  (decode-import-places u.place-json)
+  ?:  ?=(%| -.places)
+    places
+  =/  vehicle-json  (json-array 'vehicles' u.object)
+  ?~  vehicle-json
+    [%| %missing-key 'import.vehicles']
+  =/  vehicles  (decode-import-vehicles u.vehicle-json)
+  ?:  ?=(%| -.vehicles)
+    vehicles
+  =/  definitions=import-definitions:rover
+    [p.energy p.additives p.modes p.tags p.payments]
+  [%& definitions p.places p.vehicles]
 ::
 ++  decode-consumable
   |=  body=@t

@@ -103,6 +103,60 @@
       notes=(unit @t)
       payment-method-label=(unit @t)
   ==
++$  import-simple-definition
+  [label=@t]
++$  import-energy-subtype
+  $:  label=@t
+      octane=(unit @ud)
+      octane-method=(unit octane-method)
+      cetane=(unit @ud)
+  ==
++$  import-energy-definition
+  $:  label=@t
+      physical-kind=physical-kind
+      quantity-unit=@tas
+      subtypes=(list import-energy-subtype)
+  ==
++$  import-place-address
+  $:  formatted=(unit @t)
+      parts=(list [part=address-part value=@t])
+  ==
++$  import-place-coordinates
+  $:  latitude=@sd
+      longitude=@sd
+      source=coordinate-source
+  ==
++$  import-place
+  $:  label=@t
+      address=(unit import-place-address)
+      coordinates=(unit import-place-coordinates)
+  ==
++$  import-fill
+  $:  input=fill-entry
+      source-app=@tas
+      source-record-id=@t
+      source-total=(unit @t)
+  ==
++$  import-vehicle
+  $:  label=@t
+      distance-unit=distance-unit
+      volume-unit=@tas
+      tank-size=(unit scaled-entry)
+      default-energy=@t
+      fills=(list import-fill)
+  ==
++$  import-definitions
+  $:  energy=(list import-energy-definition)
+      additives=(list import-simple-definition)
+      driving-modes=(list import-simple-definition)
+      tags=(list import-simple-definition)
+      payment-methods=(list import-simple-definition)
+  ==
++$  import-document
+  $:  definitions=import-definitions
+      places=(list import-place)
+      vehicles=(list import-vehicle)
+  ==
 +$  delivered-energy
   $:  digits=@ud
       places=@ud
