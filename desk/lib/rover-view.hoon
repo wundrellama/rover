@@ -1110,6 +1110,12 @@
     ?~  default-id
       ~
     (economy-values u.default-id ordered-fills derivations)
+  =/  rolling-economies  (scag 5 economies)
+  =/  rolling-count  (lent rolling-economies)
+  =/  rolling-mean
+    ?~  rolling-economies
+      0
+    (div (add (sum-economies rolling-economies) (div rolling-count 2)) rolling-count)
   =/  last-economy=tape
     ?~  economies
       "Unavailable"
@@ -1136,7 +1142,15 @@
       "No default vehicle is set."
     ?:  ?=(~ (rows-for u.default-id tank-sizes))
       "Tank size is not recorded for this vehicle."
-    "An eligible economy interval is required."
+    ?~  rolling-economies
+      "An eligible economy interval is required."
+    ;:  weld
+      "Mean of the last "
+      (scow %ud rolling-count)
+      " eligible interval"
+      ?:(=(1 rolling-count) "" "s")
+      ", full tank."
+    ==
   =/  next-distance=tape
     ?:  ?|  ?=(~ default-id)
             ?=(~ economies)
@@ -1152,9 +1166,11 @@
     =/  tank-milli
       (mul (cell-atom %digits tank-row) (pow-ten:render (sub 3 places)))
     =/  distance-milli
-      (div (add (mul milli.i.economies tank-milli) 500) 1.000)
+      (div (add (mul rolling-mean tank-milli) 500) 1.000)
+    =/  distance-whole
+      (div (add distance-milli 500) 1.000)
     ;:  weld
-      (trip (format-scaled:render distance-milli 3 %.n))
+      (scow %ud distance-whole)
       ?:(=('mpg' unit.i.economies) " mi" " km")
     ==
   =/  def-status=[available=? display=@t reason=@t]
@@ -1203,7 +1219,7 @@
     "</small></article>"
     "<article"
     hub-stat-scope
-    "><span>ESTIMATED DISTANCE TO NEXT FILL</span><strong>"
+    "><span>ESTIMATED DISTANCE TO NEXT FILL FROM LAST FILL</span><strong>"
     next-distance
     "</strong><small>"
     tank-reason

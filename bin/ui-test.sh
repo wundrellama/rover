@@ -866,7 +866,7 @@ for article in re.findall(r"<article[^>]*>(.*?)</article>", hub, re.S):
 expected = {
     "ECONOMY - LAST FILL": "29.000 mpg",
     "ECONOMY - LIFETIME": "29.000 mpg",
-    "ESTIMATED DISTANCE TO NEXT FILL": "449.500 mi",
+    "ESTIMATED DISTANCE TO NEXT FILL FROM LAST FILL": "450 mi",
     "BEST ECONOMY": "30.000 mpg",
     "WORST ECONOMY": "28.000 mpg",
 }
@@ -889,6 +889,25 @@ print("BROKEN=" + ("yes" if broken and "939.200 mpg" not in document else "no"))
     || fail "fixture 97 ordinary interval lost its eligible explanation"
   note "fixture 97 PASS - an ordinary unbroken eligible interval remains unchanged"
   if [ "${ROVER_FIXTURE_STOP:-}" = 97 ]; then
+    exit 0
+  fi
+
+  rolling_hub="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+hub = document.split("<section id=\"main-hub\"", 1)[1].split("<section id=\"add-fill\"", 1)[0]
+match = re.search(
+    r"<article[^>]*><span>ESTIMATED DISTANCE TO NEXT FILL FROM LAST FILL</span>"
+    r"<strong>([^<]+)</strong><small>([^<]+)</small></article>",
+    hub,
+    re.S,
+)
+print("|".join(part.strip() for part in match.groups()) if match else "")' <<<"$restored_view"
+  )"
+  [ "$rolling_hub" = '442 mi|Mean of the last 4 eligible intervals, full tank.' ] \
+    || fail "fixture 98 hub did not use the rolling eligible mean with honest label/precision: ${rolling_hub:-<missing>}"
+  note "fixture 98 PASS - hub uses the newest-first rolling eligible mean, excludes the broken interval, states the four-interval basis, and renders whole miles"
+  if [ "${ROVER_FIXTURE_STOP:-}" = 98 ]; then
     exit 0
   fi
 
