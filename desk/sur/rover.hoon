@@ -8,6 +8,12 @@
 +$  currency  ?(%usd %eur %gbp %chf %jpy %krw %cny %brl %cad %aud)
 +$  settlement-mode  ?(%standard %cash)
 +$  octane-method  ?(%aki %ron)
+::  Which scale a fuel's anti-knock/ignition rating is measured on. Ratified
+::  2026-07-30 (import Q2): ignition mode stays a ROVER-SIDE LOOKUP, not a
+::  column and not a relation. Nothing is stored; Rover derives the expected
+::  scale from the definition and uses it to check that a subtype carries the
+::  right rating child.
++$  rating-scale  ?(%octane %cetane)
 +$  blend-kind  ?(%ethanol %biodiesel)
 +$  energy-measure-unit  ?(%kwh %kw %mi %km)
 +$  measurement-point  ?(%wall %charger %vehicle %estimate)

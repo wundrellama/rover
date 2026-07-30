@@ -163,6 +163,57 @@
     "); "
   ==
 ::
+::  Ignition-mode lookup (import Q2, ratified 2026-07-30). Rover-side only:
+::  nothing about ignition mode is stored in Obelisk. This maps a SHIPPED
+::  STARTER definition label to the rating scale its subtypes may carry, and
+::  reconciliation uses it to catch a rating child on the wrong scale.
+::
+::  The principle is ignition mode, because that is what the physics keys on:
+::    spark ignition       -> the fuel must RESIST self-ignition -> octane
+::    compression ignition -> the fuel must READILY self-ignite  -> cetane
+::
+::  Returns a UNIT, and the ~ cases are deliberate, not laziness:
+::    * Electricity, Hydrogen - no anti-knock rating exists at all.
+::    * CNG, LNG - rated on METHANE NUMBER, a third scale Rover does not model.
+::      Returning %octane for them would assert a rating type they do not use.
+::    * Any owner-invented definition ("Tractor juice") - Rover has no basis to
+::      classify it. The owner knows their fuel; Rover does not guess.
+::
+::  Consequence: the reconciliation check below only fires when the scale is
+::  KNOWN. For an unknown definition Rover permits either rating child, because
+::  refusing would mean overriding the owner on a fact only they hold. This is
+::  not a permission decision - it is a factual classification, so the
+::  fail-closed rule for authorization does not apply here.
+++  rating-scale-for
+  |=  label=@t
+  ^-  (unit rating-scale:rover)
+  ?+  label  ~
+    %'Gasoline'     [~ %octane]
+    %'Ethanol'      [~ %octane]
+    %'Propane'      [~ %octane]
+    %'Diesel'       [~ %cetane]
+  ==
+::
+::  Does this rating child belong on a subtype of this definition? Used by
+::  reconciliation, never to silently rewrite a row.
+++  rating-scale-ok
+  |=  [label=@t scale=rating-scale:rover]
+  ^-  ?
+  =/  expected  (rating-scale-for label)
+  ?~  expected  &
+  =(scale u.expected)
+::
+++  starter-cetane
+  |=  [base=@ux ordinal=@ud rating=@ud]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO energy-subtype-cetane VALUES ("
+    (scow %ux (fixture-id base ordinal))
+    ", "
+    (sql-ud rating)
+    "); "
+  ==
+::
 ++  starter-blend
   |=  [base=@ux ordinal=@ud kind=@tas percent=@ud]
   ^-  tape
@@ -224,6 +275,18 @@
     (starter-blend base 109 %ethanol 10)
     (starter-blend base 110 %ethanol 5)
     (starter-blend base 111 %ethanol 5)
+    ::  Gasoline subtype labels ARE their octane number ("87" rated 87 AKI), so
+    ::  the octane rows above restate the label - not a new assertion.
+    ::
+    ::  Diesel is deliberately DIFFERENT. Its subtype labels are grades (#2,
+    ::  Winter, B20, HVO100) and the grade is NOT the rating. US pumps do post
+    ::  cetane sometimes, just infrequently - so a cetane figure is a real fact
+    ::  an owner may hold, it simply cannot be inferred from the grade. No
+    ::  starter cetane rows are seeded: inventing "#2 = cetane 40" would make
+    ::  Rover synthesise evidence no source supplied, and absence of the child
+    ::  row already means "no rating recorded" (the no-sentinel rule).
+    ::  +starter-cetane exists for the paths that DO have a source: owner entry
+    ::  from a pump that posted it, and import (aCar's ULSD carries cetane 45).
     (starter-subtype base 201 2 "#2" now)
     (starter-subtype base 202 2 "#1" now)
     (starter-subtype base 203 2 "Winter" now)
@@ -998,6 +1061,11 @@
     "CREATE TABLE rover..energy-acquisition-stations (acquisition-id @ux, station-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (station-id) REFERENCES stations (station-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..energy-definition-subtypes (subtype-id @ux, energy-definition-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (subtype-id) FOREIGN KEY (energy-definition-id) REFERENCES energy-definitions (energy-definition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..energy-subtype-octane (subtype-id @ux, rating @ud, method @tas) PRIMARY KEY (subtype-id) FOREIGN KEY (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    ::  Cetane sibling (import Q1, ratified 2026-07-30). Compression-ignition
+    ::  fuels rate on cetane, spark-ignition fuels on octane; the two are
+    ::  mutually exclusive by physics. No method column - civilian diesel has no
+    ::  competing scale. Rover invariant: at most one rating child per subtype.
+    "CREATE TABLE rover..energy-subtype-cetane (subtype-id @ux, rating @ud) PRIMARY KEY (subtype-id) FOREIGN KEY (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..energy-subtype-blend (subtype-id @ux, blend-kind @tas, percent-digits @ud, percent-decimals @ud) PRIMARY KEY (subtype-id, blend-kind) FOREIGN KEY (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..energy-subtype-grade-code (subtype-id @ux, code @t) PRIMARY KEY (subtype-id) FOREIGN KEY (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..vehicle-default-energy-subtype (vehicle-id @ux, subtype-id @ux, recorded-at @da) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
@@ -1040,6 +1108,11 @@
     "CREATE TABLE rover..payment-method-definitions (method-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (method-id); "
     "CREATE TABLE rover..fuel-fill-payment-method (acquisition-id @ux, method-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (method-id) REFERENCES payment-method-definitions (method-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..fill-notes (acquisition-id @ux, note @t) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    ::  Re-import detection (import Q5, ratified 2026-07-30). Namespaced foreign
+    ::  record id, same rule as station-identifiers: NEVER crosses a human or
+    ::  agent boundary. Absence = owner-entered. A known source record whose
+    ::  values changed reports a conflict and imports nothing - never UPSERT.
+    "CREATE TABLE rover..acquisition-imports (acquisition-id @ux, source-app @tas, source-record-id @t) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..charging-session-subtype (acquisition-id @ux, subtype-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES charging-sessions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumable-definitions (consumable-id @ux, label @t, quantity-unit @tas, archived @f, recorded-at @da) PRIMARY KEY (consumable-id); "
     "CREATE TABLE rover..vehicle-consumables (vehicle-id @ux, consumable-id @ux, archived @f) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (consumable-id) REFERENCES consumable-definitions (consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "

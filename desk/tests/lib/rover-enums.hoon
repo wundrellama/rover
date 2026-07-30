@@ -18,8 +18,29 @@
   ==
 ::
 ++  definition-attributes
-  ^-  [(list octane-method:rover) (list blend-kind:rover)]
-  [~[%aki %ron] ~[%ethanol %biodiesel]]
+  ^-  [(list octane-method:rover) (list blend-kind:rover) (list rating-scale:rover)]
+  [~[%aki %ron] ~[%ethanol %biodiesel] ~[%octane %cetane]]
+::
+::  Ignition-mode lookup (import Q2). Mirrors +rating-scale-for in
+::  lib/rover-act.hoon. This arm returns the ACTUAL classifications so a
+::  fixture can compare them against expected values and FAIL on drift -- a
+::  fixture that cannot fail is a defect.
+::
+::  ~ is the correct answer for Electricity/Hydrogen (no anti-knock rating
+::  exists) and for CNG/LNG (rated on methane number, a scale Rover does not
+::  model). Asserting %octane for those would claim a rating type they do not
+::  use.
+++  rating-scales
+  ^-  (list [@t (unit rating-scale:rover)])
+  :~  ['Gasoline' `%octane]
+      ['Ethanol' `%octane]
+      ['Propane' `%octane]
+      ['Diesel' `%cetane]
+      ['Electricity' ~]
+      ['Hydrogen' ~]
+      ['CNG' ~]
+      ['LNG' ~]
+  ==
 ::
 ++  charging-measurements
   ^-  [(list energy-measure-unit:rover) (list measurement-point:rover) (list measurement-evidence:rover)]

@@ -1,5 +1,6 @@
--- Rover M0 schema — full pour, 62 relations.
+-- Rover M0 schema — full pour, 66 relations.
 -- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
+-- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5).
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -124,6 +125,34 @@ CREATE TABLE rover..energy-definition-subtypes
 
 CREATE TABLE rover..energy-subtype-octane
   (subtype-id @ux, rating @ud, method @tas)
+  PRIMARY KEY (subtype-id)
+  FOREIGN KEY (subtype-id)
+    REFERENCES energy-definition-subtypes (subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Cetane sibling, ratified 2026-07-30 (import Q1). 414 of the 420 records in the
+-- real aCar corpus are cetane-45 ULSD; before this relation existed a diesel
+-- rating had nowhere to go, and writing 45 into an octane row would assert a
+-- fuel that does not exist.
+--
+-- Octane and cetane are mutually exclusive BY PHYSICS: octane measures
+-- RESISTANCE to compression ignition (spark decides timing), cetane measures
+-- EAGERNESS to ignite under compression (compression is the only trigger). The
+-- dividing line is IGNITION MODE, not fuel name:
+--   spark       -> octane : gasoline, ethanol blends (E85 ~100-105 AKI), LPG, CNG
+--   compression -> cetane : diesel, biodiesel (B100 ~50-65), synthetic/HVO
+-- "Octane belongs to gasoline" would be wrong and would make E85's rating
+-- unrecordable - exactly the gap aCar has (its bioalcohol/gas categories carry
+-- an EMPTY rating-type).
+--
+-- No method column: AKI and RON are two methods for the SAME property, so
+-- octane needs one. Civilian diesel has no competing cetane scale, so a method
+-- column here would be a knob with one setting.
+--
+-- ROVER INVARIANT: at most one rating child per subtype. Which child exists IS
+-- the rating scale - no discriminator, no bunt (same as battery-observations).
+CREATE TABLE rover..energy-subtype-cetane
+  (subtype-id @ux, rating @ud)
   PRIMARY KEY (subtype-id)
   FOREIGN KEY (subtype-id)
     REFERENCES energy-definition-subtypes (subtype-id)
@@ -469,6 +498,34 @@ CREATE TABLE rover..fuel-fill-payment-method
   FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   (method-id) REFERENCES payment-method-definitions (method-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Re-import detection (import Q5, ratified 2026-07-30). Records WHICH foreign
+-- record an acquisition came from, so a second import of the same export
+-- recognises what it has already seen and only new records land.
+--
+-- Same shape and same rule as station-identifiers: a provider-namespaced
+-- external ID that must NEVER cross a human or agent boundary. Namespacing
+-- means aCar 78432901 and Fuelly 78432901 cannot collide.
+--
+-- Absence of the row = owner-entered. No sentinel.
+--
+-- The natural key (vehicle + observed-start) was REJECTED: aCar dates are
+-- minute-precision, so two legitimate fills inside one minute (splitting across
+-- pumps, topping a jerry can) would be silently refused as duplicates.
+-- "Have I imported this record?" is a provenance question with an exact answer;
+-- "are these the same real-world event?" is a semantic one Rover cannot answer.
+--
+-- CHANGED records report a conflict and import NOTHING - never UPSERT, never
+-- clobber an owner's Rover-side edit. 391 of 420 records in the real corpus
+-- have a last-modification-date after their entry date, so edits do happen.
+-- No content hash column: a stored hash is a derived value that drifts from its
+-- inputs when any normalisation rule changes (same reason total paid is not
+-- stored on fuel-fills). Field comparison at re-import time is always current.
+CREATE TABLE rover..acquisition-imports
+  (acquisition-id @ux, source-app @tas, source-record-id @t)
+  PRIMARY KEY (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- Present only when non-empty, so no empty-string sentinel.
