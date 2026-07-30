@@ -790,6 +790,108 @@ print(f"{len(rows)}|" + (rows[0][0] if rows else ""))' <<<"$demo_before_def"
     fail "fixture 60 computed gasoline interval after break is absent"
   note "fixture 60 PASS - missed-fill interval is unavailable with reason while 28.000 mpg and 27.000 mpg neighbours compute"
 
+  break_truth="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+row = re.search(
+    r"<tr[^>]*data-economy-break=\"%missed-fill\"[^>]*>(.*?)</tr>",
+    document,
+    re.S,
+)
+card = re.search(
+    r"<article class=\"history-card fill\">"
+    r"(?:(?!</article>).)*2026-07-04 12:00:00"
+    r"(?:(?!</article>).)*</article>",
+    document,
+    re.S,
+)
+history = re.search(
+    r"<article class=\"history-table-row\" data-history-vehicle=\"Rover Demo Gasoline\">"
+    r"(?:(?!</article>).)*2026-07-04 12:00:00"
+    r"(?:(?!</article>).)*</article>",
+    document,
+    re.S,
+)
+sentence = "A missed fill was recorded, so this economy interval is unavailable."
+print("ROW=" + ("yes" if row and "Unavailable" in row.group(1) and sentence in row.group(1) else "no"))
+card_ok = card and all(value in card.group(0) for value in (
+    "10.000 gal", "$3.579", "$35.79", sentence,
+))
+history_ok = history and all(value in history.group(0) for value in (
+    "10,908 mi", "10.000 gal", "$35.79",
+))
+print("FILL=" + ("yes" if card_ok and history_ok else "no"))' <<<"$demo_before_def"
+  )"
+  grep -q '^ROW=yes$' <<<"$break_truth" \
+    || fail "fixture 94 missed-fill boundary is not unavailable with its human reason: $break_truth"
+  grep -q '^FILL=yes$' <<<"$break_truth" \
+    || fail "fixture 94 break hid the fill or its quantity, price, total, odometer, or human reason: $break_truth"
+  note "fixture 94 PASS - missed-fill makes only the economy unavailable, names the reason in human text, and preserves the fill facts"
+  if [ "${ROVER_FIXTURE_STOP:-}" = 94 ]; then
+    exit 0
+  fi
+
+  obelisk_mutate rover \
+    "UPDATE economy-breaks SET reason = %excluded WHERE reason = %missed-fill" >/dev/null
+  excluded_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  grep -q 'data-economy-break="%excluded"' <<<"$excluded_view" \
+    || fail "fixture 95 excluded break row is absent from the economy rendering"
+  grep -q 'The owner excluded this fill from economy calculations.' <<<"$excluded_view" \
+    || fail "fixture 95 excluded break lacks its distinct human reason"
+  obelisk_mutate rover \
+    "UPDATE economy-breaks SET reason = %owner-marked WHERE reason = %excluded" >/dev/null
+  owner_marked_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  grep -q 'data-economy-break="%owner-marked"' <<<"$owner_marked_view" \
+    || fail "fixture 95 owner-marked break row is absent from the economy rendering"
+  grep -q 'The owner marked this fill as an economy-chain break.' <<<"$owner_marked_view" \
+    || fail "fixture 95 owner-marked break lacks its distinct human reason"
+  obelisk_mutate rover \
+    "UPDATE economy-breaks SET reason = %missed-fill WHERE reason = %owner-marked" >/dev/null
+  note "fixture 95 PASS - excluded and owner-marked breaks retain distinct human explanations"
+
+  obelisk_mutate rover \
+    "UPDATE odometer-observations SET value-digits = 20000 WHERE value-digits = 10908 AND decimal-places = 0" >/dev/null
+  poisoned_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  poisoned_truth="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+hub = document.split("<section id=\"main-hub\"", 1)[1].split("<section id=\"add-fill\"", 1)[0]
+pairs = {}
+for article in re.findall(r"<article[^>]*>(.*?)</article>", hub, re.S):
+    label = re.search(r"<span>(.*?)</span>", article, re.S)
+    value = re.search(r"<strong>(.*?)</strong>", article, re.S)
+    if label and value:
+        clean = lambda text: re.sub(r"<[^>]+>", "", text).strip()
+        pairs[clean(label.group(1))] = clean(value.group(1))
+expected = {
+    "ECONOMY - LAST FILL": "29.000 mpg",
+    "ECONOMY - LIFETIME": "29.000 mpg",
+    "ESTIMATED DISTANCE TO NEXT FILL": "449.500 mi",
+    "BEST ECONOMY": "30.000 mpg",
+    "WORST ECONOMY": "28.000 mpg",
+}
+broken = re.search(r"data-economy=\"Unavailable\" data-economy-break=\"%missed-fill\"", document)
+print("AGGREGATES=" + ("yes" if all(pairs.get(key) == value for key, value in expected.items()) else "no"))
+print("BROKEN=" + ("yes" if broken and "939.200 mpg" not in document else "no"))' <<<"$poisoned_view"
+  )"
+  grep -q '^AGGREGATES=yes$' <<<"$poisoned_truth" \
+    || fail "fixture 96 impossible broken interval poisoned last, lifetime, tank, best, or worst: $poisoned_truth"
+  grep -q '^BROKEN=yes$' <<<"$poisoned_truth" \
+    || fail "fixture 96 impossible broken interval rendered as an economy value: $poisoned_truth"
+  obelisk_mutate rover \
+    "UPDATE odometer-observations SET value-digits = 10908 WHERE value-digits = 20000 AND decimal-places = 0" >/dev/null
+  note "fixture 96 PASS - an impossible broken interval is unavailable and excluded from last, lifetime, tank, best, and worst"
+
+  restored_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  grep -q 'data-economy-vehicle="Rover Demo Gasoline" data-economy="30.000 mpg"' <<<"$restored_view" \
+    || fail "fixture 97 ordinary unbroken eligible interval no longer renders its economy"
+  grep -q '>30.000 mpg</td><td>Eligible full-fill interval.</td>' <<<"$restored_view" \
+    || fail "fixture 97 ordinary interval lost its eligible explanation"
+  note "fixture 97 PASS - an ordinary unbroken eligible interval remains unchanged"
+  if [ "${ROVER_FIXTURE_STOP:-}" = 97 ]; then
+    exit 0
+  fi
+
   diesel_before_def="${demo_parts[1]}"
   click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
