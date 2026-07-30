@@ -27,3 +27,5 @@ aCar export/
 aCar*export*/
 *.abp
 imports/raw/
+tools/acar-import/out/
+__pycache__/
