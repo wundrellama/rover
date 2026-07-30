@@ -5,10 +5,8 @@
 /+  act=rover-act, default-agent, dbug, entry=rover-entry, imp=rover-import, render=rover-render, view=rover-view
 /*  shell-html  %html  /app/rover/shell/html
 /*  tile-png    %png   /app/rover/assets/tile/png
-/*  font-regular       %woff2x  /app/rover/assets/fonts/berkeleymono-regular/woff2x
-/*  font-bold          %woff2x  /app/rover/assets/fonts/berkeleymono-bold/woff2x
-/*  font-oblique       %woff2x  /app/rover/assets/fonts/berkeleymono-oblique/woff2x
-/*  font-bold-oblique  %woff2x  /app/rover/assets/fonts/berkeleymono-bold-oblique/woff2x
+/*  font-regular       %woff2x  /app/rover/assets/fonts/jetbrainsmono-regular/woff2x
+/*  font-bold          %woff2x  /app/rover/assets/fonts/jetbrainsmono-bold/woff2x
 |%
 +$  versioned-state
   $%  [%0 state-0]
@@ -388,14 +386,6 @@
 ++  font-bold-octs
   ^-  octs
   font-bold
-::
-++  font-oblique-octs
-  ^-  octs
-  font-oblique
-::
-++  font-bold-oblique-octs
-  ^-  octs
-  font-bold-oblique
 ::
 ++  text-octs
   |=  text=@t
@@ -889,14 +879,10 @@
     [(http-give eyre-id 405 ~ ~) sat]
   ?:  =('/apps/rover/assets/tile.png' url.request.req)
     [(http-give eyre-id 200 ['content-type' 'image/png']~ `tile-octs) sat]
-  ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Regular.woff2' url.request.req)
+  ?:  =('/apps/rover/assets/fonts/JetBrainsMono-Regular.woff2' url.request.req)
     [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-regular-octs) sat]
-  ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Bold.woff2' url.request.req)
+  ?:  =('/apps/rover/assets/fonts/JetBrainsMono-Bold.woff2' url.request.req)
     [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-octs) sat]
-  ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Oblique.woff2' url.request.req)
-    [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-oblique-octs) sat]
-  ?:  =('/apps/rover/assets/fonts/BerkeleyMono-Bold-Oblique.woff2' url.request.req)
-    [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-oblique-octs) sat]
   ?:  =('/apps/rover/view' url.request.req)
     =/  wir=wire  /rover-http/(scot %da now.bowl)/[eyre-id]
     =/  jon  !>([%tape %rover ui-view:act])

@@ -170,4 +170,18 @@ The copied Obelisk API mold and the pinned upstream mold must have the same SHA-
 
 ## License
 
-Rover does not have an open-source license yet. All rights are reserved until the project selects a license.
+Rover is licensed under the **GNU Affero General Public License, version 3 or
+later**. The full text is in [`LICENSE`](LICENSE).
+
+If you run a modified Rover as a network service, the AGPL requires you to offer
+that service's users the corresponding modified source.
+
+Third-party components carry their own terms and are listed in
+[`NOTICE.md`](NOTICE.md):
+
+- `desk/sur/obelisk-ast.hoon` is the `%obelisk` developer API mold, copied
+  unmodified from upstream under its MIT+n license.
+- The `%base` system files under `desk/lib/`, `desk/sur/docket.hoon`, and
+  `desk/mar/` are MIT, copyright Tlon Corporation.
+- The JetBrains Mono faces under `desk/app/rover/assets/fonts/` are under the SIL
+  Open Font License 1.1, copyright The JetBrains Mono Project Authors.

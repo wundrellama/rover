@@ -232,8 +232,10 @@ fi
 
 grep -q -- '--rv-bg: #0b0a08' <<<"$body" || fail "UA 571-C background token missing"
 grep -q -- '--rv-amber: #d8b843' <<<"$body" || fail "UA 571-C amber token missing"
-[ "$(grep -c '@font-face' <<<"$body")" -eq 4 ] || fail "shell does not declare four Berkeley Mono faces"
-grep -q 'font-variant-numeric: tabular-nums' <<<"$body" || fail "tabular numerals are not active"
+[ "$(grep -c '@font-face' <<<"$body")" -eq 2 ] || fail "shell does not declare the two JetBrains Mono faces"
+grep -q 'font-feature-settings: "zero" 1' <<<"$body" || fail "slashed-zero feature is not enabled"
+grep -q 'slashed-zero tabular-nums' <<<"$body" || fail "slashed-zero numeric variant is not set"
+grep -q 'font-variant-numeric: slashed-zero tabular-nums' <<<"$body" || fail "tabular numerals are not active"
 grep -q 'id="glow-toggle"' <<<"$body" || fail "glow control is missing"
 grep -q 'min-height: 44px' <<<"$body" || fail "44px touch target rule is missing"
 grep -q '@media (min-width: 48rem)' <<<"$body" || fail "mobile-first wide breakpoint is missing"
@@ -2668,7 +2670,7 @@ const fs = require('fs');
       touch: minTouch >= 44,
       stacked: getComputedStyle(document.querySelector('#app'))
         .gridTemplateColumns === 'none',
-      font: document.fonts.check('12px "Berkeley Mono"'),
+      font: document.fonts.check('12px "JetBrains Mono"'),
       ordered,
       stable: JSON.stringify(first) === JSON.stringify(second)
     };
@@ -3072,11 +3074,11 @@ asset_check /apps/rover/assets/tile.png image/png \
 tile_sha="$(sha256sum "$REPO/desk/app/rover/assets/tile.png" | awk '{print $1}')"
 [ "$tile_sha" = '26ad34c372e85691ff2953299fa3b6e27afe43f266eec87158be6b83c0f37a30' ] ||
   fail "fixture 88 desk tile is not the supplied new image: $tile_sha"
-for face in Regular Bold Oblique Bold-Oblique; do
-  asset_check "/apps/rover/assets/fonts/BerkeleyMono-$face.woff2" font/woff2 \
-    "$REPO/desk/app/rover/assets/fonts/BerkeleyMono-$face.woff2"
+for face in Regular Bold; do
+  asset_check "/apps/rover/assets/fonts/JetBrainsMono-$face.woff2" font/woff2 \
+    "$REPO/desk/app/rover/assets/fonts/JetBrainsMono-$face.woff2"
 done
-note "tile and four font faces have exact bytes and content-types"
+note "tile and both JetBrains Mono faces have exact bytes and content-types"
 
 install_result="$(click_file '=/  m  (strand ,vase)
 ;<  =bowl:strand  bind:m  get-bowl

@@ -7,30 +7,16 @@
   <title>Rover · Vehicle Log</title>
   <style>
     @font-face {
-      font-family: "Berkeley Mono";
-      src: url("/apps/rover/assets/fonts/BerkeleyMono-Regular.woff2") format("woff2");
+      font-family: "JetBrains Mono";
+      src: url("/apps/rover/assets/fonts/JetBrainsMono-Regular.woff2") format("woff2");
       font-style: normal;
       font-weight: 400;
       font-display: swap;
     }
     @font-face {
-      font-family: "Berkeley Mono";
-      src: url("/apps/rover/assets/fonts/BerkeleyMono-Bold.woff2") format("woff2");
+      font-family: "JetBrains Mono";
+      src: url("/apps/rover/assets/fonts/JetBrainsMono-Bold.woff2") format("woff2");
       font-style: normal;
-      font-weight: 700;
-      font-display: swap;
-    }
-    @font-face {
-      font-family: "Berkeley Mono";
-      src: url("/apps/rover/assets/fonts/BerkeleyMono-Oblique.woff2") format("woff2");
-      font-style: oblique;
-      font-weight: 400;
-      font-display: swap;
-    }
-    @font-face {
-      font-family: "Berkeley Mono";
-      src: url("/apps/rover/assets/fonts/BerkeleyMono-Bold-Oblique.woff2") format("woff2");
-      font-style: oblique;
       font-weight: 700;
       font-display: swap;
     }
@@ -47,8 +33,13 @@
       --rv-glow-alpha: 0.32;
       --rv-glow-blur: 0.32rem;
       color-scheme: dark;
-      font-family: "Berkeley Mono", "DejaVu Sans Mono", ui-monospace, monospace;
-      font-variant-numeric: tabular-nums;
+      font-family: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+      /*  "zero" is JetBrains Mono's slashed-zero feature: it substitutes the
+          dotted zero glyph for the slashed one, so 0 never reads as O in an
+          odometer, a price, or a VIN.
+      */
+      font-feature-settings: "zero" 1;
+      font-variant-numeric: slashed-zero tabular-nums;
       background: var(--rv-bg);
       color: var(--rv-amber);
     }
