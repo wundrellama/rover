@@ -343,6 +343,52 @@ class VehicleDefaultTests(unittest.TestCase):
             )
 
 
+class VehicleUnitTests(unittest.TestCase):
+    def test_fill_unit_mismatches_are_named_and_reported(self):
+        stats = convert.ReportStats()
+        convert.check_import_units(
+            vehicle_label="Synthetic Unit Vehicle",
+            distance_unit="mi",
+            volume_unit="gal",
+            fills=[
+                {
+                    "observed": "2026-07-30T09:15",
+                    "mileageUnit": "km",
+                    "profile": "eu-eur-litre",
+                }
+            ],
+            stats=stats,
+        )
+
+        self.assertEqual(stats.unit_mismatches, 2)
+        self.assertIn(
+            "Synthetic Unit Vehicle/2026-07-30T09:15: distance km != vehicle mi",
+            stats.unit_mismatch_details,
+        )
+        self.assertIn(
+            "Synthetic Unit Vehicle/2026-07-30T09:15: volume litre != vehicle gal",
+            stats.unit_mismatch_details,
+        )
+        report = convert.render_report(
+            document={
+                "definitions": {
+                    "additives": [],
+                    "driving-modes": [],
+                    "energy": [],
+                    "payment-methods": [],
+                    "tags": [],
+                },
+                "places": [],
+                "vehicles": [],
+            },
+            stats=stats,
+            dry_run=True,
+        )
+        self.assertIn("Unit mismatches: 2", report)
+        self.assertIn("distance km != vehicle mi", report)
+        self.assertIn("volume litre != vehicle gal", report)
+
+
 class CrossCheckTests(unittest.TestCase):
     def test_total_check_rounds_product_once_to_minor_unit(self):
         stats = convert.ReportStats()

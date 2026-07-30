@@ -64,6 +64,8 @@ class ReportStats:
     parts_only_addresses: int = 0
     unlabelled_station_addresses: list[str] = dataclasses.field(default_factory=list)
     corrections_applied: list[str] = dataclasses.field(default_factory=list)
+    unit_mismatches: int = 0
+    unit_mismatch_details: list[str] = dataclasses.field(default_factory=list)
     total_checks: int = 0
     total_exact: int = 0
     total_within_cent: int = 0
@@ -317,6 +319,38 @@ def volume_profile(source_unit: str) -> tuple[str, str]:
         return mapping[source_unit]
     except KeyError as exc:
         raise ConversionError(f"unsupported aCar volume unit: {source_unit!r}") from exc
+
+
+def profile_volume_unit(profile: str) -> str:
+    if profile == "us-usd-gal":
+        return "gal"
+    if profile.endswith("-litre"):
+        return "litre"
+    raise ConversionError(f"unsupported Rover price profile: {profile!r}")
+
+
+def check_import_units(
+    *,
+    vehicle_label: str,
+    distance_unit: str,
+    volume_unit: str,
+    fills: list[dict[str, object]],
+    stats: ReportStats,
+) -> None:
+    for fill in fills:
+        record_name = f"{vehicle_label}/{fill['observed']}"
+        mileage_unit = str(fill["mileageUnit"])
+        if mileage_unit != distance_unit:
+            stats.unit_mismatches += 1
+            stats.unit_mismatch_details.append(
+                f"{record_name}: distance {mileage_unit} != vehicle {distance_unit}"
+            )
+        fill_volume_unit = profile_volume_unit(str(fill["profile"]))
+        if fill_volume_unit != volume_unit:
+            stats.unit_mismatches += 1
+            stats.unit_mismatch_details.append(
+                f"{record_name}: volume {fill_volume_unit} != vehicle {volume_unit}"
+            )
 
 
 def category_label(category: str) -> str:
@@ -1140,6 +1174,13 @@ def make_import_document(
             for record in vehicle.records
         ]
         output_vehicle["fills"] = fills
+        check_import_units(
+            vehicle_label=vehicle.label,
+            distance_unit=rover_distance,
+            volume_unit=quantity_unit,
+            fills=fills,
+            stats=stats,
+        )
         referenced = collections.Counter(
             str(fill["definition"]) for fill in fills
         )
@@ -1223,6 +1264,7 @@ def render_report(
         f"Parts-only addresses imported: {stats.parts_only_addresses}",
         f"Station-none fills with unmapped address text: {len(stats.unlabelled_station_addresses)}",
         f"Corrections {'that would be applied' if dry_run else 'applied'}: {len(stats.corrections_applied)}",
+        f"Unit mismatches: {stats.unit_mismatches}",
     ]
     lines.extend(
         f"{'Would correct' if dry_run else 'Corrected'}: {item}"
@@ -1232,6 +1274,7 @@ def render_report(
         f"Unmapped station address: {address}"
         for address in stats.unlabelled_station_addresses
     )
+    lines.extend(f"Unit mismatch: {item}" for item in stats.unit_mismatch_details)
     lines.extend(
         [
             "",
