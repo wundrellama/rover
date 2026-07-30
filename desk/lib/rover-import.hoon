@@ -424,12 +424,21 @@
   ==
 ::
 ++  energy-lookup
-  |=  label=@t
+  |=  input=import-energy-definition:rover
   ^-  tape
+  =/  subtype-labels
+    %+  turn  subtypes.input
+    |=  subtype=import-energy-subtype:rover
+    label.subtype
   ;:  weld
     "FROM energy-definitions E WHERE E.label = '"
-    (sql-quote:act label)
-    "' SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived;"
+    (sql-quote:act label.input)
+    "' SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived; "
+    "FROM energy-definition-subtypes S JOIN energy-definitions E ON S.energy-definition-id = E.energy-definition-id WHERE E.label = '"
+    (sql-quote:act label.input)
+    "' AND ("
+    (label-predicate 'S' subtype-labels)
+    ") SELECT S.subtype-id, S.energy-definition-id, S.label, S.archived;"
   ==
 ::
 ++  simple-lookup
@@ -529,7 +538,7 @@
   ^-  tape
   ?-  -.work
     %energy
-      (energy-lookup label.value.work)
+      (energy-lookup value.work)
     %simple
       (simple-lookup kind.work label.value.work)
     %place
@@ -540,25 +549,20 @@
       (fill-existing-lookup value.work)
   ==
 ::
-++  insert-energy
-  |=  [base=@ux input=import-energy-definition:rover recorded-at=@da]
+++  insert-energy-subtypes
+  |=  $:  base=@ux
+          definition-id=@ux
+          values=(list import-energy-subtype:rover)
+          recorded-at=@da
+      ==
   ^-  tape
-  =/  definition-id  (fixture-id:act base 1)
-  =/  definition
-    %:  insert-energy-source-type:act
-        definition-id
-        label.input
-        physical-kind.input
-        quantity-unit.input
-        recorded-at
-    ==
-  =/  subtypes
-    |=  [values=(list import-energy-subtype:rover) ordinal=@ud]
+  =/  build
+    |=  [remaining=(list import-energy-subtype:rover) ordinal=@ud]
     ^-  tape
-    ?~  values
+    ?~  remaining
       ~
     =/  subtype-id  (fixture-id:act base (add 10 ordinal))
-    =/  value  i.values
+    =/  value  i.remaining
     =/  rating=tape
       ?^  octane.value
         ;:  weld
@@ -590,9 +594,24 @@
       (scow %da recorded-at)
       ");"
       rating
-      $(values t.values, ordinal +(ordinal))
+      $(remaining t.remaining, ordinal +(ordinal))
     ==
-  (weld definition (subtypes subtypes.input 0))
+  (build values 0)
+::
+++  insert-energy
+  |=  [base=@ux input=import-energy-definition:rover recorded-at=@da]
+  ^-  tape
+  =/  definition-id  (fixture-id:act base 1)
+  ;:  weld
+    %:  insert-energy-source-type:act
+        definition-id
+        label.input
+        physical-kind.input
+        quantity-unit.input
+        recorded-at
+    ==
+    (insert-energy-subtypes base definition-id subtypes.input recorded-at)
+  ==
 ::
 ++  insert-simple
   |=  [base=@ux kind=import-simple-kind:rover label=@t recorded-at=@da]

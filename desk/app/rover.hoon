@@ -2746,13 +2746,36 @@
       =/  commands  p.res
       ?-  -.work
         %energy
+          ?.  (gte (lent commands) 2)
+            (fail 'incomplete energy definition lookup result')
           =/  rows  (rows-at:view commands 0)
           ?:  (gth (lent rows) 1)
             (fail 'ambiguous existing label')
           ?^  rows
+            =/  subtype-rows  (rows-at:view commands 1)
+            =/  ambiguous=?
+              %+  lien  subtypes.value.work
+              |=  subtype=import-energy-subtype:rover
+              (gth (lent (rows-by-text:view %label label.subtype subtype-rows)) 1)
+            ?:  ambiguous
+              (fail 'ambiguous existing subtype label')
+            =/  missing=(list import-energy-subtype:rover)
+              %+  skim  subtypes.value.work
+              |=  subtype=import-energy-subtype:rover
+              ?=(~ (rows-by-text:view %label label.subtype subtype-rows))
             =/  report
               report.run(definitions-reused +(definitions-reused.report.run))
-            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+            ?~  missing
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+            =/  base=@ux  (cut 7 [0 1] eny.bowl)
+            =/  definition-id=@ux
+              `@ux`(cell-atom:view %energy-definition-id i.rows)
+            =/  script
+              (insert-energy-subtypes:imp base definition-id missing now.bowl)
+            =/  next
+              run(writing %.y, serial +(serial.run), report report)
+            :_  this(import-run `next)
+            (import-write-cards our.bowl serial.run script)
           =/  base=@ux  (cut 7 [0 1] eny.bowl)
           =/  script  (insert-energy:imp base value.work now.bowl)
           =/  report

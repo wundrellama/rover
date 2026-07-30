@@ -121,6 +121,8 @@ click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%init-db ~]))
 ;<  ~  bind:m  (sleep ~s8)
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s8)
 (pure:m !>(~))' >/dev/null
 database_report="$(databases)"
 database_exists "$database_report" rover || fail "disposable rover database was not created"
@@ -133,7 +135,7 @@ happy="$(curl -sS -b "$JAR" -H 'content-type: application/json' \
   --data-binary "@$FIXTURE" "$URL/apps/rover/import")"
 grep -q 'Fills: imported 6, already-imported 0, conflicts 0, failures 0' <<<"$happy" \
   || fail "happy-path report was wrong: $happy"
-grep -q 'Definitions: created 15, reused 0' <<<"$happy" \
+grep -q 'Definitions: created 13, reused 2' <<<"$happy" \
   || fail "happy-path definition counts were wrong: $happy"
 grep -q 'Places: created 2, reused 0' <<<"$happy" \
   || fail "happy-path place counts were wrong: $happy"
@@ -149,8 +151,8 @@ grep -q 'Unit mismatches: 0' <<<"$happy" \
 report="$(obelisk rover "FROM acquisition-imports I SELECT I.acquisition-id;")"
 expect_count "$(row_count acquisition-id <<<"$report")" 6 "import provenance"
 simple_definitions="$(obelisk rover "FROM additive-definitions D SELECT D.additive-id, D.label; FROM driving-mode-definitions D SELECT D.mode-id, D.label; FROM tag-definitions D SELECT D.tag-id, D.label; FROM payment-method-definitions D SELECT D.method-id, D.label;")"
-expect_count "$(row_count additive-id <<<"$simple_definitions")" 1 "synthetic additive definitions"
-expect_count "$(row_count mode-id <<<"$simple_definitions")" 1 "synthetic driving-mode definitions"
+expect_count "$(row_count additive-id <<<"$simple_definitions")" 3 "starter plus synthetic additive definitions"
+expect_count "$(row_count mode-id <<<"$simple_definitions")" 6 "starter plus synthetic driving-mode definitions"
 expect_count "$(row_count tag-id <<<"$simple_definitions")" 6 "synthetic tag definitions"
 expect_count "$(row_count method-id <<<"$simple_definitions")" 5 "synthetic payment-method definitions"
 breaks="$(obelisk rover "FROM economy-breaks B JOIN acquisition-imports I ON B.acquisition-id = I.acquisition-id SELECT B.reason;")"
@@ -164,7 +166,7 @@ grep -q 'Synthetic Parts Depot' <<<"$(obelisk rover "FROM places P JOIN place-ad
 if grep -q 'Synthetic Parts Depot' <<<"$(obelisk rover "FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Synthetic Parts Depot' SELECT P.label;")"; then
   fail "parts-only address acquired invented formatted text"
 fi
-run_fixture 1 "happy path landed the real 13-simple-definition shape, six fills, ratings, optional children, parts-only address, and no display preferences"
+run_fixture 1 "seeded-parent reconciliation landed two missing energy subtypes plus the real 13-simple-definition shape, six fills, ratings, optional children, parts-only address, and no display preferences"
 
 python3 - "$FIXTURE" "$STRESS" <<'PY'
 import copy
@@ -298,7 +300,7 @@ with open(sys.argv[1], encoding="utf-8") as source:
 vehicle = copy.deepcopy(original["vehicles"][0])
 vehicle.pop("tankSize", None)
 vehicle["fills"] = []
-for index, definition in enumerate(("Synthetic Gasoline", "Missing Synthetic Energy", "Synthetic Gasoline"), 1):
+for index, definition in enumerate(("Gasoline", "Missing Synthetic Energy", "Gasoline"), 1):
     fill = copy.deepcopy(original["vehicles"][0]["fills"][1])
     fill["definition"] = definition
     fill["observed"] = f"2026-02-0{index}T08:00"
@@ -336,12 +338,12 @@ if grep -q 'atomic-2' <<<"$atomic_rows"; then
 fi
 run_fixture 5 "one bad middle record failed alone while earlier and later records landed"
 
-ui_fill='{"vehicle":"Synthetic Gas Car","definition":"Synthetic Gasoline","quantity":"1.000","price":"3.000","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-03-01T08:00","zone":"America/Chicago","mileage":"1400.0","mileageUnit":"mi","station":"none","additives":[],"subtype":"Synthetic 87 AKI","missedFill":"no","tags":[]}'
+ui_fill='{"vehicle":"Synthetic Gas Car","definition":"Gasoline","quantity":"1.000","price":"3.000","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-03-01T08:00","zone":"America/Chicago","mileage":"1400.0","mileageUnit":"mi","station":"none","additives":[],"subtype":"Synthetic 87 AKI","missedFill":"no","tags":[]}'
 saved="$(curl -sS -b "$JAR" -w $'\n%{http_code}' -H 'content-type: application/json' \
   --data-raw "$ui_fill" "$URL/apps/rover/add-fill")"
 grep -q $'\n201$' <<<"$saved" || fail "UI-entered control fill failed: $saved"
-counts="$(obelisk rover "FROM energy-acquisitions A JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE V.label = 'Synthetic Gas Car' OR V.label = 'Synthetic Diesel Truck' SELECT A.acquisition-id;")"
-expect_count "$(row_count acquisition-id <<<"$counts")" 9 "all synthetic acquisitions"
+counts="$(obelisk rover "FROM energy-acquisitions A SELECT A.acquisition-id;")"
+expect_count "$(row_count acquisition-id <<<"$counts")" 10 "all synthetic acquisitions"
 served="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 if grep -Eq 'gas-1|atomic-1|sourceRecordId|source-record-id' <<<"$served"; then
   fail "source provenance appeared in owner-facing HTML"
