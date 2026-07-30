@@ -36,6 +36,22 @@ comment, which is why this went unnoticed.
 
 ## Probe index — import/export work
 
+### `profile-view-query.hoon`
+
+Times the current 37-clause `+ui-view` `%tape` against a live profiling pier
+without invoking Rover's Gall-side assembly or HTML renderer. It receives and
+discards the Obelisk fact, then returns only `~`, so terminal printing of the
+result vectors is excluded. Measure it from the host with `/usr/bin/time`.
+
+This probe contains query structure only. It emits no row contents and writes
+nothing to Obelisk.
+
+### `profile-control.hoon`
+
+Measures the fixed `click -k -i` startup/evaluation overhead for the query
+profile above. Subtract its median wall time from `profile-view-query.hoon` to
+isolate the `%tape` request and fact delivery.
+
 ### `cetane-pour.hoon`
 Import Q1. Pours `energy-subtype-cetane` into a **throwaway `cetprobe`
 database**, inserts the real cetane-45 ULSD shape plus a 93-AKI gasoline row,
