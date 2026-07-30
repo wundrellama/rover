@@ -26,18 +26,37 @@ PATH="$HOME/workspace/urbit/bin:$PATH"
 fail() { echo "schema-test: FAIL - $*" >&2; exit 1; }
 pass() { echo "schema-test: PASS - $*"; }
 
-python3 - "$REPO/docs/schema-m0.sql" <<'PY'
+python3 - "$REPO/docs/schema-m0.sql" "$REPO/desk/lib/rover-act.hoon" <<'PY'
 import pathlib
 import re
 import sys
 
 source = pathlib.Path(sys.argv[1]).read_text()
+hoon_source = pathlib.Path(sys.argv[2]).read_text()
 ddl = "\n".join(line.split("--", 1)[0] for line in source.splitlines())
 tables = re.findall(r"CREATE TABLE rover\.\.([a-z0-9-]+)", source)
-if len(tables) != 67 or len(set(tables)) != 67:
+if len(tables) != 68 or len(set(tables)) != 68:
     raise SystemExit(
         f"schema-test: FAIL - DDL has {len(tables)} tables, "
-        f"{len(set(tables))} unique (want 67/67)"
+        f"{len(set(tables))} unique (want 68/68)"
+    )
+
+schema_arm = hoon_source.split("++  schema-m0", 1)[1].split(
+    "++  display-preference-schema", 1
+)[0]
+hoon_tables = re.findall(
+    r"CREATE TABLE rover\.\.([a-z0-9-]+)", schema_arm
+)
+if len(hoon_tables) != 68 or len(set(hoon_tables)) != 68:
+    raise SystemExit(
+        f"schema-test: FAIL - Hoon pour has {len(hoon_tables)} tables, "
+        f"{len(set(hoon_tables))} unique (want 68/68)"
+    )
+if set(tables) != set(hoon_tables):
+    raise SystemExit(
+        "schema-test: FAIL - SQL/Hoon relation mismatch: "
+        f"SQL-only={sorted(set(tables) - set(hoon_tables))}, "
+        f"Hoon-only={sorted(set(hoon_tables) - set(tables))}"
     )
 
 seen = set()
@@ -59,14 +78,14 @@ fk_count = len(re.findall(r"\bREFERENCES [a-z0-9-]+", ddl))
 restrict_count = len(re.findall(
     r"ON DELETE RESTRICT ON UPDATE RESTRICT", ddl
 ))
-if fk_count != 74 or restrict_count != 74:
+if fk_count != 75 or restrict_count != 75:
     raise SystemExit(
         f"schema-test: FAIL - DDL has {fk_count} FKs and "
-        f"{restrict_count} explicit RESTRICT pairs (want 74/74)"
+        f"{restrict_count} explicit RESTRICT pairs (want 75/75)"
     )
 print(
-    "schema-test: PASS - DDL has 67 unique tables, "
-    "74 explicit RESTRICT FKs, zero forward references"
+    "schema-test: PASS - SQL/Hoon parity is 68/68 relations; "
+    "DDL has 75 explicit RESTRICT FKs and zero forward references"
 )
 PY
 
@@ -142,10 +161,10 @@ mapfile -t counts < <(
 )
 [ "${#counts[@]}" -eq 3 ] ||
   fail "could not read table/column/FK counts from live metadata"
-[ "${counts[0]}" -eq 67 ] ||
-  fail "live Obelisk has ${counts[0]} relations (want 67)"
-[ "${counts[2]}" -eq 77 ] ||
-  fail "live Obelisk has ${counts[2]} FK metadata rows (want 77)"
+[ "${counts[0]}" -eq 68 ] ||
+  fail "live Obelisk has ${counts[0]} relations (want 68)"
+[ "${counts[2]}" -eq 78 ] ||
+  fail "live Obelisk has ${counts[2]} FK metadata rows (want 78)"
 
 if grep -Eq '\[%on-(delete|update) %tas %(cascade|set-default)\]' <<<"$live"; then
   fail "live Obelisk metadata contains cascade or set-default"
@@ -153,10 +172,10 @@ fi
 
 restrict_delete="$(grep -o '\[%on-delete %tas %restrict\]' <<<"$live" | wc -l)"
 restrict_update="$(grep -o '\[%on-update %tas %restrict\]' <<<"$live" | wc -l)"
-[ "$restrict_delete" -eq 77 ] ||
-  fail "live metadata has $restrict_delete RESTRICT deletes (want 77)"
-[ "$restrict_update" -eq 77 ] ||
-  fail "live metadata has $restrict_update RESTRICT updates (want 77)"
+[ "$restrict_delete" -eq 78 ] ||
+  fail "live metadata has $restrict_delete RESTRICT deletes (want 78)"
+[ "$restrict_update" -eq 78 ] ||
+  fail "live metadata has $restrict_update RESTRICT updates (want 78)"
 
-pass "fixture 17 - isolated live Obelisk has 67 relations; all 74 FK constraints (77 column rows) are RESTRICT; zero cascade/set-default"
+pass "fixture 17 - SQL/Hoon parity and isolated live Obelisk each have 68 relations; all 75 FK constraints (78 column rows) are RESTRICT; zero cascade/set-default"
 pass "COVERAGE - all 1 defined fixtures executed"

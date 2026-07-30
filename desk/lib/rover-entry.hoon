@@ -1317,6 +1317,22 @@
           ?=(~ tank-size)
       ==
     [%| %bad-shape 'vehicle.tank-size']
+  =/  reserve-text  (json-string 'refillReserve' u.object)
+  =/  refill-reserve=(unit @ud)
+    ?~  reserve-text
+      ~
+    ?.  (nonempty u.reserve-text)
+      ~
+    (slaw %ud u.reserve-text)
+  ?:  ?&  ?=(^ reserve-text)
+          (nonempty u.reserve-text)
+          ?=(~ refill-reserve)
+      ==
+    [%| %bad-shape 'vehicle.refill-reserve']
+  ?:  ?&  ?=(^ refill-reserve)
+          (gte u.refill-reserve 100)
+      ==
+    [%| %out-of-range 'vehicle.refill-reserve']
   =/  subtype-text  (json-string 'defaultSubtype' u.object)
   =/  default-subtype=(unit @t)
     ?~  subtype-text
@@ -1367,7 +1383,7 @@
           ?=(~ def-tank-size)
       ==
     [%| %bad-shape 'vehicle.def-tank-size']
-  [%& u.vehicle u.label tank-size default-subtype default-energy energy-labels mode-labels def-enabled def-tank-size]
+  [%& u.vehicle u.label tank-size refill-reserve default-subtype default-energy energy-labels mode-labels def-enabled def-tank-size]
 ::
 ++  decode-custom-definition
   |=  body=@t

@@ -59,7 +59,7 @@ Rover stores canonical data in [Obelisk](https://github.com/jackfoxy/obelisk). O
 
 Rover sends standard Gall cards to Obelisk. The Rover desk copies only `sur/obelisk-ast.hoon`, which defines the developer API types.
 
-The current schema has 67 relations. It covers vehicles, energy, observations, locations, consumables, custom fields, and import provenance.
+The current schema has 68 relations. It covers vehicles, energy, observations, locations, consumables, custom fields, and import provenance.
 
 ## Data rules
 
@@ -150,7 +150,7 @@ The copied Obelisk API mold and the pinned upstream mold must have the same SHA-
 | `desk/lib/rover-import.hoon` | Import planning, comparison, and reports |
 | `desk/lib/rover-render.hoon` | Human units and exact value formatting |
 | `desk/lib/rover-view.hoon` | Owner views, history, statistics, and pagination |
-| `docs/schema-m0.sql` | Current 67-relation Obelisk schema |
+| `docs/schema-m0.sql` | Current 68-relation Obelisk schema |
 | `bin/` | Live schema, browser, import, pin, and performance batteries |
 | `tools/` | aCar conversion and Rover import upload tools |
 | `probes/` | Click threads for live inspection and fixture control |

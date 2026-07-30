@@ -1,7 +1,8 @@
--- Rover M0 schema — full pour, 67 relations.
+-- Rover M0 schema — full pour, 68 relations.
 -- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
 -- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5),
---                     +place-address-formatted / place-addresses loses formatted (Q9).
+--                     +place-address-formatted / place-addresses loses formatted (Q9),
+--                     +vehicle-refill-reserve.
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -418,6 +419,13 @@ CREATE TABLE rover..app-default-vehicle
 -- reports unavailable with a reason rather than deriving from a guess.
 CREATE TABLE rover..vehicle-tank-size
   (vehicle-id @ux, digits @ud, decimals @ud, size-unit @tas)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Optional per-vehicle refill reserve. Absence means the full tank is usable.
+CREATE TABLE rover..vehicle-refill-reserve
+  (vehicle-id @ux, reserve-percent @ud)
   PRIMARY KEY (vehicle-id)
   FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;

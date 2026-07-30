@@ -222,6 +222,13 @@ grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "authenticated GET /apps/rover not 2
 grep -qi '^content-type: text/html' "$HDRS" || fail "shell content-type is not text/html"
 grep -q 'ROVER' <<<"$body" || fail "served shell has no Rover designation"
 note "authenticated Rover shell served over real Eyre"
+if grep -q '~bel' <<<"$body"; then
+  fail "fixture 103 served shell still carries the hardcoded ~bel footer identity"
+fi
+note "fixture 103 PASS - served footer carries the Rover label and no hardcoded ship literal"
+if [ "${ROVER_FIXTURE_STOP:-}" = 103 ]; then
+  exit 0
+fi
 
 grep -q -- '--rv-bg: #0b0a08' <<<"$body" || fail "UA 571-C background token missing"
 grep -q -- '--rv-amber: #d8b843' <<<"$body" || fail "UA 571-C amber token missing"
@@ -908,6 +915,159 @@ print("|".join(part.strip() for part in match.groups()) if match else "")' <<<"$
     || fail "fixture 98 hub did not use the rolling eligible mean with honest label/precision: ${rolling_hub:-<missing>}"
   note "fixture 98 PASS - hub uses the newest-first rolling eligible mean, excludes the broken interval, states the four-interval basis, and renders whole miles"
   if [ "${ROVER_FIXTURE_STOP:-}" = 98 ]; then
+    exit 0
+  fi
+
+  for invalid_reserve in 100 101; do
+    reserve_refusal="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+      -H 'content-type: application/json' \
+      --data-raw "{\"vehicle\":\"Rover Demo Gasoline\",\"label\":\"Rover Demo Gasoline\",\"tankSize\":\"15.5\",\"tankUnit\":\"gal\",\"refillReserve\":\"$invalid_reserve\",\"defaultSubtype\":\"87\",\"defaultEnergy\":\"Gasoline\",\"energySources\":[\"Gasoline\"],\"drivingModes\":[\"Normal\"],\"defEnabled\":\"no\",\"defTankSize\":\"\",\"defTankUnit\":\"gal\"}" \
+      "$URL/apps/rover/edit-vehicle")"
+    [ "$reserve_refusal" = $'%out-of-range: vehicle.refill-reserve\n400' ] \
+      || fail "fixture 99 reserve $invalid_reserve was not refused by name at entry: $reserve_refusal"
+  done
+  note "fixture 99 PASS - refill reserves of 100 percent and above are refused by name at entry"
+  if [ "${ROVER_FIXTURE_STOP:-}" = 99 ]; then
+    exit 0
+  fi
+
+  reserve_25="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline","label":"Rover Demo Gasoline","tankSize":"15.5","tankUnit":"gal","refillReserve":"25","defaultSubtype":"87","defaultEnergy":"Gasoline","energySources":["Gasoline"],"drivingModes":["Normal"],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' \
+    "$URL/apps/rover/edit-vehicle")"
+  [ "$reserve_25" = $'Saved vehicle settings\n201' ] \
+    || fail "fixture 100 could not save a 25 percent refill reserve: $reserve_25"
+  reserve_report="$(
+    obelisk_mutate rover \
+      "FROM vehicles V JOIN vehicle-refill-reserve R ON V.vehicle-id = R.vehicle-id WHERE V.label = 'Rover Demo Gasoline' SELECT R.reserve-percent;"
+  )"
+  grep -q '\[%reserve-percent 25717 25\]' <<<"$reserve_report" \
+    || fail "fixture 100 did not persist reserve-percent 25 in its child row: $reserve_report"
+  reserve_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  reserve_summary="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+hub = document.split("<section id=\"main-hub\"", 1)[1].split("<section id=\"add-fill\"", 1)[0]
+readout = re.search(
+    r"<span>ESTIMATED DISTANCE TO NEXT FILL FROM LAST FILL</span>"
+    r"<strong>([^<]+)</strong><small>([^<]+)</small>",
+    hub,
+    re.S,
+)
+panel = re.search(
+    r"data-vehicle-settings-panel data-vehicle=\"Rover Demo Gasoline\".*?</article>",
+    document,
+    re.S,
+)
+control = re.search(
+    r"Fill up when tank reaches\s*<input[^>]*name=\"refillReserve\"[^>]*value=\"([^\"]*)\"",
+    panel.group(0) if panel else "",
+    re.S,
+)
+parts = list(readout.groups()) if readout else ["", ""]
+parts.append(control.group(1) if control else "")
+print("|".join(part.strip() for part in parts))' <<<"$reserve_view"
+  )"
+  [ "$reserve_summary" = '331 mi|Mean of the last 4 eligible intervals, 25% reserve.|25' ] \
+    || fail "fixture 100 reserve was not applied or re-rendered honestly: ${reserve_summary:-<missing>}"
+  note "fixture 100 PASS - a human 25 percent reserve persists, re-renders, and reduces the rolling estimate from 442 mi to 331 mi"
+  if [ "${ROVER_FIXTURE_STOP:-}" = 100 ]; then
+    exit 0
+  fi
+
+  reserve_0="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline","label":"Rover Demo Gasoline","tankSize":"15.5","tankUnit":"gal","refillReserve":"0","defaultSubtype":"87","defaultEnergy":"Gasoline","energySources":["Gasoline"],"drivingModes":["Normal"],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' \
+    "$URL/apps/rover/edit-vehicle")"
+  [ "$reserve_0" = $'Saved vehicle settings\n201' ] \
+    || fail "fixture 101 could not save an explicit zero-percent refill reserve: $reserve_0"
+  reserve_zero_report="$(
+    obelisk_mutate rover \
+      "FROM vehicles V JOIN vehicle-refill-reserve R ON V.vehicle-id = R.vehicle-id WHERE V.label = 'Rover Demo Gasoline' SELECT R.reserve-percent;"
+  )"
+  grep -q '\[%reserve-percent 25717 0\]' <<<"$reserve_zero_report" \
+    || fail "fixture 101 did not persist reserve-percent 0 in its child row: $reserve_zero_report"
+  reserve_zero_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  reserve_zero_summary="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+hub = document.split("<section id=\"main-hub\"", 1)[1].split("<section id=\"add-fill\"", 1)[0]
+match = re.search(
+    r"<span>ESTIMATED DISTANCE TO NEXT FILL FROM LAST FILL</span>"
+    r"<strong>([^<]+)</strong><small>([^<]+)</small>",
+    hub,
+    re.S,
+)
+print("|".join(part.strip() for part in match.groups()) if match else "")' <<<"$reserve_zero_view"
+  )"
+  [ "$reserve_zero_summary" = '442 mi|Mean of the last 4 eligible intervals, 0% reserve.' ] \
+    || fail "fixture 101 explicit zero reserve did not retain full usable capacity: ${reserve_zero_summary:-<missing>}"
+  note "fixture 101 PASS - the same data renders 442 mi at zero reserve and 331 mi at 25 percent, with the reserved distance strictly smaller"
+  if [ "${ROVER_FIXTURE_STOP:-}" = 101 ]; then
+    exit 0
+  fi
+
+  reserve_absent="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline","label":"Rover Demo Gasoline","tankSize":"15.5","tankUnit":"gal","refillReserve":"","defaultSubtype":"87","defaultEnergy":"Gasoline","energySources":["Gasoline"],"drivingModes":["Normal"],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' \
+    "$URL/apps/rover/edit-vehicle")"
+  [ "$reserve_absent" = $'Saved vehicle settings\n201' ] \
+    || fail "fixture 102 could not clear the refill reserve: $reserve_absent"
+  reserve_absent_report="$(
+    obelisk_mutate rover \
+      "FROM vehicles V JOIN vehicle-refill-reserve R ON V.vehicle-id = R.vehicle-id WHERE V.label = 'Rover Demo Gasoline' SELECT R.reserve-percent;"
+  )"
+  grep -q '\[%vector-count 0\]' <<<"$reserve_absent_report" \
+    || fail "fixture 102 clearing reserve did not remove the optional child row: $reserve_absent_report"
+  reserve_absent_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  reserve_absent_summary="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+hub = document.split("<section id=\"main-hub\"", 1)[1].split("<section id=\"add-fill\"", 1)[0]
+match = re.search(
+    r"<span>ESTIMATED DISTANCE TO NEXT FILL FROM LAST FILL</span>"
+    r"<strong>([^<]+)</strong><small>([^<]+)</small>",
+    hub,
+    re.S,
+)
+print("|".join(part.strip() for part in match.groups()) if match else "")' <<<"$reserve_absent_view"
+  )"
+  [ "$reserve_absent_summary" = '442 mi|Mean of the last 4 eligible intervals, full tank.' ] \
+    || fail "fixture 102 absent reserve did not behave as a fully usable tank: ${reserve_absent_summary:-<missing>}"
+  note "fixture 102 PASS - clearing the optional child row restores the exact full-tank result and caption"
+  if [ "${ROVER_FIXTURE_STOP:-}" = 102 ]; then
+    exit 0
+  fi
+
+  diesel_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Diesel"}' \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$diesel_default" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 104 could not scope the five-interval estimate to the diesel vehicle: $diesel_default"
+  diesel_rolling_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  diesel_rolling_summary="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+hub = document.split("<section id=\"main-hub\"", 1)[1].split("<section id=\"add-fill\"", 1)[0]
+match = re.search(
+    r"<span>ESTIMATED DISTANCE TO NEXT FILL FROM LAST FILL</span>"
+    r"<strong>([^<]+)</strong><small>([^<]+)</small>",
+    hub,
+    re.S,
+)
+print("|".join(part.strip() for part in match.groups()) if match else "")' <<<"$diesel_rolling_view"
+  )"
+  [ "$diesel_rolling_summary" = '828 mi|Mean of the last 5 eligible intervals, full tank.' ] \
+    || fail "fixture 104 did not use all five eligible diesel intervals: ${diesel_rolling_summary:-<missing>}"
+  gasoline_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline"}' \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$gasoline_default" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 104 could not restore the gasoline demo default: $gasoline_default"
+  note "fixture 104 PASS - a five-interval vehicle renders the exact rolling-five mean rather than its latest interval"
+  if [ "${ROVER_FIXTURE_STOP:-}" = 104 ]; then
     exit 0
   fi
 
@@ -2164,7 +2324,7 @@ for destination in add-odometer vehicles-screen history-screen statistics-screen
     fail "hub navigation is missing $destination"
 done
 for readout in 'MOST RECENT ODOMETER' 'ECONOMY - LAST FILL' 'ECONOMY - LIFETIME' \
-  'ESTIMATED DISTANCE TO NEXT FILL' 'BEST ECONOMY' 'WORST ECONOMY'; do
+  'ESTIMATED DISTANCE TO NEXT FILL FROM LAST FILL' 'BEST ECONOMY' 'WORST ECONOMY'; do
   grep -q "$readout" <<<"$view" || fail "hub readout missing: $readout"
 done
 grep -q '&lsaquo; MAIN' <<<"$view" || fail "screens do not name MAIN in back controls"
@@ -3073,7 +3233,8 @@ print("ENERGY_DEFAULT=" + ("yes" if (
 print("FUEL_FIELDS=" + ("yes" if (
     fuel and
     all(name in fuel_text for name in (
-        "name=\"defaultSubtype\"", "name=\"tankSize\"", "name=\"tankUnit\""
+        "name=\"defaultSubtype\"", "name=\"tankSize\"", "name=\"tankUnit\"",
+        "name=\"refillReserve\""
     ))
 ) else "no"))
 positions = [
@@ -3105,10 +3266,10 @@ note "fixture 90 PASS - default energy is inside its source group and Rover reje
 grep -q '^GROUPS=yes$' <<<"$settings_layout_report" ||
   fail "fixture 91 one or more vehicle settings groups are absent: $settings_layout_report"
 grep -q '^FUEL_FIELDS=yes$' <<<"$settings_layout_report" ||
-  fail "fixture 91 Fuel System does not contain subtype, size, and units: $settings_layout_report"
+  fail "fixture 91 Fuel System does not contain subtype, size, units, and refill reserve: $settings_layout_report"
 grep -q '^ORDER=yes$' <<<"$settings_layout_report" ||
   fail "fixture 91 vehicle settings group order is wrong: $settings_layout_report"
-note "fixture 91 PASS - Fuel System contains all three primary tank fields and precedes Energy Sources, Driving Modes, and DEF"
+note "fixture 91 PASS - Fuel System contains subtype, tank size, units, and refill reserve and precedes Energy Sources, Driving Modes, and DEF"
 
 grep -q '^LAYOUT=' <<<"$header_browser" ||
   fail "fixture 92 live browser did not report its 390px settings measurement: $header_browser"

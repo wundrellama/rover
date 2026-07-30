@@ -1100,6 +1100,7 @@
     "CREATE TABLE rover..acquisition-station-equipment (acquisition-id @ux, equipment-label @t, receipt-text @t) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisition-stations (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..app-default-vehicle (scope @tas, vehicle-id @ux, recorded-at @da) PRIMARY KEY (scope) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..vehicle-tank-size (vehicle-id @ux, digits @ud, decimals @ud, size-unit @tas) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-refill-reserve (vehicle-id @ux, reserve-percent @ud) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..fuel-fill-subtype (acquisition-id @ux, subtype-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..driving-mode-definitions (mode-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (mode-id); "
     "CREATE TABLE rover..vehicle-driving-modes (vehicle-id @ux, mode-id @ux, archived @f) PRIMARY KEY (vehicle-id, mode-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (mode-id) REFERENCES driving-mode-definitions (mode-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
@@ -1631,6 +1632,7 @@
     " FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN consumable-definitions C ON A.consumable-id = C.consumable-id JOIN consumable-purchases P ON A.consumable-acquisition-id = P.consumable-acquisition-id WHERE C.label = 'DEF' SELECT V.vehicle-id, A.consumable-acquisition-id, C.label AS consumable, P.quantity-milli, P.quantity-unit, A.observed-start;"
     " FROM consumable-acquisition-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.consumable-acquisition-id, O.value-digits, O.decimal-places, O.unit;"
     " FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE A.part = %locality SELECT P.place-id, P.label AS place, A.value AS locality;"
+    " FROM vehicle-refill-reserve R SELECT R.vehicle-id, R.reserve-percent;"
   ==
 ::
 ++  sql-quote
@@ -1985,6 +1987,8 @@
   ;:  weld
     "DELETE FROM vehicle-display-preferences WHERE vehicle-id = "
     id
+    "; DELETE FROM vehicle-refill-reserve WHERE vehicle-id = "
+    id
     "; DELETE FROM vehicle-default-energy-subtype WHERE vehicle-id = "
     id
     "; DELETE FROM vehicle-driving-modes WHERE vehicle-id = "
@@ -2234,6 +2238,16 @@
       (sql-term value-unit.u.tank-size.input)
       "); "
     ==
+  =/  reserve-script=tape
+    ?~  refill-reserve.input
+      ~
+    ;:  weld
+      "INSERT INTO vehicle-refill-reserve VALUES ("
+      id
+      ", "
+      (sql-ud u.refill-reserve.input)
+      "); "
+    ==
   =/  subtype-script=tape
     ?~  subtype-id
       ~
@@ -2341,12 +2355,15 @@
     id
     "; DELETE FROM vehicle-tank-size WHERE vehicle-id = "
     id
+    "; DELETE FROM vehicle-refill-reserve WHERE vehicle-id = "
+    id
     "; "
     "DELETE FROM vehicle-default-energy-subtype WHERE vehicle-id = "
     id
     "; "
     def-delete
     tank-script
+    reserve-script
     subtype-script
     energy-script
     default-energy-script
@@ -2365,6 +2382,9 @@
     "FROM vehicles V JOIN vehicle-tank-size T ON V.vehicle-id = T.vehicle-id WHERE V.label = '"
     (sql-quote label)
     "' SELECT V.label AS vehicle, T.digits, T.decimals, T.size-unit; "
+    "FROM vehicles V JOIN vehicle-refill-reserve R ON V.vehicle-id = R.vehicle-id WHERE V.label = '"
+    (sql-quote label)
+    "' SELECT V.label AS vehicle, R.reserve-percent; "
     "FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id WHERE V.label = '"
     (sql-quote label)
     "' SELECT V.label AS vehicle, S.label AS default-subtype; "

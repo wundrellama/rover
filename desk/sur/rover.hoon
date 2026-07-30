@@ -251,6 +251,7 @@
   $:  vehicle-label=@t
       label=@t
       tank-size=(unit scaled-entry)
+      refill-reserve=(unit @ud)
       default-subtype=(unit @t)
       default-energy=(unit @t)
       energy-labels=(unit (list @t))

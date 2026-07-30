@@ -1067,6 +1067,7 @@
           definition-rows=(list vector:ast)
           odometers=(list vector:ast)
           tank-sizes=(list vector:ast)
+          refill-reserves=(list vector:ast)
           fills=(list vector:ast)
           fill-odometers=(list vector:ast)
           economy-breaks=(list vector:ast)
@@ -1116,6 +1117,15 @@
     ?~  rolling-economies
       0
     (div (add (sum-economies rolling-economies) (div rolling-count 2)) rolling-count)
+  =/  reserve=(unit @ud)
+    ?~  default-id
+      ~
+    =/  rows  (rows-for u.default-id refill-reserves)
+    ?.  =(1 (lent rows))
+      ~
+    `(cell-atom %reserve-percent (snag 0 rows))
+  =/  reserve-valid
+    ?~(reserve %.y (lth u.reserve 100))
   =/  last-economy=tape
     ?~  economies
       "Unavailable"
@@ -1142,6 +1152,8 @@
       "No default vehicle is set."
     ?:  ?=(~ (rows-for u.default-id tank-sizes))
       "Tank size is not recorded for this vehicle."
+    ?.  reserve-valid
+      "Refill reserve must be between 0 and 99%."
     ?~  rolling-economies
       "An eligible economy interval is required."
     ;:  weld
@@ -1149,11 +1161,18 @@
       (scow %ud rolling-count)
       " eligible interval"
       ?:(=(1 rolling-count) "" "s")
-      ", full tank."
+      ?~  reserve
+        ", full tank."
+      ;:  weld
+        ", "
+        (scow %ud u.reserve)
+        "% reserve."
+      ==
     ==
   =/  next-distance=tape
     ?:  ?|  ?=(~ default-id)
             ?=(~ economies)
+            =(%.n reserve-valid)
         ==
       "Unavailable"
     =/  tanks  (rows-for u.default-id tank-sizes)
@@ -1165,8 +1184,12 @@
       "Unavailable"
     =/  tank-milli
       (mul (cell-atom %digits tank-row) (pow-ten:render (sub 3 places)))
+    =/  usable-milli
+      ?~  reserve
+        tank-milli
+      (div (add (mul tank-milli (sub 100 u.reserve)) 50) 100)
     =/  distance-milli
-      (div (add (mul rolling-mean tank-milli) 500) 1.000)
+      (div (add (mul rolling-mean usable-milli) 500) 1.000)
     =/  distance-whole
       (div (add distance-milli 500) 1.000)
     ;:  weld
@@ -1719,6 +1742,7 @@
           vehicle-consumables=(list vector:ast)
           consumable-tank-sizes=(list vector:ast)
           tank-sizes=(list vector:ast)
+          refill-reserves=(list vector:ast)
           is-default=?
           history-page=@ud
       ==
@@ -1738,6 +1762,7 @@
   =/  modes  (rows-by-text %vehicle label driving-modes)
   =/  vehicle-definitions  (rows-for id definition-rows)
   =/  tank  (rows-for id tank-sizes)
+  =/  refill-reserve  (rows-for id refill-reserves)
   =/  tank-value=tape
     ?~  tank
       ~
@@ -1746,6 +1771,10 @@
     ?~  tank
       %gal
     (cell-term %size-unit i.tank)
+  =/  refill-reserve-value=tape
+    ?~  refill-reserve
+      ~
+    (scow %ud (cell-atom %reserve-percent i.refill-reserve))
   =/  selected-subtype=(unit @t)
     ?~  default-subtype
       ~
@@ -1846,7 +1875,9 @@
     ?:(=(%gal tank-unit) " selected" "")
     ">gal</option><option value=\"litre\""
     ?:(=(%litre tank-unit) " selected" "")
-    ">litre</option></select></label></fieldset><fieldset class=\"vehicle-settings-group membership-checks\" data-settings-group=\"energy-sources\" data-energy-source-checks><legend>Energy Sources</legend><div class=\"check-grid\">"
+    ">litre</option></select></label><label>Fill up when tank reaches <input name=\"refillReserve\" inputmode=\"numeric\" min=\"0\" max=\"99\" step=\"1\" value=\""
+    refill-reserve-value
+    "\">%</label></fieldset><fieldset class=\"vehicle-settings-group membership-checks\" data-settings-group=\"energy-sources\" data-energy-source-checks><legend>Energy Sources</legend><div class=\"check-grid\">"
     energy-controls
     "</div><button type=\"button\" data-add-energy-source>Add energy source type</button><label>Default energy source<select name=\"defaultEnergy\"><option value=\"\">Not set</option>"
     default-energy-controls
@@ -2728,6 +2759,7 @@
   =/  def-purchases  (rows-at commands 35)
   =/  def-odometers  (rows-at commands 36)
   =/  localities  (rows-at commands 37)
+  =/  refill-reserves  (rows-at commands 38)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -2766,6 +2798,7 @@
           vehicle-consumables
           consumable-tank-sizes
           tank-sizes
+          refill-reserves
           ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
           history-page
       ==
@@ -2785,7 +2818,7 @@
       ==
       "></span>"
       (address-locality-data localities)
-      (main-hub app-default definition-rows odometers tank-sizes fills fill-odometers economy-breaks def-purchases def-odometers derivations)
+      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills fill-odometers economy-breaks def-purchases def-odometers derivations)
       (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
