@@ -843,7 +843,10 @@
     "' SELECT S.label AS station, P.label AS place, S.station-kind; "
     "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-addresses A ON P.place-id = A.place-id WHERE S.label = '"
     quoted
-    "' SELECT A.formatted, A.source; "
+    "' SELECT A.source; "
+    "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-address-formatted F ON P.place-id = F.place-id WHERE S.label = '"
+    quoted
+    "' SELECT F.formatted; "
     "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-address-parts A ON P.place-id = A.place-id WHERE S.label = '"
     quoted
     "' SELECT A.part, A.value; "
@@ -1083,7 +1086,12 @@
     "CREATE TABLE rover..charging-cost-components (component-id @ux, acquisition-id @ux, component @tas, quantity @ud, quantity-decimals @ud, quantity-unit @tas, rate-mills @ud, amount-mills @ud) PRIMARY KEY (component-id) FOREIGN KEY (acquisition-id) REFERENCES charging-costs (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..charging-cost-source-totals (acquisition-id @ux, total-mills @ud) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES charging-costs (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumption-observations (consumption-id @ux, vehicle-id @ux, value-digits @ud, value-decimals @ud, consumption-unit @tas, scope @tas, source @tas, observed-start @da, observed-end @da, observed-precision @tas, source-zone @t, recorded-at @da) PRIMARY KEY (consumption-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
-    "CREATE TABLE rover..place-addresses (place-id @ux, formatted @t, source @tas, recorded-at @da) PRIMARY KEY (place-id) FOREIGN KEY (place-id) REFERENCES places (place-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..place-addresses (place-id @ux, source @tas, recorded-at @da) PRIMARY KEY (place-id) FOREIGN KEY (place-id) REFERENCES places (place-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    ::  Q9 (2026-07-30): formatted lives in its own child, so a source that
+    ::  supplies structured parts WITHOUT a text line is recordable. 105 of 420
+    ::  real aCar fills are exactly that case. Invariant: at least one child
+    ::  (formatted, parts, or both) - NOT XOR; 275 records have both.
+    "CREATE TABLE rover..place-address-formatted (place-id @ux, formatted @t) PRIMARY KEY (place-id) FOREIGN KEY (place-id) REFERENCES place-addresses (place-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..place-address-parts (place-id @ux, part @tas, value @t) PRIMARY KEY (place-id, part) FOREIGN KEY (place-id) REFERENCES place-addresses (place-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..place-coordinates (place-id @ux, latitude-scaled @sd, longitude-scaled @sd, coord-scale @ud, source @tas, recorded-at @da) PRIMARY KEY (place-id) FOREIGN KEY (place-id) REFERENCES places (place-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..place-coordinate-accuracy (place-id @ux, radius-digits @ud, radius-decimals @ud, radius-unit @tas) PRIMARY KEY (place-id) FOREIGN KEY (place-id) REFERENCES place-coordinates (place-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
@@ -1467,7 +1475,8 @@
     "FROM charging-cost-components C SELECT C.component, C.amount-mills; "
     "FROM charging-cost-source-totals T SELECT T.total-mills; "
     "FROM consumption-observations C SELECT C.value-digits, C.value-decimals, C.consumption-unit, C.scope, C.source; "
-    "FROM place-addresses A SELECT A.formatted, A.source; "
+    "FROM place-addresses A SELECT A.source; "
+    "FROM place-address-formatted F SELECT F.formatted; "
     "FROM place-address-parts A SELECT A.part, A.value; "
     "FROM place-coordinates C SELECT C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source; "
     "FROM place-coordinate-accuracy A SELECT A.radius-digits, A.radius-decimals, A.radius-unit; "
@@ -1489,6 +1498,10 @@
   =/  prv-sta  (scow %ux private-station.ids)
   =/  pub-plc  (scow %ux public-place.ids)
   =/  mix-sta  (scow %ux mixed-station.ids)
+  ::  Q9 fixture: a place whose address arrives as PARTS ONLY, with no
+  ::  formatted text - the shape 105 of 420 real aCar fills take. Derived from
+  ::  the public place id so no new field is needed on location-ids.
+  =/  prt-plc  (scow %ux (fixture-id public-place.ids 91))
   =/  rec      (scow %da now)
   ;:  weld
     "INSERT INTO energy-definitions VALUES ({res-id}, 'Location Fixture Fuel', %reservoir, %gal, Y, {rec}); "
@@ -1503,12 +1516,21 @@
     "INSERT INTO stations VALUES ({prv-sta}, {prv-plc}, 'Home Charger', %private, N, {rec}); "
     "INSERT INTO places VALUES ({pub-plc}, 'Public Market', N, {rec}); "
     "INSERT INTO stations VALUES ({mix-sta}, {pub-plc}, 'Market Mixed Station', %mixed, N, {rec}); "
-    "INSERT INTO place-addresses VALUES ({pub-plc}, '123 Market St, Chicago, IL 60601, USA', %owner, {rec}); "
+    "INSERT INTO place-addresses VALUES ({pub-plc}, %owner, {rec}); "
+    "INSERT INTO place-address-formatted VALUES ({pub-plc}, '123 Market St, Chicago, IL 60601, USA'); "
     "INSERT INTO place-address-parts VALUES ({pub-plc}, %country, 'US'); "
     "INSERT INTO place-address-parts VALUES ({pub-plc}, %locality, 'Chicago'); "
     "INSERT INTO place-address-parts VALUES ({pub-plc}, %region, 'IL'); "
     "INSERT INTO place-address-parts VALUES ({pub-plc}, %postal-code, '60601'); "
     "INSERT INTO place-address-parts VALUES ({pub-plc}, %line1, '123 Market St'); "
+    ::  Q9: parts-only place. Address row exists (evidence, source %imported)
+    ::  with NO place-address-formatted child - previously impossible, because
+    ::  formatted was a mandatory column on the parent.
+    "INSERT INTO places VALUES ({prt-plc}, 'Parts Only Depot', N, {rec}); "
+    "INSERT INTO place-addresses VALUES ({prt-plc}, %imported, {rec}); "
+    "INSERT INTO place-address-parts VALUES ({prt-plc}, %line1, '900 Depot Rd'); "
+    "INSERT INTO place-address-parts VALUES ({prt-plc}, %locality, 'Aurora'); "
+    "INSERT INTO place-address-parts VALUES ({prt-plc}, %region, 'IL'); "
     "INSERT INTO place-coordinates VALUES ({pub-plc}, -418.781.136, --876.297.982, 7, %gps, {rec}); "
     "INSERT INTO place-coordinate-accuracy VALUES ({pub-plc}, 47, 1, %metre); "
     "INSERT INTO station-brand-operator VALUES ({mix-sta}, %brand, 'Shell'); "
@@ -1528,7 +1550,13 @@
   ^-  tape
   ;:  weld
     "FROM places P JOIN stations S ON P.place-id = S.place-id WHERE P.label = 'Private Home' OR P.label = 'Public Market' SELECT P.label AS place, P.archived AS place-archived, S.label AS station, S.station-kind, S.archived AS station-archived; "
-    "FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.formatted, A.source; "
+    "FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.source; "
+    "FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, F.formatted; "
+    ::  Q9 coverage: a place whose address is PARTS ONLY, no formatted text -
+    ::  the 105-record aCar case. It must have an address row and a locality
+    ::  part, and must NOT appear in the formatted query above.
+    "FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Parts Only Depot' SELECT P.label AS parts-only-with-formatted; "
+    "FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Parts Only Depot' SELECT P.label AS place, A.part, A.value; "
     "FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-address; "
     "FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.part, A.value; "
     "FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source; "
@@ -2630,11 +2658,18 @@
       ;:  weld
         " INSERT INTO place-addresses VALUES ("
         place
-        ", '"
-        (sql-quote formatted.address)
-        "', %owner, "
+        ", %owner, "
         recorded
         ");"
+        ::  Q9: formatted is its own child row now, so a source supplying only
+        ::  structured parts is recordable. This owner-entry path always has
+        ::  formatted text (decode-fill requires it here), so it always writes
+        ::  the child - satisfying the at-least-one-child invariant either way.
+        " INSERT INTO place-address-formatted VALUES ("
+        place
+        ", '"
+        (sql-quote formatted.address)
+        "');"
         (part-row %line1 line1.address)
         (part-row %line2 line2.address)
         (part-row %locality locality.address)

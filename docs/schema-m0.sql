@@ -1,6 +1,7 @@
--- Rover M0 schema — full pour, 66 relations.
+-- Rover M0 schema — full pour, 67 relations.
 -- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
--- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5).
+-- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5),
+--                     +place-address-formatted / place-addresses loses formatted (Q9).
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -314,10 +315,44 @@ CREATE TABLE rover..consumption-observations
 -- plus brand/operator, identifiers, equipment)
 -- ============================================================
 
+-- AMENDED 2026-07-30 (import Q9): formatted moved to its own child.
+-- The parent is now FACT-NEUTRAL: it asserts "this place has address evidence,
+-- from source X", not "a source supplied address text".
+--
+-- Q10 originally made formatted mandatory on the reasoning that an address
+-- record exists only because a source supplied text. The real aCar corpus
+-- falsifies that: 105 of 420 fills carry address PARTS with no formatted text,
+-- 97 of them a COMPLETE address (line1+locality+region+postal+country). With
+-- parts FK'd to a mandatory-formatted parent, those were structurally
+-- unrecordable - 11 of 50 named places would have lost %locality entirely,
+-- disabling the ratified grantable approximate-locality projection for 22% of
+-- them while the source knew the city perfectly well.
+--
+-- Same defect class as Q3/Q4/Q9: one relation holding two INDEPENDENT facts
+-- ("a source gave text" vs "we have address evidence"). Same fix: neutral
+-- parent + independently optional children.
+--
+-- ROVER INVARIANT: at least one child - a formatted row, one or more parts, or
+-- both. NOT XOR: 275 records legitimately have both, and text plus structure is
+-- the richest case. A parent with no children asserts nothing (reconciliation
+-- failure).
+--
+-- Synthesising formatted text from parts is FORBIDDEN: Rover would invent a
+-- string no source supplied, indistinguishable from real source text once
+-- stored, and address grammar is not universal (Japanese runs
+-- largest-to-smallest, the UK has no %region in the US sense).
 CREATE TABLE rover..place-addresses
-  (place-id @ux, formatted @t, source @tas, recorded-at @da)
+  (place-id @ux, source @tas, recorded-at @da)
   PRIMARY KEY (place-id)
   FOREIGN KEY (place-id) REFERENCES places (place-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- The source-supplied address text, when there is one. Absent = the source
+-- gave structured parts only.
+CREATE TABLE rover..place-address-formatted
+  (place-id @ux, formatted @t)
+  PRIMARY KEY (place-id)
+  FOREIGN KEY (place-id) REFERENCES place-addresses (place-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- Permissive open set, no part required (Q2); %country is a part term (Q10).
