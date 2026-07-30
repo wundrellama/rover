@@ -846,7 +846,9 @@
     const headerVehicle = document.getElementById('header-vehicle');
 
     let glow = false;
-    let glowIntensity = 20;
+    //  32 renders alpha 0.32 under the percentage scale: the same default the
+    //  theme has always shipped, now stated honestly by its own control.
+    let glowIntensity = 32;
     try {
       glow = localStorage.getItem('rover-glow') === 'on';
       const storedGlowIntensity =
@@ -862,12 +864,16 @@
       }
     } catch (_) {
       glow = false;
-      glowIntensity = 20;
+      glowIntensity = 32;
     }
 
     function showGlow() {
-      const alpha = Math.min(0.95, glowIntensity * 0.016);
-      const blur = glowIntensity * 0.016;
+      //  The slider reads as a percentage, so it means one: intensity N gives
+      //  alpha N/100. A control that says 45% and renders alpha 0.72 is lying
+      //  about the setting it holds. The legacy 0.32 look is preserved exactly,
+      //  at its honest index of 32.
+      const alpha = glowIntensity / 100;
+      const blur = glowIntensity / 100;
       document.documentElement.style.setProperty(
         '--rv-glow-intensity',
         String(glowIntensity)

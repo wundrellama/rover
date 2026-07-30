@@ -226,12 +226,12 @@ async function testVehicleSettingsLayout(page, vehicle) {
         };
       });
       if (
-        initialGlow.slider !== '20' ||
+        initialGlow.slider !== '32' ||
         Number(initialGlow.alpha) !== 0.32 ||
         initialGlow.blur !== '0.320rem'
       ) {
         throw new Error(
-          `legacy 0.32 glow is not mapped near the low end: ${JSON.stringify(initialGlow)}`
+          `legacy 0.32 glow is not mapped to its honest index: ${JSON.stringify(initialGlow)}`
         );
       }
 
@@ -266,6 +266,39 @@ async function testVehicleSettingsLayout(page, vehicle) {
           `maximum glow did not persist or exceed alpha 0.32: ${JSON.stringify(maximum)}`
         );
       }
+      //  The control states a percentage, so the rendered alpha must equal it.
+      //  A slider that reads 45% while rendering 0.72 is a lying boundary.
+      if (alpha !== 1) {
+        throw new Error(
+          `slider at 100 did not render alpha 1: ${JSON.stringify(maximum)}`
+        );
+      }
+      for (const probe of ['45', '10', '80']) {
+        await slider.fill(probe);
+        await slider.dispatchEvent('input');
+        const honest = await page.evaluate(() => {
+          const root = getComputedStyle(document.documentElement);
+          return {
+            alpha: root.getPropertyValue('--rv-glow-alpha').trim(),
+            blur: root.getPropertyValue('--rv-glow-blur').trim(),
+            output: document
+              .querySelector('[data-glow-intensity-output]')
+              ?.textContent
+          };
+        });
+        const want = (Number(probe) / 100).toFixed(3);
+        if (
+          honest.alpha !== want ||
+          honest.blur !== `${want}rem` ||
+          honest.output !== `${probe}%`
+        ) {
+          throw new Error(
+            `slider ${probe}% does not render alpha ${want}: ${JSON.stringify(honest)}`
+          );
+        }
+      }
+      await slider.fill('100');
+      await slider.dispatchEvent('input');
 
       await page.reload({waitUntil: 'domcontentloaded'});
       await page.waitForSelector(
