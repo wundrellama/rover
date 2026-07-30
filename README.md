@@ -1,105 +1,173 @@
 # Rover
 
-Vehicle lifecycle tracking as a native Urbit application. Rover records fuel fills,
-charging sessions, odometer readings, stations, and consumables for one or more
-vehicles, and derives fuel economy and cost figures from that history.
+Rover is a self-hosted vehicle log for Urbit. It records vehicle activity and keeps the data on the owner's ship.
 
-Comparable in purpose to [LubeLog](https://github.com/hargata/lubelog) and
-[Fuelly](https://www.fuelly.com/), with the data held on the owner's own ship.
+Rover supports fuel fills, charging sessions, odometer readings, consumable purchases, stations, and vehicle settings. It calculates economy, costs, and distance estimates from that history.
 
-**Status: pre-release.** Rover runs on disposable fake ships only. The schema has not
-been published, and it is still repoured as the design changes.
+Rover has a working mobile-first owner interface. It is similar in purpose to [LubeLog](https://github.com/hargata/lubelog) and [Fuelly](https://www.fuelly.com/).
 
-## Design
+> **Status: pre-release 0.1.0.** Rover operates only on disposable fake ships. The checked-in schema can change before release.
 
-Rover is a Gall agent that keeps its canonical state in
-[Obelisk](https://github.com/jackfoxy/obelisk), a relational database for Urbit.
-Obelisk is installed as its own unmodified desk; Rover reaches it through standard Gall
-cards and copies only `sur/obelisk-ast.hoon`, the developer API mold. The database
-engine is never vendored into the Rover desk.
+## Current features
 
-Four commitments shape the data model:
+### Vehicles
 
-**Optional data is an absent row, never a sentinel.** Obelisk has no nullable columns,
-so an unused column would hold its aura bunt — and a bunt is indistinguishable from a
-real value. A `0` in an accuracy column reads as perfect precision; an `@f` bunt reads
-as `true`. Optional facts therefore live in child relations whose absence is the
-answer.
+- Create and rename vehicles.
+- Select a default vehicle for the application.
+- Configure liquid fuel, electricity, and other energy sources.
+- Configure a default energy source and fuel subtype.
+- Configure tank size, DEF use, DEF tank size, and driving modes.
+- Select distance and currency display preferences for each vehicle.
+- Archive a vehicle without deleting its history.
 
-**Derived values are not stored.** A fill's total is computed from quantity and unit
-price at read time. A vehicle's current odometer is derived from its observation
-series. Storing either would let it drift from its inputs with nothing to surface the
-drift.
+### Entries
 
-**Arithmetic is exact.** Quantities and prices are integers with an explicit decimal
-scale — a fill records `12345` thousandths of a gallon and `3499` mills per gallon, not
-floating-point approximations. Rounding rules are snapshotted onto each record, so a
-later change to a pricing profile cannot re-render past history.
+- Record liquid fuel fills with exact quantity and unit-price values.
+- Record charging sessions with energy, battery, cost state, and measurement source.
+- Record odometer observations as independent facts.
+- Record purchases for DEF, coolant, motor oil, and washer fluid.
+- Link entries to stations, odometer observations, additives, tags, driving modes, and payment methods.
+- Add notes and typed custom fields to fuel fills.
+- Correct every fuel-fill field through one atomic database change.
 
-**Values are rendered for humans at every boundary.** Stored integers never reach a
-screen. `12345` is presented as `12.345 gal`; a derivation that cannot be computed
-renders as unavailable *with a reason*, never as zero or an estimate.
+### History and statistics
 
-## Repository layout
+- Filter history by vehicle.
+- Edit historical fuel fills without replacing their identity.
+- Paginate large history and statistics views.
+- Calculate eligible full-to-full fuel economy intervals.
+- Show missed-fill and exclusion breaks with a human reason.
+- Calculate fuel costs, distance between fills, time between fills, and lifetime mean unit price.
+- Calculate estimated distance per tank and distance to the next fill.
+- Calculate DEF economy separately from fuel economy.
+- Refuse incompatible or incomplete calculations instead of showing zero or an estimate.
 
-| Path | Contents |
-|---|---|
-| `desk/` | The `%rover` Gall desk — agent, libraries, marks, types |
-| `desk/app/rover.hoon` | Agent: Eyre binding, HTTP routing, Obelisk dispatch |
-| `desk/lib/rover-act.hoon` | Schema and urQL construction |
-| `desk/lib/rover-entry.hoon` | Entry decoding and validation |
-| `desk/lib/rover-render.hoon` | The human-units boundary |
-| `desk/lib/rover-view.hoon` | Projections and screen assembly |
-| `docs/schema-m0.sql` | The 64-relation schema, in Obelisk's DDL grammar |
-| `bin/schema-test.sh` | Static DDL validation and live schema verification |
-| `bin/ui-test.sh` | Browser-half fixture battery against a live pier |
-| `probes/` | Click threads for driving and inspecting a running pier |
-| `AGENTS.md` | Standing orders for contributors and coding agents |
+### Owner controls
 
-## Substrate
+- Use starter packs for energy sources, fuel subtypes, additives, driving modes, and consumables.
+- Add owner-defined energy sources and driving modes.
+- Add number, text, and yes-or-no custom fields.
+- Change the interface glow and glow intensity.
 
-| | |
-|---|---|
-| Pill | `brass-408k-1` (zuse 408) |
-| Obelisk | `dev` @ `2b72856e` |
-| Development ships | `~bel` and children, disposable |
+## Architecture
 
-Obelisk's upstream-recommended `dev` commit `2b72856e` compiles and runs on the
-brass-408k pill. The matching copied `sur/obelisk-ast.hoon` is verified by SHA-256;
-the agent and copied mold are treated as one compatibility unit.
+`%rover` is a Gall agent. It serves the owner interface through Eyre at `/apps/rover`.
 
-Because Rover embeds none of Obelisk's engine, changing that pin is a desk swap plus a
-mold re-copy plus a fixture run — no application logic changes.
+The interface uses the ship's standard login session. It uses an amber UA 571-C color scheme and a mobile-first layout.
 
-## Browser surface
+Rover stores canonical data in [Obelisk](https://github.com/jackfoxy/obelisk). Obelisk remains an unmodified desk on the same ship.
 
-Rover serves a single-page application over Eyre at `/apps/rover`, authenticated with
-the ship's standard `+code` session. The Landscape tile is a docket `site+` binding
-rather than a globbed bundle, so the application remains reachable on a ship without
-Landscape installed.
+Rover sends standard Gall cards to Obelisk. The Rover desk copies only `sur/obelisk-ast.hoon`, which defines the developer API types.
 
-The interface is themed after the UA 571-C remote sentry terminal from *Aliens* (1986),
-whose props were GRiD Compass laptops with orange electroluminescent panels. It is
-mobile-first: a phone is the primary surface.
+The current schema has 67 relations. It covers vehicles, energy, observations, locations, consumables, custom fields, and import provenance.
+
+## Data rules
+
+**Optional data uses an absent row.** Obelisk has no nullable columns. Rover does not use zero, empty text, or an aura bunt as a missing value.
+
+**Derived values are not stored.** Rover calculates totals, current odometer values, and economy figures from their source records.
+
+**Arithmetic is exact.** Rover stores quantities, prices, coordinates, and other decimal values as scaled integers.
+
+**Historical meaning does not change.** Each fuel fill stores the rounding rules that applied when the owner recorded it.
+
+**Corrections use normal database history.** Rover updates the current row. Obelisk keeps prior database states for temporal queries.
+
+**Archive replaces deletion.** Rover retires referenced definitions and vehicles without removing their history.
+
+**Human boundaries use human values.** The interface shows labels, units, completed prices, and refusal reasons instead of raw identifiers.
+
+## Import tools
+
+Rover includes a versioned JSON import path for operators. The browser Settings screen does not expose import controls yet.
+
+The import format covers definitions, places, vehicles, and fuel fills. It does not cover charges, consumables, standalone odometers, or service history.
+
+`tools/acar-import/convert.py` converts an aCar XML export into Rover import JSON. It validates units, reports unsupported data, and refuses guesses.
+
+The converter writes output outside this repository. It removes JPEG application metadata before it writes extracted photos.
+
+Rover does not attach those photos to database records. The converter records them in a separate attachment manifest for later work.
+
+`tools/rover-import/upload.py` sends bounded batches to the authenticated import endpoint. Import provenance makes identical retries safe and reports changed source records as conflicts.
+
+```bash
+python3 tools/acar-import/convert.py /path/to/acar-export \
+  --zone America/Chicago \
+  --dry-run
+
+python3 tools/acar-import/convert.py /path/to/acar-export \
+  --zone America/Chicago \
+  --out /path/to/rover-output
+
+python3 tools/rover-import/upload.py /path/to/rover-output/rover-import.json \
+  --dry-run
+```
+
+A real upload also needs the full `/apps/rover/import` URL and an authenticated cookie file.
 
 ## Testing
 
+The main batteries use a live fake ship, real Eyre authentication, and the pinned Obelisk agent. Mock database responses do not count as integration evidence.
+
 ```bash
-bin/schema-test.sh    # static DDL validation, then live relation and FK verification
-bin/ui-test.sh        # browser fixtures against a running pier
+bin/dev-pin-test.sh
+tests/view-linear-test.sh
+bin/schema-test.sh <pier>
+ROVER_DEMO_ONLY=1 bin/ui-test.sh <pier>
+bin/import-test.sh <pier>
+bin/view-performance-test.sh <pier>
+python3 tools/acar-import/test_convert.py
+python3 tools/rover-import/test_upload.py
 ```
 
-Fixtures run against a live fake ship with real Eyre sessions and real Obelisk writes.
-Mocked database responses are not accepted as evidence. A fixture that cannot fail is
-treated as a defect; a check that cannot be made genuinely failable is recorded as
-unverified rather than reported as passing.
+Every pier command requires an explicit pier path. Use only a disposable Rover pier.
 
-## Licence
+The live batteries replace the active `rover` database with a temporary test database. They restore the owner database after the run.
 
-Not yet licensed. All rights reserved pending a licence decision.
+The UI battery also applies a final demo-data guard. Use a pristine demo-only owner database for the complete UI battery.
 
-## Documentation
+The fixture coverage gate lists every skipped fixture. A partial run does not become a complete pass because its executed checks are green.
 
-Design records — data model, schema rulings, application structure, import format —
-are kept outside this repository. `AGENTS.md` is the standing-order source for anyone,
-human or agent, working in the tree.
+## Substrate
+
+| Component | Current pin |
+|---|---|
+| Urbit pill | `brass-408k-1` with zuse 408 |
+| Obelisk | `dev` @ `2b72856e` |
+| Development ships | Disposable `~bel` lineage ships |
+
+The copied Obelisk API mold and the pinned upstream mold must have the same SHA-256 value. `bin/dev-pin-test.sh` checks the commit and both files.
+
+## Repository layout
+
+| Path | Purpose |
+|---|---|
+| `desk/app/rover.hoon` | Gall agent, Eyre routes, and Obelisk request handling |
+| `desk/app/rover/` | Browser shell, fonts, and tile art |
+| `desk/lib/rover-act.hoon` | Schema and urQL changes |
+| `desk/lib/rover-entry.hoon` | HTTP input decoding and validation |
+| `desk/lib/rover-import.hoon` | Import planning, comparison, and reports |
+| `desk/lib/rover-render.hoon` | Human units and exact value formatting |
+| `desk/lib/rover-view.hoon` | Owner views, history, statistics, and pagination |
+| `docs/schema-m0.sql` | Current 67-relation Obelisk schema |
+| `bin/` | Live schema, browser, import, pin, and performance batteries |
+| `tools/` | aCar conversion and Rover import upload tools |
+| `probes/` | Click threads for live inspection and fixture control |
+| `tests/view-linear-test.sh` | Static regression guard for linear, paginated views |
+| `RESULTS.md` | Schema and data fixture evidence |
+| `RESULTS-UI.md` | Browser and owner-interface fixture evidence |
+
+## Not implemented
+
+- Cross-ship sharing and per-field grants.
+- Remote mutation.
+- Browser controls for import or export.
+- Maintenance, service, insurance, tax, and modification records.
+- Database attachment storage.
+- Permanent charger and connector inventory.
+- A supported release installation or migration path.
+
+## License
+
+Rover does not have an open-source license yet. All rights are reserved until the project selects a license.
