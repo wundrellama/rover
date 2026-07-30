@@ -2,7 +2,9 @@
 """Synthetic-only tests for the aCar converter."""
 
 import ast
+import json
 import pathlib
+import tempfile
 import unittest
 
 import convert
@@ -11,7 +13,13 @@ import convert
 FUEL_TYPES = {
     "synthetic-diesel": convert.FuelType(
         category="diesel", name="Example Diesel", rating="45", rating_type="cetane"
-    )
+    ),
+    "synthetic-gasoline": convert.FuelType(
+        category="gasoline",
+        name="Example Gasoline",
+        rating="93",
+        rating_type="octane_aki",
+    ),
 }
 
 
@@ -32,6 +40,47 @@ def synthetic_fill(**overrides):
     }
     record.update(overrides)
     return record
+
+
+def write_synthetic_export(directory):
+    directory.mkdir()
+    (directory / "metadata.inf").write_text(
+        "\n".join(
+            (
+                "acar.backup.version=11",
+                "acar.version=5.6.12",
+                "acar.backup.datetime=2026-07-30T09:30:00-05:00",
+            )
+        ),
+        encoding="utf-8",
+    )
+    (directory / "fuel-types.xml").write_text(
+        """<fuel-types>
+<fuel-type id="synthetic-diesel"><category>diesel</category><name>Example Diesel</name><rating>45</rating><rating-type>cetane</rating-type></fuel-type>
+<fuel-type id="synthetic-gasoline"><category>gasoline</category><name>Example Gasoline</name><rating>93</rating><rating-type>octane_aki</rating-type></fuel-type>
+</fuel-types>""",
+        encoding="utf-8",
+    )
+    for name, root in (
+        ("trip-types.xml", "trip-types"),
+        ("event-subtypes.xml", "event-subtypes"),
+        ("preferences.xml", "preferences"),
+    ):
+        (directory / name).write_text(f"<{root}/>", encoding="utf-8")
+    fill = synthetic_fill()
+    fields = "".join(
+        f"<{key}>{value}</{key}>"
+        for key, value in fill.items()
+        if key != "_remote_id"
+    )
+    (directory / "vehicles.xml").write_text(
+        f"""<vehicles><vehicle>
+<name>Synthetic Vehicle</name><distance-unit>mile</distance-unit>
+<volume-unit>us_gallon</volume-unit><fuel-tank-capacity>20.0</fuel-tank-capacity>
+<fillup-record>{fields}<sync-metadata><remote-id>{fill["_remote_id"]}</remote-id></sync-metadata></fillup-record>
+</vehicle></vehicles>""",
+        encoding="utf-8",
+    )
 
 
 class DecimalTests(unittest.TestCase):
@@ -141,6 +190,157 @@ class FillMappingTests(unittest.TestCase):
         report = convert.render_report(document=document, stats=stats, dry_run=True)
         self.assertIn("Station-none fills with unmapped address text: 1", report)
         self.assertIn(address, report)
+
+
+class CorrectionTests(unittest.TestCase):
+    def correction(self):
+        return convert.Correction(
+            source_record_id="synthetic-record-1",
+            field="fuel-type-id",
+            before="synthetic-diesel",
+            after="synthetic-gasoline",
+            before_label="Example Diesel",
+            after_label="Example Gasoline",
+            reason="Synthetic owner-ratified correction.",
+        )
+
+    def test_correction_applies_and_is_reported_in_dry_run(self):
+        correction_document = {
+            "rover-corrections": 1,
+            "source-app": "acar",
+            "corrections": [
+                {
+                    "source-record-id": "synthetic-record-1",
+                    "field": "fuel-type-id",
+                    "from": "synthetic-diesel",
+                    "to": "synthetic-gasoline",
+                    "from-label": "Example Diesel",
+                    "to-label": "Example Gasoline",
+                    "reason": "Synthetic owner-ratified correction.",
+                    "ratified": "2026-07-30",
+                    "ratified-by": "owner",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "corrections.json"
+            path.write_text(json.dumps(correction_document), encoding="utf-8")
+            corrections = convert.load_corrections(path.parent)
+
+        record = synthetic_fill()
+        stats = convert.ReportStats()
+        convert.apply_record_correction(
+            record,
+            corrections=corrections,
+            record_name="Synthetic Vehicle/2026-07-30T09:15",
+            stats=stats,
+        )
+
+        self.assertEqual(record["fuel-type-id"], "synthetic-gasoline")
+        document = {
+            "definitions": {
+                "additives": [],
+                "driving-modes": [],
+                "energy": [],
+                "payment-methods": [],
+                "tags": [],
+            },
+            "places": [],
+            "vehicles": [],
+        }
+        report = convert.render_report(document=document, stats=stats, dry_run=True)
+        self.assertIn("Corrections that would be applied: 1", report)
+        self.assertIn("Example Diesel -> Example Gasoline", report)
+        self.assertIn("Synthetic owner-ratified correction.", report)
+
+    def test_correction_with_stale_from_is_a_hard_error(self):
+        record = synthetic_fill(**{"fuel-type-id": "synthetic-electricity"})
+        with self.assertRaisesRegex(
+            convert.ConversionError,
+            "stale correction.*Example Diesel.*Example Gasoline.*expected fuel-type-id.*found",
+        ):
+            convert.apply_record_correction(
+                record,
+                corrections={"synthetic-record-1": self.correction()},
+                record_name="Synthetic Vehicle/2026-07-30T09:15",
+                stats=convert.ReportStats(),
+            )
+        self.assertEqual(record["fuel-type-id"], "synthetic-electricity")
+
+    def test_converter_loads_correction_beside_export_before_mapping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            export_dir = root / "export"
+            output_dir = root / "output"
+            write_synthetic_export(export_dir)
+            correction = {
+                "rover-corrections": 1,
+                "source-app": "acar",
+                "corrections": [
+                    {
+                        "source-record-id": "synthetic-record-1",
+                        "field": "fuel-type-id",
+                        "from": "synthetic-diesel",
+                        "to": "synthetic-gasoline",
+                        "from-label": "Example Diesel",
+                        "to-label": "Example Gasoline",
+                        "reason": "Synthetic owner-ratified correction.",
+                        "ratified": "2026-07-30",
+                        "ratified-by": "owner",
+                    }
+                ],
+            }
+            (export_dir / "corrections.json").write_text(
+                json.dumps(correction), encoding="utf-8"
+            )
+
+            document, _, report = convert.convert_export(
+                export_dir,
+                output_dir,
+                dry_run=True,
+                zone="America/Chicago",
+            )
+
+        vehicle = document["vehicles"][0]
+        self.assertEqual(vehicle["defaultEnergy"], "Gasoline")
+        self.assertEqual(vehicle["fills"][0]["definition"], "Gasoline")
+        self.assertIn("Corrections that would be applied: 1", report)
+
+
+class VehicleDefaultTests(unittest.TestCase):
+    def test_multiple_referenced_definitions_stop_and_name_the_split(self):
+        vehicle = convert.VehicleSource(
+            index=1,
+            label="Synthetic Split-Fuel Vehicle",
+            distance_unit="mile",
+            volume_unit="us_gallon",
+            tank_capacity="",
+            records=[
+                synthetic_fill(),
+                synthetic_fill(
+                    date="07/31/2026 - 09:15",
+                    **{
+                        "_remote_id": "synthetic-record-2",
+                        "fuel-type-id": "synthetic-gasoline",
+                    },
+                ),
+            ],
+        )
+        with self.assertRaisesRegex(
+            convert.ConversionError,
+            "Synthetic Split-Fuel Vehicle.*references multiple energy definitions.*Diesel=1.*Gasoline=1",
+        ):
+            convert.make_import_document(
+                metadata={
+                    "acar.backup.version": "11",
+                    "acar.version": "5.6.12",
+                    "acar.backup.datetime": "2026-07-30T09:30:00-05:00",
+                },
+                vehicles=[vehicle],
+                fuel_types=FUEL_TYPES,
+                zone="America/Chicago",
+                stats=convert.ReportStats(),
+            )
 
 
 class CrossCheckTests(unittest.TestCase):

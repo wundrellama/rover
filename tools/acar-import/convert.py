@@ -36,6 +36,17 @@ class FuelType:
     rating_type: str
 
 
+@dataclasses.dataclass(frozen=True)
+class Correction:
+    source_record_id: str
+    field: str
+    before: str
+    after: str
+    before_label: str
+    after_label: str
+    reason: str
+
+
 @dataclasses.dataclass
 class ReportStats:
     vehicles: int = 0
@@ -52,6 +63,7 @@ class ReportStats:
     deleted_tags_suppressed: int = 0
     parts_only_addresses: int = 0
     unlabelled_station_addresses: list[str] = dataclasses.field(default_factory=list)
+    corrections_applied: list[str] = dataclasses.field(default_factory=list)
     total_checks: int = 0
     total_exact: int = 0
     total_within_cent: int = 0
@@ -493,6 +505,80 @@ def read_fuel_types(path: pathlib.Path) -> dict[str, FuelType]:
     return fuel_types
 
 
+def load_corrections(export_dir: pathlib.Path) -> dict[str, Correction]:
+    path = export_dir / "corrections.json"
+    if not path.is_file():
+        return {}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConversionError(f"{path.name}: invalid JSON") from exc
+    if (
+        not isinstance(document, dict)
+        or document.get("rover-corrections") != 1
+        or document.get("source-app") != "acar"
+        or not isinstance(document.get("corrections"), list)
+    ):
+        raise ConversionError(f"{path.name}: unsupported correction document")
+    corrections: dict[str, Correction] = {}
+    for index, item in enumerate(document["corrections"], start=1):
+        if not isinstance(item, dict):
+            raise ConversionError(f"{path.name}: correction {index} is not an object")
+        required = (
+            "source-record-id",
+            "field",
+            "from",
+            "to",
+            "from-label",
+            "to-label",
+            "reason",
+        )
+        if any(not isinstance(item.get(key), str) or not item[key] for key in required):
+            raise ConversionError(
+                f"{path.name}: correction {index} lacks a required string"
+            )
+        correction = Correction(
+            source_record_id=item["source-record-id"],
+            field=item["field"],
+            before=item["from"],
+            after=item["to"],
+            before_label=item["from-label"],
+            after_label=item["to-label"],
+            reason=item["reason"],
+        )
+        if correction.source_record_id in corrections:
+            raise ConversionError(
+                f"{path.name}: duplicate source-record-id at correction {index}"
+            )
+        corrections[correction.source_record_id] = correction
+    return corrections
+
+
+def apply_record_correction(
+    record: dict[str, str],
+    *,
+    corrections: dict[str, Correction],
+    record_name: str,
+    stats: ReportStats,
+) -> None:
+    source_record_id = text_trimmed(record, "_remote_id")
+    correction = corrections.get(source_record_id)
+    if correction is None:
+        return
+    current = record.get(correction.field, "")
+    if current != correction.before:
+        raise ConversionError(
+            f"{record_name}: stale correction {correction.before_label!r} -> "
+            f"{correction.after_label!r} expected {correction.field} "
+            f"{correction.before!r}, found {current!r}"
+        )
+    record[correction.field] = correction.after
+    stats.corrections_applied.append(
+        f"{record_name}: {correction.before_label} -> {correction.after_label}; "
+        f"{correction.reason}"
+    )
+
+
 def count_elements(path: pathlib.Path, wanted: str) -> int:
     count = 0
     for _, element in ET.iterparse(path, events=("end",)):
@@ -597,6 +683,7 @@ def read_vehicles(
     output_dir: pathlib.Path,
     dry_run: bool,
     stats: ReportStats,
+    corrections: dict[str, Correction],
 ) -> ExportData:
     vehicles: list[VehicleSource] = []
     attachment_entries: list[dict[str, object]] = []
@@ -647,6 +734,12 @@ def read_vehicles(
             label = vehicle_values.get("name", "")
             if not label:
                 raise ConversionError(f"vehicle-{vehicle_index} has no name")
+            apply_record_correction(
+                record,
+                corrections=corrections,
+                record_name=f"{label}/{observed_start(text_trimmed(record, 'date'))}",
+                stats=stats,
+            )
             photo_text = record.pop("photos", "")
             extract_attachments(
                 photo_text,
@@ -1047,6 +1140,23 @@ def make_import_document(
             for record in vehicle.records
         ]
         output_vehicle["fills"] = fills
+        referenced = collections.Counter(
+            str(fill["definition"]) for fill in fills
+        )
+        if not referenced:
+            raise ConversionError(
+                f"vehicle {vehicle.label!r} references no energy definition; "
+                "defaultEnergy is required"
+            )
+        if len(referenced) > 1:
+            split = ", ".join(
+                f"{label}={count}" for label, count in sorted(referenced.items())
+            )
+            raise ConversionError(
+                f"vehicle {vehicle.label!r} references multiple energy definitions: "
+                f"{split}; defaultEnergy cannot be inferred"
+            )
+        output_vehicle["defaultEnergy"] = next(iter(referenced))
         check_efficiencies(f"vehicle-{vehicle.index}", vehicle.records, stats)
         output_vehicles.append(output_vehicle)
 
@@ -1112,7 +1222,12 @@ def render_report(
         f"Suppressed literal 'deleted' tags: {stats.deleted_tags_suppressed}",
         f"Parts-only addresses imported: {stats.parts_only_addresses}",
         f"Station-none fills with unmapped address text: {len(stats.unlabelled_station_addresses)}",
+        f"Corrections {'that would be applied' if dry_run else 'applied'}: {len(stats.corrections_applied)}",
     ]
+    lines.extend(
+        f"{'Would correct' if dry_run else 'Corrected'}: {item}"
+        for item in stats.corrections_applied
+    )
     lines.extend(
         f"Unmapped station address: {address}"
         for address in stats.unlabelled_station_addresses
@@ -1215,9 +1330,14 @@ def convert_export(
     )
     stats.preferences = count_elements(export_dir / "preferences.xml", "preference")
     fuel_types = read_fuel_types(export_dir / "fuel-types.xml")
+    corrections = load_corrections(export_dir)
     metadata = read_properties(export_dir / "metadata.inf")
     parsed = read_vehicles(
-        export_dir / "vehicles.xml", output_dir, dry_run=dry_run, stats=stats
+        export_dir / "vehicles.xml",
+        output_dir,
+        dry_run=dry_run,
+        stats=stats,
+        corrections=corrections,
     )
     document = make_import_document(
         metadata=metadata,
