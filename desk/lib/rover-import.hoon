@@ -231,12 +231,16 @@
   ?~  source-total.fill
     ~
   =/  input  input.fill
-  =/  parsed  (parse-decimal:render u.source-total.fill minor-unit-decimals.input)
+  =/  parsed
+    (parse-decimal:render u.source-total.fill (lent (trip u.source-total.fill)))
   ?:  ?=(%| -.parsed)
     `%beyond
-  =/  multiplier
-    (pow-ten:render (sub minor-unit-decimals.input places.p.parsed))
-  =/  source-minor  (mul digits.p.parsed multiplier)
+  =/  source-minor
+    ?:  (lte places.p.parsed minor-unit-decimals.input)
+      %+  mul  digits.p.parsed
+      (pow-ten:render (sub minor-unit-decimals.input places.p.parsed))
+    %+  round-div-half-up:act  digits.p.parsed
+    (pow-ten:render (sub places.p.parsed minor-unit-decimals.input))
   =/  proof
     %:  derive-fill-total:act
         quantity-milli.input
@@ -255,6 +259,53 @@
   ?:  =(0 delta)
     `%exact
   ?:(=(1 delta) `%off-by-one `%beyond)
+::
+++  urql-cord-safe
+  |=  value=@t
+  ^-  ?
+  =/  chars  (trip value)
+  |-
+  ?~  chars
+    %.y
+  ?&  (gte i.chars 32)
+      !=(i.chars 127)
+      $(chars t.chars)
+  ==
+::
+++  replace-fill-note
+  |=  [commands=(list command:ast) note=@t]
+  ^-  (each (list command:ast) @t)
+  =/  out=(list command:ast)  ~
+  =/  replaced=?  %.n
+  |-
+  ?~  commands
+    ?:(replaced [%& (flop out)] [%| 'parsed script lacks one fill-notes insert'])
+  =/  command  i.commands
+  ?.  ?=(%crud-txn -.command)
+    $(commands t.commands, out [command out])
+  =/  transaction=crud-txn:ast  command
+  ?.  ?=(%insert -.body.transaction)
+    $(commands t.commands, out [command out])
+  =/  insertion=insert:ast  +.body.transaction
+  ?.  =(%fill-notes name.qualified-table.insertion)
+    $(commands t.commands, out [command out])
+  ?:  replaced
+    [%| 'parsed script contains more than one fill-notes insert']
+  ?.  ?=([%data *] values.insertion)
+    [%| 'fill-notes insert does not contain literal data']
+  =/  rows=(list (list value-or-default:ast))  +.values.insertion
+  ?.  =(1 (lent rows))
+    [%| 'fill-notes insert does not contain one row']
+  =/  row  (snag 0 rows)
+  ?.  =(2 (lent row))
+    [%| 'fill-notes insert does not contain two values']
+  =/  patched-row=(list value-or-default:ast)
+    [(snag 0 row) [%t note] ~]
+  =/  patched-insertion=insert:ast
+    insertion(values [%data [patched-row ~]])
+  =/  patched-transaction=crud-txn:ast
+    transaction(body [%insert patched-insertion])
+  $(commands t.commands, out [patched-transaction out], replaced %.y)
 ::
 ++  unique-texts
   |=  values=(list @t)

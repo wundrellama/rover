@@ -28,6 +28,12 @@
   (source-total-class:imp imported-fill)
 ?>  ?=(^ total-class)
 ?>  =(%exact u.total-class)
+=/  precise-total-fill=import-fill:rover
+  imported-fill(source-total `'34.99000')
+=/  precise-total-class
+  (source-total-class:imp precise-total-fill)
+?>  ?=(^ precise-total-class)
+?>  =(%exact u.precise-total-class)
 =/  report  (initial-report:imp p.good)
 ?>  =(1 station-none.report)
 ?>  =(1 total-exact.report)
@@ -42,6 +48,12 @@
       (fixture-id:act base 104)
       (fixture-id:act base 105)
   ==
+?>  =(5 (lent (unique-ids:act [acquisition.ids odometer.ids place.ids station.ids tag.ids ~])))
+?>  !=(0 acquisition.ids)
+?>  !=(0 odometer.ids)
+?>  !=(0 place.ids)
+?>  !=(0 station.ids)
+?>  !=(0 tag.ids)
 =/  canonical
   (canonical-fill:imp input.imported-fill)
 =/  script
@@ -68,4 +80,7 @@
 ?>  (contains:imp (fill-existing-lookup:imp imported-fill) "acquisition-imports I")
 ?>  !(contains:imp (fill-existing-lookup:imp imported-fill) "FROM vehicles V JOIN vehicle-energy-definitions")
 ?>  (contains:imp (fill-support-lookup:imp imported-fill) "FROM vehicles V JOIN vehicle-energy-definitions")
+=/  apostrophe-text=@t  (crip "Driver's")
+?>  =("Driver\\'s" (sql-quote:act apostrophe-text))
+?>  =(%.n (urql-cord-safe:imp (crip "first\0asecond")))
 %import-tests-pass

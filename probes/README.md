@@ -129,12 +129,13 @@ For the real-substrate import battery, run:
     bin/import-test.sh ~/piers/rover-binbel
 
 That script swaps the owner database out, pours a disposable current schema,
-imports only `tests/fixtures/rover-import-synthetic.json`, proves happy path,
+imports only synthetic data, proves happy path, a 51-place/2-vehicle
+same-import ID stress case, apostrophe escaping, lossless multiline notes,
 re-import, conflict, per-record atomicity, provenance boundary, and restart
 persistence, then restores the owner database and compares the rendered view
 hash. A green run ends with:
 
-    import-test: COVERAGE - all 6 defined import fixtures executed
+    import-test: COVERAGE - all 7 defined import fixtures executed
 
 ## PITFALL: `;<` bindings need explicit types
 

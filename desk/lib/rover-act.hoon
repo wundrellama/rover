@@ -1642,7 +1642,7 @@
   ^-  tape
   ?~  chars
     ~
-  =/  escaped=tape  ?:  =(39 i.chars)  "''"  [i.chars ~]
+  =/  escaped=tape  ?:  =(39 i.chars)  "\\'"  [i.chars ~]
   (weld escaped (sql-quote-chars t.chars))
 ::
 ++  sql-ud

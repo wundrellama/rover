@@ -42,11 +42,38 @@
     "tags": [
       {
         "label": "Synthetic Trip"
+      },
+      {
+        "label": "Synthetic Highway"
+      },
+      {
+        "label": "Synthetic Regen"
+      },
+      {
+        "label": "Synthetic Service"
+      },
+      {
+        "label": "Synthetic Trailer"
+      },
+      {
+        "label": "Synthetic Warranty"
       }
     ],
     "payment-methods": [
       {
         "label": "Synthetic Card"
+      },
+      {
+        "label": "Synthetic Cash"
+      },
+      {
+        "label": "Synthetic Business"
+      },
+      {
+        "label": "Synthetic Personal"
+      },
+      {
+        "label": "Synthetic Fleet"
       }
     ]
   },
@@ -120,13 +147,18 @@
           "speedUnit": "mph",
           "driveBalance": "70",
           "tags": [
-            "Synthetic Trip"
+            "Synthetic Trip",
+            "Synthetic Highway",
+            "Synthetic Regen",
+            "Synthetic Service",
+            "Synthetic Trailer",
+            "Synthetic Warranty"
           ],
           "notes": "Synthetic happy-path note",
           "paymentMethod": "Synthetic Card",
           "sourceApp": "synthetic",
           "sourceRecordId": "gas-1",
-          "sourceTotal": "30.00"
+          "sourceTotal": "30.00000"
         },
         {
           "vehicle": "Synthetic Gas Car",

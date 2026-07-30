@@ -421,8 +421,26 @@
 ++  import-write-cards
   |=  [our=@p serial=@ud script=tape]
   ^-  (list card)
-  =/  wir=wire  /rover-import-write/(scot %ud serial)
+  =/  wir=wire  /rover-import-write/tape/(scot %ud serial)
   =/  jon  !>([%tape %rover script])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  import-parse-cards
+  |=  [our=@p serial=@ud script=tape]
+  ^-  (list card)
+  =/  wir=wire  /rover-import-write/parse/(scot %ud serial)
+  =/  jon  !>([%parse %rover script])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  import-command-write-cards
+  |=  [our=@p serial=@ud commands=(list command:ast)]
+  ^-  (list card)
+  =/  wir=wire  /rover-import-write/commands/(scot %ud serial)
+  =/  jon  !>([%commands commands])
   :~  [%pass wir %agent [our %obelisk] %watch /server]
       [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
   ==
@@ -3091,6 +3109,16 @@
             (fixture-id:act base 104)
             (fixture-id:act base 105)
         ==
+      =/  command-note=(unit @t)
+        ?~  notes.input
+          ~
+        ?:  (urql-cord-safe:imp u.notes.input)
+          ~
+        notes.input
+      =/  script-input=fill-entry:rover
+        ?~  command-note
+          input
+        input(notes `'Rover import note placeholder')
       =/  script
         %:  insert-import-fill:imp
             ids
@@ -3103,7 +3131,7 @@
             driving-mode-id
             p.tag-proof
             payment-method-id
-            input
+            script-input
             source-app.fill
             source-record-id.fill
             now.bowl
@@ -3111,7 +3139,9 @@
       =/  next
         run(writing %.y, serial +(serial.run))
       :_  this(import-run `next)
-      (import-write-cards our.bowl serial.run script)
+      ?~  command-note
+        (import-write-cards our.bowl serial.run script)
+      (import-parse-cards our.bowl serial.run script)
     ::
         %kick
       `this
@@ -3130,6 +3160,48 @@
       ?~  remaining.run
         `this(import-run ~)
       =/  work  i.remaining.run
+      =/  advance-failure
+        |=  detail=@t
+        ^-  (quip card _this)
+        =/  report
+          %_  report.run
+            failures  +(failures.report.run)
+            messages  [(import-detail 'Failure' work detail) messages.report.run]
+          ==
+        =/  next
+          run(writing %.n, remaining t.remaining.run, report report)
+        =/  continued=[(list card) state-15]
+          (continue-import state our.bowl next)
+        [-.continued this(state +.continued)]
+      =/  phase=@ta
+        ?~  t.wire
+          %tape
+        i.t.wire
+      ?:  =(%parse phase)
+        ?.  =(%fill -.work)
+          (advance-failure 'internal note parse work mismatch')
+        =/  fill  (fill-work-value:imp work)
+        ?~  notes.input.fill
+          (advance-failure 'internal note parse lacks a note')
+        =/  parsed  ;;((each (list command:ast) tang) +.q.cage.sign)
+        ?:  ?=(%.n -.parsed)
+          (advance-failure 'atomic database mutation parse refused')
+        =/  patched
+          (replace-fill-note:imp p.parsed u.notes.input.fill)
+        ?:  ?=(%| -.patched)
+          (advance-failure p.patched)
+        :_  this
+        (import-command-write-cards our.bowl serial.run p.patched)
+      ?:  =(%commands phase)
+        =/  report
+          ?:  =(%fill -.work)
+            report.run(imported +(imported.report.run))
+          report.run
+        =/  next
+          run(writing %.n, remaining t.remaining.run, report report)
+        =/  continued=[(list card) state-15]
+          (continue-import state our.bowl next)
+        [-.continued this(state +.continued)]
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  report
         ?:  ?=(%.n -.res)

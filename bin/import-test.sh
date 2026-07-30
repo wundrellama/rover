@@ -25,6 +25,7 @@ URL="http://localhost:$PORT"
 JAR="$(mktemp /tmp/rover-import-cookie.XXXXXX)"
 CONFLICT="$(mktemp /tmp/rover-import-conflict.XXXXXX.json)"
 ATOMIC="$(mktemp /tmp/rover-import-atomic.XXXXXX.json)"
+STRESS="$(mktemp /tmp/rover-import-stress.XXXXXX.json)"
 BACKUP_DB="roverimportowner"
 SWAPPED=0
 RAN=""
@@ -85,7 +86,7 @@ restore_owner() {
 
 cleanup() {
   restore_owner || echo "import-test: cleanup could not restore owner database" >&2
-  rm -f "$JAR" "$CONFLICT" "$ATOMIC"
+  rm -f "$JAR" "$CONFLICT" "$ATOMIC" "$STRESS"
 }
 trap cleanup EXIT
 
@@ -132,7 +133,7 @@ happy="$(curl -sS -b "$JAR" -H 'content-type: application/json' \
   --data-binary "@$FIXTURE" "$URL/apps/rover/import")"
 grep -q 'Fills: imported 6, already-imported 0, conflicts 0, failures 0' <<<"$happy" \
   || fail "happy-path report was wrong: $happy"
-grep -q 'Definitions: created 6, reused 0' <<<"$happy" \
+grep -q 'Definitions: created 15, reused 0' <<<"$happy" \
   || fail "happy-path definition counts were wrong: $happy"
 grep -q 'Places: created 2, reused 0' <<<"$happy" \
   || fail "happy-path place counts were wrong: $happy"
@@ -147,6 +148,11 @@ grep -q 'Unit mismatches: 0' <<<"$happy" \
 
 report="$(obelisk rover "FROM acquisition-imports I SELECT I.acquisition-id;")"
 expect_count "$(row_count acquisition-id <<<"$report")" 6 "import provenance"
+simple_definitions="$(obelisk rover "FROM additive-definitions D SELECT D.additive-id, D.label; FROM driving-mode-definitions D SELECT D.mode-id, D.label; FROM tag-definitions D SELECT D.tag-id, D.label; FROM payment-method-definitions D SELECT D.method-id, D.label;")"
+expect_count "$(row_count additive-id <<<"$simple_definitions")" 1 "synthetic additive definitions"
+expect_count "$(row_count mode-id <<<"$simple_definitions")" 1 "synthetic driving-mode definitions"
+expect_count "$(row_count tag-id <<<"$simple_definitions")" 6 "synthetic tag definitions"
+expect_count "$(row_count method-id <<<"$simple_definitions")" 5 "synthetic payment-method definitions"
 breaks="$(obelisk rover "FROM economy-breaks B JOIN acquisition-imports I ON B.acquisition-id = I.acquisition-id SELECT B.reason;")"
 grep -q '%missed-fill' <<<"$breaks" || fail "missed-fill economy break was absent"
 preferences="$(obelisk rover "FROM vehicle-display-preferences P JOIN vehicles V ON P.vehicle-id = V.vehicle-id WHERE V.label = 'Synthetic Gas Car' OR V.label = 'Synthetic Diesel Truck' SELECT P.vehicle-id;")"
@@ -158,20 +164,106 @@ grep -q 'Synthetic Parts Depot' <<<"$(obelisk rover "FROM places P JOIN place-ad
 if grep -q 'Synthetic Parts Depot' <<<"$(obelisk rover "FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Synthetic Parts Depot' SELECT P.label;")"; then
   fail "parts-only address acquired invented formatted text"
 fi
-run_fixture 1 "happy path landed six fills, ratings, optional children, parts-only address, and no display preferences"
+run_fixture 1 "happy path landed the real 13-simple-definition shape, six fills, ratings, optional children, parts-only address, and no display preferences"
 
-before="$(obelisk rover "FROM acquisition-imports I SELECT I.acquisition-id, I.source-app, I.source-record-id;")"
+python3 - "$FIXTURE" "$STRESS" <<'PY'
+import copy
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    original = json.load(source)
+document = {
+    "rover-import": 1,
+    "source": {"app": "synthetic"},
+    "definitions": copy.deepcopy(original["definitions"]),
+    "places": [
+        {
+            "label": (
+                f"Synthetic Driver's Stress Place {index:02d}"
+                if index <= 7
+                else f"Synthetic Stress Place {index:02d}"
+            )
+        }
+        for index in range(1, 52)
+    ],
+    "vehicles": [],
+}
+energy_labels = {}
+renamed_labels = {}
+for definition in document["definitions"]["energy"]:
+    old_label = definition["label"]
+    definition["label"] = f"Synthetic Stress {old_label}"
+    energy_labels[old_label] = definition["label"]
+    for subtype in definition["subtypes"]:
+        old_subtype = subtype["label"]
+        subtype["label"] = f"Synthetic Stress {subtype['label']}"
+        renamed_labels[old_subtype] = subtype["label"]
+for category in ("additives", "driving-modes", "tags", "payment-methods"):
+    for definition in document["definitions"][category]:
+        old_label = definition["label"]
+        definition["label"] = f"Synthetic Stress {definition['label']}"
+        renamed_labels[old_label] = definition["label"]
+for index, source_vehicle in enumerate(original["vehicles"], 1):
+    vehicle = copy.deepcopy(source_vehicle)
+    vehicle["label"] = (
+        "Synthetic Owner's Stress Vehicle 1"
+        if index == 1
+        else f"Synthetic Stress Vehicle {index}"
+    )
+    vehicle["defaultEnergy"] = energy_labels[vehicle["defaultEnergy"]]
+    vehicle.pop("tankSize", None)
+    vehicle["fills"] = []
+    if index == 1:
+        fill = copy.deepcopy(source_vehicle["fills"][0])
+        fill["vehicle"] = vehicle["label"]
+        fill["definition"] = energy_labels[fill["definition"]]
+        fill["subtype"] = renamed_labels[fill["subtype"]]
+        fill["drivingMode"] = renamed_labels[fill["drivingMode"]]
+        fill["paymentMethod"] = renamed_labels[fill["paymentMethod"]]
+        fill["additives"] = [renamed_labels[label] for label in fill["additives"]]
+        fill["tags"] = [renamed_labels[label] for label in fill["tags"]]
+        fill["station"] = "none"
+        fill["notes"] = "Synthetic first line\nSynthetic second line"
+        fill["sourceApp"] = "syntheticstress"
+        fill["sourceRecordId"] = "stress-apostrophe-1"
+        vehicle["fills"].append(fill)
+    document["vehicles"].append(vehicle)
+with open(sys.argv[2], "w", encoding="utf-8") as target:
+    json.dump(document, target, separators=(",", ":"), sort_keys=True)
+PY
+stress="$(curl -sS -b "$JAR" -H 'content-type: application/json' \
+  --data-binary "@$STRESS" "$URL/apps/rover/import")"
+grep -q 'Fills: imported 1, already-imported 0, conflicts 0, failures 0' <<<"$stress" \
+  || fail "multi-entity ID stress report was wrong: $stress"
+grep -q 'Definitions: created 15, reused 0' <<<"$stress" \
+  || fail "multi-entity ID stress definition counts were wrong: $stress"
+grep -q 'Places: created 51, reused 0' <<<"$stress" \
+  || fail "multi-entity ID stress place counts were wrong: $stress"
+grep -q 'Vehicles: created 2, reused 0' <<<"$stress" \
+  || fail "multi-entity ID stress vehicle counts were wrong: $stress"
+stress_places="$(obelisk rover "FROM places P SELECT P.place-id; FROM stations S SELECT S.station-id; FROM vehicles V SELECT V.vehicle-id;")"
+expect_count "$(row_count place-id <<<"$stress_places")" 53 "all synthetic places"
+expect_count "$(row_count station-id <<<"$stress_places")" 53 "all synthetic stations"
+expect_count "$(row_count vehicle-id <<<"$stress_places")" 4 "all synthetic vehicles"
+stress_again="$(curl -sS -b "$JAR" -H 'content-type: application/json' \
+  --data-binary "@$STRESS" "$URL/apps/rover/import")"
+grep -q 'Fills: imported 0, already-imported 1, conflicts 0, failures 0' <<<"$stress_again" \
+  || fail "escaped-label/multiline-note re-import was not a no-op: $stress_again"
+run_fixture 2 "one import created 51 places, two vehicles, and one fill with apostrophe-bearing labels plus a multiline note; its re-import was a no-op"
+
+before="$(obelisk rover "FROM acquisition-imports I WHERE I.source-app = %synthetic SELECT I.acquisition-id, I.source-app, I.source-record-id;")"
 before_count="$(row_count acquisition-id <<<"$before")"
 again="$(curl -sS -b "$JAR" -H 'content-type: application/json' \
   --data-binary "@$FIXTURE" "$URL/apps/rover/import")"
 grep -q 'Fills: imported 0, already-imported 6, conflicts 0, failures 0' <<<"$again" \
   || fail "re-import report was wrong: $again"
-after="$(obelisk rover "FROM acquisition-imports I SELECT I.acquisition-id, I.source-app, I.source-record-id;")"
+after="$(obelisk rover "FROM acquisition-imports I WHERE I.source-app = %synthetic SELECT I.acquisition-id, I.source-app, I.source-record-id;")"
 after_count="$(row_count acquisition-id <<<"$after")"
 [ "$before_count" = 6 ] || fail "re-import precondition had $before_count provenance rows, want 6"
 [ "$after_count" = "$before_count" ] \
   || fail "re-import changed provenance row count from $before_count to $after_count"
-run_fixture 2 "identical re-import was a six-record no-op with unchanged provenance row count"
+run_fixture 3 "identical re-import was a six-record no-op with unchanged provenance row count"
 
 python3 - "$FIXTURE" "$CONFLICT" <<'PY'
 import json
@@ -194,7 +286,7 @@ grep -q 'quantity' <<<"$conflict" || fail "conflict did not name the differing f
 original="$(obelisk rover "FROM acquisition-imports I JOIN fuel-fills F ON I.acquisition-id = F.acquisition-id WHERE I.source-app = %synthetic AND I.source-record-id = 'gas-1' SELECT F.quantity-milli;")"
 grep -q '\[%quantity-milli 25717 10000\]' <<<"$original" \
   || fail "conflict changed the original fill: $original"
-run_fixture 3 "changed provenance key reported a field-level conflict and preserved the original"
+run_fixture 4 "changed provenance key reported a field-level conflict and preserved the original"
 
 python3 - "$FIXTURE" "$ATOMIC" <<'PY'
 import copy
@@ -242,7 +334,7 @@ grep -q 'atomic-3' <<<"$atomic_rows" || fail "record after engineered failure di
 if grep -q 'atomic-2' <<<"$atomic_rows"; then
   fail "engineered failing record wrote provenance"
 fi
-run_fixture 4 "one bad middle record failed alone while earlier and later records landed"
+run_fixture 5 "one bad middle record failed alone while earlier and later records landed"
 
 ui_fill='{"vehicle":"Synthetic Gas Car","definition":"Synthetic Gasoline","quantity":"1.000","price":"3.000","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-03-01T08:00","zone":"America/Chicago","mileage":"1400.0","mileageUnit":"mi","station":"none","additives":[],"subtype":"Synthetic 87 AKI","missedFill":"no","tags":[]}'
 saved="$(curl -sS -b "$JAR" -w $'\n%{http_code}' -H 'content-type: application/json' \
@@ -255,8 +347,8 @@ if grep -Eq 'gas-1|atomic-1|sourceRecordId|source-record-id' <<<"$served"; then
   fail "source provenance appeared in owner-facing HTML"
 fi
 provenance="$(obelisk rover "FROM acquisition-imports I SELECT I.acquisition-id;")"
-expect_count "$(row_count acquisition-id <<<"$provenance")" 8 "import-only provenance"
-run_fixture 5 "provenance exists only for imports and never appears in rendered HTML"
+expect_count "$(row_count acquisition-id <<<"$provenance")" 9 "import-only provenance"
+run_fixture 6 "provenance exists only for imports and never appears in rendered HTML"
 
 click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
@@ -266,12 +358,12 @@ click_file '=/  m  (strand ,vase)
 ;<  ~  bind:m  (sleep ~s8)
 (pure:m !>(~))' >/dev/null
 persistent="$(obelisk rover "FROM acquisition-imports I SELECT I.acquisition-id;")"
-expect_count "$(row_count acquisition-id <<<"$persistent")" 8 "post-restart provenance"
+expect_count "$(row_count acquisition-id <<<"$persistent")" 9 "post-restart provenance"
 preferences="$(obelisk rover "FROM vehicle-display-preferences P SELECT P.vehicle-id;")"
 if grep -q '%vehicle-id' <<<"$preferences"; then
   fail "post-restart import database contains a display preference"
 fi
-run_fixture 6 "suspend/revive preserved imported rows and provenance"
+run_fixture 7 "suspend/revive preserved imported rows and provenance"
 
 restore_owner || fail "could not restore owner database"
 owner_after="$(curl -s -b "$JAR" "$URL/apps/rover/view" | sha256sum | awk '{print $1}')"
@@ -279,5 +371,5 @@ owner_after="$(curl -s -b "$JAR" "$URL/apps/rover/view" | sha256sum | awk '{prin
   || fail "owner database view changed across disposable import fixtures"
 
 executed="$(wc -w <<<"$RAN" | tr -d ' ')"
-[ "$executed" = 6 ] || fail "coverage gate saw $executed of 6 fixtures"
-note "COVERAGE - all 6 defined import fixtures executed"
+[ "$executed" = 7 ] || fail "coverage gate saw $executed of 7 fixtures"
+note "COVERAGE - all 7 defined import fixtures executed"
