@@ -509,6 +509,23 @@
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
   ?>  =(our.bowl src.bowl)
   ?:  =(%'POST' method.request.req)
+    ?:  =('/apps/rover/view' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: page')) sat]
+      =/  page-text=@t  `@t`q.u.body.request.req
+      =/  parsed  (slaw %ud page-text)
+      ?:  ?|  ?=(~ parsed)
+              (gth u.parsed 1.000.000)
+          ==
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: page')) sat]
+      =/  wir=wire  /rover-http/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%tape %rover ui-view:act])
+      =/  new-sat
+        sat(pending (~(put by pending.sat) wir page-text), http-pending (~(put by http-pending.sat) wir eyre-id))
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/import' url.request.req)
       ?^  import-run.sat
         [(http-give eyre-id 409 ['content-type' 'text/plain']~ `(text-octs 'An import is already running')) sat]
@@ -884,7 +901,7 @@
     =/  wir=wire  /rover-http/(scot %da now.bowl)/[eyre-id]
     =/  jon  !>([%tape %rover ui-view:act])
     =/  new-sat
-      sat(pending (~(put by pending.sat) wir 'ui-view'), http-pending (~(put by http-pending.sat) wir eyre-id))
+      sat(pending (~(put by pending.sat) wir '0'), http-pending (~(put by http-pending.sat) wir eyre-id))
     :_  new-sat
     :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
         [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
@@ -3585,6 +3602,7 @@
       =/  res
         ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
+      =/  page-text  (~(get by pending) wire)
       ?~  eyre-id
         `this
       ?:  ?=(%.n -.res)
@@ -3596,12 +3614,17 @@
             ['content-type' 'text/plain']~
             `(as-octs:mimes:html 'Unavailable - database query refused')
         ==
+      =/  history-page=@ud
+        ?~  page-text
+          0
+        =/  parsed  (slaw %ud u.page-text)
+        ?~(parsed 0 u.parsed)
       :_  this
       %:  http-give
           u.eyre-id
           200
           ['content-type' 'text/html']~
-          `(as-octs:mimes:html (page:view our.bowl p.res))
+          `(as-octs:mimes:html (page:view our.bowl history-page p.res))
       ==
     ::
         %kick

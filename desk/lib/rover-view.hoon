@@ -8,6 +8,19 @@
 |%
 +$  interval-proof
   [distance-milli=@ud distance-unit=@tas elapsed-seconds=@ud]
++$  economy-proof
+  [milli=@ud unit=@t]
++$  derived-fill
+  [economy=(unit economy-proof) interval=(unit interval-proof) break-reason=(unit @tas)]
++$  interval-baseline
+  [date=@da odometer=vector:ast]
++$  interval-walk
+  $:  prior=(unit interval-baseline)
+      quantity=@ud
+      quantity-unit=(unit @tas)
+      quantity-valid=?
+      break-reason=(unit @tas)
+  ==
 ++  result-rows
   |=  command=cmd-result:ast
   ^-  (list vector:ast)
@@ -89,6 +102,143 @@
   |=  row=vector:ast
   =(value (cell-text key row))
 ::
+++  index-rows
+  |=  $:  key=@tas
+          rows=(list vector:ast)
+          index=(map @ (list vector:ast))
+      ==
+  ^-  (map @ (list vector:ast))
+  ?~  rows
+    index
+  =/  value  (cell-atom key i.rows)
+  =/  existing  (~(get by index) value)
+  =/  indexed
+    ?~  existing
+      [i.rows ~]
+    [i.rows u.existing]
+  $(rows t.rows, index (~(put by index) value indexed))
+::
+++  one-indexed-row
+  |=  [key=@ index=(map @ (list vector:ast))]
+  ^-  (unit vector:ast)
+  =/  found  (~(get by index) key)
+  ?~  found
+    ~
+  ?.  =(1 (lent u.found))
+    ~
+  `(snag 0 u.found)
+::
+++  indexed-break
+  |=  [key=@ index=(map @ (list vector:ast))]
+  ^-  (unit @tas)
+  =/  found  (~(get by index) key)
+  ?~  found
+    ~
+  `(cell-term %reason (snag 0 u.found))
+::
+++  derive-fill-series
+  |=  $:  fills=(list vector:ast)
+          odometers=(list vector:ast)
+          breaks=(list vector:ast)
+      ==
+  ^-  (map @ derived-fill)
+  =/  ordered  (order-vectors:act %observed-start %.n fills)
+  =/  odometer-index
+(index-rows %acquisition-id odometers *(map @ (list vector:ast)))
+  =/  break-index
+(index-rows %acquisition-id breaks *(map @ (list vector:ast)))
+  =/  rows  ordered
+  =/  states  *(map @ interval-walk)
+  =/  derived  *(map @ derived-fill)
+  |-
+  ^-  (map @ derived-fill)
+  ?~  rows
+    derived
+  =/  row  i.rows
+  =/  acquisition  (cell-atom %acquisition-id row)
+  =/  vehicle  (cell-atom %vehicle-id row)
+  =/  date=@da  `@da`(cell-atom %observed-start row)
+  =/  found-state  (~(get by states) vehicle)
+  =/  state=interval-walk
+    ?~  found-state
+      [~ 0 ~ %.y ~]
+    u.found-state
+  =/  row-break  (indexed-break acquisition break-index)
+  =/  state
+    ?~  prior.state
+      state
+    %_  state
+      quantity  (add quantity.state (cell-atom %quantity-milli row))
+      quantity-unit
+        ?~  quantity-unit.state
+          `(cell-term %quantity-unit row)
+        quantity-unit.state
+      quantity-valid
+        ?~  quantity-unit.state
+          quantity-valid.state
+        ?&  quantity-valid.state
+            =(u.quantity-unit.state (cell-term %quantity-unit row))
+        ==
+      break-reason
+        ?~  row-break
+          break-reason.state
+        row-break
+    ==
+  =/  close-odometer
+    (one-indexed-row acquisition odometer-index)
+  ?.  =(%full (cell-term %tank-state row))
+    $(rows t.rows, states (~(put by states) vehicle state))
+  ?~  close-odometer
+    $(rows t.rows, states (~(put by states) vehicle state))
+  =/  interval=(unit interval-proof)
+    ?:  ?|  ?=(~ prior.state)
+            ?=(^ break-reason.state)
+        ==
+      ~
+    =/  prior-odometer  odometer.u.prior.state
+    =/  close-places  (cell-atom %decimal-places u.close-odometer)
+    =/  prior-places  (cell-atom %decimal-places prior-odometer)
+    ?:  ?|  (gth close-places 3)
+            (gth prior-places 3)
+            !=((cell-term %unit u.close-odometer) (cell-term %unit prior-odometer))
+            (lte date date.u.prior.state)
+        ==
+      ~
+    =/  close-milli
+      (mul (cell-atom %value-digits u.close-odometer) (pow-ten:render (sub 3 close-places)))
+    =/  prior-milli
+      (mul (cell-atom %value-digits prior-odometer) (pow-ten:render (sub 3 prior-places)))
+    ?.  (gth close-milli prior-milli)
+      ~
+    `[(sub close-milli prior-milli) (cell-term %unit u.close-odometer) (div (sub date date.u.prior.state) (bex 64))]
+  =/  economy=(unit economy-proof)
+    ?:  ?|  ?=(~ interval)
+            =(%.n quantity-valid.state)
+            ?=(~ quantity-unit.state)
+            =(0 quantity.state)
+        ==
+      ~
+    =/  unit=@t
+      ?:  ?&  =(%mi distance-unit.u.interval)
+              =(%gal u.quantity-unit.state)
+          ==
+        'mpg'
+      ?:  ?&  =(%km distance-unit.u.interval)
+              =(%litre u.quantity-unit.state)
+          ==
+        'km/L'
+      ''
+    ?:  =('' unit)
+      ~
+    =/  economy-milli
+      (div (add (mul distance-milli.u.interval 1.000) (div quantity.state 2)) quantity.state)
+    `[economy-milli unit]
+  =/  result=derived-fill
+    [economy interval break-reason.state]
+  =/  next-state=interval-walk
+    [`[date u.close-odometer] 0 ~ %.y ~]
+  $(rows t.rows, states (~(put by states) vehicle next-state), derived (~(put by derived) acquisition result))
+::
 ++  ids-for-labels
   |=  $:  labels=(list @t)
           rows=(list vector:ast)
@@ -162,16 +312,22 @@
   (weld option $(rows t.rows))
 ::
 ++  station-options
-  |=  rows=(list vector:ast)
+  |=  [rows=(list vector:ast) localities=(list vector:ast)]
   ^-  tape
   ?~  rows
     ~
   =/  archived  =(0 (cell-atom %archived i.rows))
-  =/  rest  (station-options t.rows)
+  =/  rest  (station-options t.rows localities)
   ?:  archived
     rest
   =/  label  (escape (cell-text %label i.rows))
   =/  place  (escape (cell-text %place i.rows))
+  =/  locality-row
+    (rows-by %place-id (cell-atom %place-id i.rows) localities)
+  =/  locality=tape
+    ?~  locality-row
+      ~
+    (escape (cell-text %locality i.locality-row))
   ;:  weld
     "<option value=\""
     label
@@ -179,12 +335,28 @@
     label
     " "
     place
+    ?~(locality ~ (weld " " locality))
     "\">"
     label
     " - "
     place
+    ?~(locality ~ (weld " - " locality))
     "</option>"
     rest
+  ==
+::
+++  address-locality-data
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  ;:  weld
+    "<span hidden data-place-locality data-place=\""
+    (escape (cell-text %place i.rows))
+    "\" data-locality=\""
+    (escape (cell-text %locality i.rows))
+    "\"></span>"
+    $(rows t.rows)
   ==
 ::
 ++  consumable-options
@@ -831,9 +1003,7 @@
 ++  economy-values
   |=  $:  vehicle-id=@
           fills=(list vector:ast)
-          all-fills=(list vector:ast)
-          odometers=(list vector:ast)
-          breaks=(list vector:ast)
+          derivations=(map @ derived-fill)
       ==
   ^-  (list [milli=@ud unit=@t])
   ?~  fills
@@ -841,7 +1011,11 @@
   =/  rest  $(fills t.fills)
   ?.  =(vehicle-id (cell-atom %vehicle-id i.fills))
     rest
-  =/  value  (economy-for-fill i.fills all-fills odometers breaks)
+  =/  derived  (~(get by derivations) (cell-atom %acquisition-id i.fills))
+  =/  value=(unit economy-proof)
+    ?~  derived
+      ~
+    economy.u.derived
   ?~  value
     rest
   [u.value rest]
@@ -888,6 +1062,7 @@
           economy-breaks=(list vector:ast)
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
+          derivations=(map @ derived-fill)
       ==
   ^-  tape
   =/  default-id=(unit @)
@@ -920,11 +1095,11 @@
     (rows-for u.default-id definition-rows)
   =/  has-fill  (has-term %physical-kind %reservoir sources)
   =/  has-charge  (has-term %physical-kind %electricity sources)
-  =/  ordered-fills  (order-vectors:act %observed-start %.n fills)
+  =/  ordered-fills  (order-vectors:act %observed-start %.y fills)
   =/  economies=(list [milli=@ud unit=@t])
     ?~  default-id
       ~
-    (economy-values u.default-id ordered-fills fills fill-odometers economy-breaks)
+    (economy-values u.default-id ordered-fills derivations)
   =/  last-economy=tape
     ?~  economies
       "Unavailable"
@@ -1058,11 +1233,12 @@
           custom-definitions=(list vector:ast)
           payment-methods=(list vector:ast)
           consumables=(list vector:ast)
+          localities=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
   =/  definition-html  (definition-options definitions vehicles)
-  =/  station-html  (station-options stations)
+  =/  station-html  (station-options stations localities)
   =/  additive-html  (additive-options additives)
   =/  subtype-html  (subtype-options subtypes)
   =/  default-subtype-html  (default-subtype-data default-subtypes)
@@ -1436,6 +1612,41 @@
     (charge-card i.rows measurements batteries)
   (weld card $(rows t.rows))
 ::
+++  pagination-controls
+  |=  [history-page=@ud total=@ud target=@t]
+  ^-  tape
+  =/  history-window-size=@ud  25
+  =/  offset  (mul history-page history-window-size)
+  =/  through  (min total (add offset history-window-size))
+  ;:  weld
+    "<nav class=\"pagination\" aria-label=\"History pages\"><span>Showing "
+    (trip (scot %ud ?:(=(0 total) 0 +(offset))))
+    "-"
+    (trip (scot %ud through))
+    " of "
+    (trip (scot %ud total))
+    "</span>"
+    ?:  (gth history-page 0)
+      ;:  weld
+        "<button type=\"button\" data-view-page=\""
+        (trip (scot %ud (dec history-page)))
+        "\" data-view-target=\""
+        (escape target)
+        "\">Newer</button>"
+      ==
+    ~
+    ?:  (gth total through)
+      ;:  weld
+        "<button type=\"button\" data-view-page=\""
+        (trip (scot %ud +(history-page)))
+        "\" data-view-target=\""
+        (escape target)
+        "\">Older</button>"
+      ==
+    ~
+    "</nav>"
+  ==
+::
 ++  ordered-history
   |=  $:  fills=(list vector:ast)
           charges=(list vector:ast)
@@ -1445,12 +1656,20 @@
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
           economy-breaks=(list vector:ast)
+          history-page=@ud
       ==
   ^-  tape
-  =/  ordered  (order-vectors:act %observed-start %.n (weld fills charges))
+  =/  history-window-size=@ud  25
+  =/  all-ordered
+    (order-vectors:act %observed-start %.y (weld fills charges))
+  =/  ordered
+    (scag history-window-size (slag (mul history-page history-window-size) all-ordered))
   ?:  ?=(~ ordered)
     "<p class=\"empty\">No acquisition history.</p>"
-  (history-cards ordered measurements batteries station-links additive-links subtype-links economy-breaks)
+  ;:  weld
+    (history-cards ordered measurements batteries station-links additive-links subtype-links economy-breaks)
+    (pagination-controls history-page (lent all-ordered) 'vehicle-settings-screen')
+  ==
 ::
 ++  vehicle-card
   |=  $:  row=vector:ast
@@ -1475,6 +1694,7 @@
           consumable-tank-sizes=(list vector:ast)
           tank-sizes=(list vector:ast)
           is-default=?
+          history-page=@ud
       ==
   ^-  tape
   =/  id  (cell-atom %vehicle-id row)
@@ -1559,6 +1779,7 @@
         additive-links
         subtype-links
         economy-breaks
+        history-page
     ==
   ;:  weld
     "<article class=\"vehicle-card\" data-vehicle-settings-panel data-vehicle=\""
@@ -1838,9 +2059,13 @@
           tags=(list vector:ast)
           fill-tags=(list vector:ast)
           payment-methods=(list vector:ast)
+          history-page=@ud
       ==
   ^-  tape
-  =/  ordered  (order-vectors:act %observed-start %.n fills)
+  =/  history-window-size=@ud  25
+  =/  all-ordered  (order-vectors:act %observed-start %.y fills)
+  =/  ordered
+    (scag history-window-size (slag (mul history-page history-window-size) all-ordered))
   =/  render-rows
     |=  rows=(list vector:ast)
     ^-  tape
@@ -1876,7 +2101,9 @@
     (vehicle-options vehicles)
     "</select></label><div class=\"history-table-head\"><span>DATE</span><span>ODOMETER</span><span>GALLONS</span><span>TOTAL COST</span></div><div id=\"history-table\">"
     rows
-    "</div><p id=\"history-empty\" class=\"empty\" hidden>No fill history for this vehicle.</p></section>"
+    "</div>"
+    (pagination-controls history-page (lent all-ordered) 'history-screen')
+    "<p id=\"history-empty\" class=\"empty\" hidden>No fill history for this vehicle.</p></section>"
   ==
 ::
 ++  interval-quantity
@@ -2093,11 +2320,9 @@
 ::
 ++  statistic-interval-rows
   |=  $:  fills=(list vector:ast)
-          all-fills=(list vector:ast)
           vehicles=(list vector:ast)
-          odometers=(list vector:ast)
-          breaks=(list vector:ast)
           tank-sizes=(list vector:ast)
+          derivations=(map @ derived-fill)
           mode=@tas
       ==
   ^-  tape
@@ -2111,13 +2336,20 @@
   =/  vehicle-id  (cell-atom %vehicle-id row)
   =/  vehicle  (vehicle-label vehicle-id vehicles)
   =/  date  (trip (format-da:render `@da`(cell-atom %observed-start row)))
-  =/  interval
-    (interval-for-fill row all-fills odometers breaks)
-  =/  economy
-    (economy-for-fill row all-fills odometers breaks)
+  =/  derived  (~(get by derivations) (cell-atom %acquisition-id row))
+  =/  interval=(unit interval-proof)
+    ?~  derived
+      ~
+    interval.u.derived
+  =/  economy=(unit economy-proof)
+    ?~  derived
+      ~
+    economy.u.derived
   =/  tank  (rows-by %vehicle-id vehicle-id tank-sizes)
-  =/  break-reason
-    (fill-interval-break-reason row all-fills odometers breaks)
+  =/  break-reason=(unit @tas)
+    ?~  derived
+      ~
+    break-reason.u.derived
   =/  break-label=tape
     ?~(break-reason ~ (weld "%" (trip (scot %tas u.break-reason))))
   =/  broken  !=(~ break-label)
@@ -2194,11 +2426,9 @@
 ::
 ++  statistic-fill-rows
   |=  $:  fills=(list vector:ast)
-          all-fills=(list vector:ast)
           vehicles=(list vector:ast)
           subtype-links=(list vector:ast)
-          odometers=(list vector:ast)
-          breaks=(list vector:ast)
+          derivations=(map @ derived-fill)
           mode=@tas
       ==
   ^-  tape
@@ -2225,10 +2455,15 @@
     ==
   =/  price
     (format-unit-price:render (cell-atom %unit-price-mills row) (cell-term %currency row))
-  =/  economy
-    (economy-for-fill row all-fills odometers breaks)
-  =/  break-reason
-    (fill-interval-break-reason row all-fills odometers breaks)
+  =/  derived  (~(get by derivations) acquisition)
+  =/  economy=(unit economy-proof)
+    ?~  derived
+      ~
+    economy.u.derived
+  =/  break-reason=(unit @tas)
+    ?~  derived
+      ~
+    break-reason.u.derived
   =/  break-label=tape
     ?~(break-reason ~ (weld "%" (trip (scot %tas u.break-reason))))
   =/  broken  !=(~ break-label)
@@ -2352,14 +2587,17 @@
           vehicles=(list vector:ast)
           app-default=(list vector:ast)
           subtype-links=(list vector:ast)
-          odometers=(list vector:ast)
-          breaks=(list vector:ast)
           tank-sizes=(list vector:ast)
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
+          derivations=(map @ derived-fill)
+          history-page=@ud
       ==
   ^-  tape
-  =/  recent  (order-vectors:act %observed-start %.n fills)
+  =/  history-window-size=@ud  25
+  =/  all-recent  (order-vectors:act %observed-start %.y fills)
+  =/  recent
+    (scag history-window-size (slag (mul history-page history-window-size) all-recent))
   =/  default-label=(unit @t)
     ?~  app-default
       ~
@@ -2396,30 +2634,32 @@
     selector
     "<p id=\"statistics-empty\" class=\"empty\" hidden>No statistics are recorded for this vehicle.</p>"
     "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %economy)
+    (statistic-fill-rows recent vehicles subtype-links derivations %economy)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"fuel-costs\"><h2>Fuel costs</h2><table><thead><tr><th>Date</th><th>Total cost</th></tr></thead><tbody>"
-    (statistic-fill-rows recent fills vehicles subtype-links odometers breaks %cost)
+    (statistic-fill-rows recent vehicles subtype-links derivations %cost)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"distance-between-fills\"><h2>Distance between fills</h2><table><thead><tr><th>Date</th><th>Distance</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %distance)
+    (statistic-interval-rows recent vehicles tank-sizes derivations %distance)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><thead><tr><th>Date</th><th>Elapsed time</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %time)
+    (statistic-interval-rows recent vehicles tank-sizes derivations %time)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit - lifetime</h2><table><thead><tr><th>Period</th><th>Fills</th><th>Mean unit price</th><th>Basis</th></tr></thead><tbody>"
     (average-price-stat-rows vehicles fills)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><thead><tr><th>Date</th><th>Estimated distance</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-interval-rows recent fills vehicles odometers breaks tank-sizes %tank)
+    (statistic-interval-rows recent vehicles tank-sizes derivations %tank)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
     (def-economy-stat-rows vehicles def-purchases def-odometers)
-    "</tbody></table></section></section>"
+    "</tbody></table></section>"
+    (pagination-controls history-page (lent all-recent) 'statistics-screen')
+    "</section>"
   ==
 ::
 ++  page
-  |=  [ship=@p commands=(list cmd-result:ast)]
+  |=  [ship=@p history-page=@ud commands=(list cmd-result:ast)]
   ^-  @t
   =/  vehicles  (rows-at commands 0)
   =/  odometers  (rows-at commands 1)
@@ -2457,6 +2697,7 @@
   =/  consumable-tank-sizes  (rows-at commands 34)
   =/  def-purchases  (rows-at commands 35)
   =/  def-odometers  (rows-at commands 36)
+  =/  localities  (rows-at commands 37)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -2466,6 +2707,8 @@
     ?~  app-default
       ~
     `(cell-atom %vehicle-id i.app-default)
+  =/  derivations
+    (derive-fill-series fills fill-odometers economy-breaks)
   =/  cards=tape
     |-
     ?~  vehicles
@@ -2494,6 +2737,7 @@
           consumable-tank-sizes
           tank-sizes
           ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
+          history-page
       ==
     =/  rest=tape  $(vehicles t.vehicles)
     (weld card rest)
@@ -2510,8 +2754,9 @@
         "\""
       ==
       "></span>"
-      (main-hub app-default definition-rows odometers tank-sizes fills fill-odometers economy-breaks def-purchases def-odometers)
-      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables)
+      (address-locality-data localities)
+      (main-hub app-default definition-rows odometers tank-sizes fills fill-odometers economy-breaks def-purchases def-odometers derivations)
+      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
       "<details class=\"archived-vehicles\"><summary>View archived vehicles</summary><ul class=\"vehicle-list\">"
@@ -2530,8 +2775,8 @@
       "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
-      (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods)
-      (statistics-screen fills vehicles app-default subtype-links fill-odometers economy-breaks tank-sizes def-purchases def-odometers)
+      (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods history-page)
+      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations history-page)
       (settings-screen custom-definitions)
     ==
   (crip html)

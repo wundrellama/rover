@@ -989,6 +989,11 @@
           document.getElementById(button.dataset.openScreen)?.scrollIntoView();
         });
       });
+      app.querySelectorAll('[data-view-page]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          await loadView(Number(button.dataset.viewPage), button.dataset.viewTarget || '');
+        });
+      });
       app.querySelectorAll('[data-close-screen]').forEach((button) => {
         button.addEventListener('click', () => {
           screens.forEach((screen) => {
@@ -1627,10 +1632,12 @@
       });
     }
 
-    async function loadView() {
+    async function loadView(page = 0, target = '') {
       status.textContent = 'Refreshing…';
       try {
         const response = await fetch('/apps/rover/view', {
+          method: page === 0 ? 'GET' : 'POST',
+          body: page === 0 ? undefined : String(page),
           credentials: 'same-origin',
           headers: {'accept': 'text/html'}
         });
@@ -1638,6 +1645,12 @@
         app.innerHTML = await response.text();
         syncHeader();
         bindEntryScreens();
+        if (target) {
+          app.querySelectorAll('.app-screen').forEach((screen) => {
+            screen.hidden = screen.id !== target;
+          });
+          document.getElementById(target)?.scrollIntoView();
+        }
         status.textContent = 'Connected · current on navigation';
         refreshTime.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       } catch (error) {
