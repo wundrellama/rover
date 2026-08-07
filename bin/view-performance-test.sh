@@ -56,7 +56,7 @@ obelisk() {
 ;<  our=@p  bind:m  get-our
 =/  wire  /rover-performance-test
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %$database \"$query\"]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %$database %vector \"$query\"]))
 ;<  [mark =vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 (pure:m vase)"

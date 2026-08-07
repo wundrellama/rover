@@ -137,7 +137,7 @@ obelisk_mutate() {
 ;<  our=@p  bind:m  get-our
 =/  wire  /rover-ui-test-mutation
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %$database \"$query\"]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %$database %vector \"$query\"]))
 ;<  [mark =vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 (pure:m vase)"
@@ -148,7 +148,7 @@ read_database_report() {
 ;<  our=@p  bind:m  get-our
 =/  wire  /rover-ui-test-databases
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %sys "FROM sys.sys.databases SELECT database;"]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %sys %vector "FROM sys.sys.databases SELECT database;"]))
 ;<  [mark =vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 (pure:m vase)'
@@ -189,6 +189,16 @@ note "logged-out browser receives login redirect with no Rover body"
 
 curl -s -c "$JAR" -o /dev/null "$URL/~/login" --data-raw "password=$CODE"
 grep -q urbauth "$JAR" || fail "login with +code did not yield urbauth cookie"
+
+owner_view_before="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+owner_vehicles_before="$(
+  python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+screen = document.split("<section id=\"vehicles-screen\"", 1)[1].split("</section>", 1)[0]
+active = screen.split("<details class=\"archived-vehicles\"", 1)[0]
+labels = sorted(set(re.findall(r"data-open-vehicle-settings data-vehicle=\"([^\"]+)\"", active)))
+print("|".join(labels))' <<<"$owner_view_before"
+)"
 
 if [ "${ROVER_NO_FIXTURE_ISOLATION:-}" != 1 ]; then
   database_report="$(read_database_report)"
@@ -1282,7 +1292,7 @@ print("|".join([
 
   click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %rover "DELETE FROM app-default-vehicle WHERE scope = %app;"]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %rover %vector "DELETE FROM app-default-vehicle WHERE scope = %app;"]))
 ;<  ~  bind:m  (sleep ~s2)
 (pure:m !>(~))' >/dev/null
   no_default_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
@@ -3136,10 +3146,12 @@ default_archive_refusal="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/remove-vehicle")"
 [ "$default_archive_refusal" = $'%default-vehicle: choose a new default before archiving\n409' ] \
   || fail "fixture 80 app-default archive was not refused with a human reason: $default_archive_refusal"
-curl -s -b "$JAR" -o /dev/null \
+fixture_80_new_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Rover Demo Gasoline"}' \
-  "$URL/apps/rover/set-default-vehicle"
+  --data-raw "$(printf '{\"vehicle\":\"%s\"}' "$settings_label_second")" \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$fixture_80_new_default" = $'Saved default vehicle\n201' ] \
+  || fail "fixture 80 could not redesignate its always-seeded settings vehicle: $fixture_80_new_default"
 archive_history_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
   --data-raw '{"vehicle":"Fuel Evidence Vehicle"}' \
@@ -3179,7 +3191,7 @@ auth_cookie="$(awk 'index($6, "urbauth") == 1 {print $7}' "$JAR" | tail -1)"
   fail "fixture 84 could not read the real Eyre authentication cookie name"
 [ -n "$auth_cookie" ] ||
   fail "fixture 84 could not read the real Eyre authentication cookie"
-playwright_module="${ROVER_PLAYWRIGHT_MODULE:-$HOME/.hermes/hermes-agent/apps/desktop/node_modules/playwright}"
+playwright_module="${ROVER_PLAYWRIGHT_MODULE:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules/playwright}"
 chromium_binary="${ROVER_CHROMIUM:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
 [ -f "$playwright_module/package.json" ] ||
   fail "fixture 84 Playwright module is unavailable at $playwright_module"
@@ -3190,7 +3202,7 @@ header_browser="$(
   ROVER_CHROMIUM="$chromium_binary" \
     node "$REPO/bin/ui-browser-fixtures.cjs" \
       header-scenarios "$URL" "$auth_cookie_name" "$auth_cookie" "$running_ship" \
-      'Rover Demo Gasoline' 'Rover Demo Diesel'
+      'Mode Scope Vehicle' "$settings_label_second"
 )" ||
   fail "fixtures 84-86 live browser header assertions failed: $header_browser"
 grep -q '^HEADER_FIRST=' <<<"$header_browser" ||
@@ -3199,7 +3211,8 @@ note "fixture 84 PASS - rendered header contains the running ship and current de
 grep -q '^HEADER_NONE=.*NO DEFAULT VEHICLE' <<<"$header_browser" ||
   fail "fixture 85 live browser did not report an explicit no-default slot: $header_browser"
 note "fixture 85 PASS - rendered header states NO DEFAULT VEHICLE when the singleton row is absent"
-grep -q '^HEADER_SECOND=.*ROVER DEMO DIESEL' <<<"$header_browser" ||
+settings_label_upper="$(printf '%s' "$settings_label_second" | tr '[:lower:]' '[:upper:]')"
+grep -Fq "HEADER_SECOND=ROVER · VEHICLE LOG · ${running_ship^^} · $settings_label_upper" <<<"$header_browser" ||
   fail "fixture 86 live browser did not report the changed default: $header_browser"
 note "fixture 86 PASS - changing the app default refreshes the rendered header vehicle label"
 grep -q '^GLOW=' <<<"$header_browser" ||
@@ -3210,7 +3223,8 @@ settings_layout_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 settings_layout_report="$(
   python3 -c 'import re, sys
 document = sys.stdin.read()
-marker = "data-vehicle-settings-panel data-vehicle=\"Rover Demo Diesel\""
+vehicle = sys.argv[1]
+marker = f"data-vehicle-settings-panel data-vehicle=\"{vehicle}\""
 at = document.find(marker)
 start = document.rfind("<article", 0, at)
 end = document.find("<article", at + len(marker))
@@ -3247,6 +3261,7 @@ positions = [
 ]
 print("ORDER=" + ("yes" if all(value >= 0 for value in positions) and positions == sorted(positions) else "no"))
 print("GROUPS=" + ("yes" if all((fuel, energy, driving, def_group)) else "no"))' \
+    "$settings_label_second" \
     <<<"$settings_layout_view"
 )"
 grep -q '^DEFDEF=no$' <<<"$settings_layout_report" ||
@@ -3259,7 +3274,7 @@ grep -q '^ENERGY_DEFAULT=yes$' <<<"$settings_layout_report" ||
   fail "fixture 90 default energy source is not inside Energy Sources after its add button: $settings_layout_report"
 forged_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Rover Demo Diesel","label":"Rover Demo Diesel","tankSize":"30","tankUnit":"gal","defaultSubtype":"#2","defaultEnergy":"Gasoline","energySources":["Diesel"],"drivingModes":[],"defEnabled":"yes","defTankSize":"5","defTankUnit":"gal"}' \
+  --data-raw "$(printf '{\"vehicle\":\"%s\",\"label\":\"%s\",\"tankSize\":\"30\",\"tankUnit\":\"gal\",\"defaultSubtype\":\"93\",\"defaultEnergy\":\"Electricity\",\"energySources\":[\"Gasoline\",\"Diesel\"],\"drivingModes\":[],\"defEnabled\":\"yes\",\"defTankSize\":\"5\",\"defTankUnit\":\"gal\"}' "$settings_label_second" "$settings_label_second")" \
   "$URL/apps/rover/edit-vehicle")"
 [ "$forged_default" = $'%not-allowed: vehicle.default-energy-source\n422' ] ||
   fail "fixture 90 forged disallowed default reached the database path: $forged_default"
@@ -3310,11 +3325,11 @@ active = screen.split("<details class=\"archived-vehicles\"", 1)[0]
 labels = sorted(set(re.findall(r"data-open-vehicle-settings data-vehicle=\"([^\"]+)\"", active)))
 print("|".join(labels))' <<<"$owner_view"
 )"
-[ "$owner_vehicles" = 'Rover Demo Diesel|Rover Demo Gasoline' ] \
-  || fail "fixture 75 owner database was contaminated by the disposable battery, or was not a fresh demo-only owner: ${owner_vehicles:-<none>}"
+[ "$owner_vehicles" = "$owner_vehicles_before" ] \
+  || fail "fixture 75 owner vehicle set changed across disposable-database restoration: before=${owner_vehicles_before:-<none>} after=${owner_vehicles:-<none>}"
 if grep -Eq 'data-vehicle="(Fixture |History Vehicle |Fill Edit Vehicle |Charge Subtype Vehicle |Pricing Fixture Vehicle)' <<<"$owner_view"; then
   fail "fixture 75 a named scenario artefact is served after disposable-database restoration"
 fi
-note "fixture 75 PASS - after the full disposable battery the owner database serves only the two demo vehicles"
+note "fixture 75 PASS - after the full disposable battery the owner database serves the same active vehicles it had before the run"
 
 . "$(dirname "$0")/coverage-gate.sh"
