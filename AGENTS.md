@@ -155,3 +155,11 @@ through the Brain pages before code changes.
 Relevant Hermes/Urbit skills are symlinked under `.claude/skills/`. Load
 `obelisk-substrate` and `gall-agents` first. If the symlinks dangle (fresh clone
 on another machine), fall back to the Brain pages + pinned substrate docs above.
+
+`.claude/skills/ste-writing/SKILL.md` is a real file, not a symlink. It survives
+a fresh clone on any machine. Read it before you write a commit message, a
+README, or any other prose. This applies to every commit in this repo. It does
+not apply to code, identifiers, or command syntax.
+
+Do not rewrite existing commit messages or the published README to match the
+style. The rule applies to new text only.
