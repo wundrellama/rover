@@ -201,6 +201,14 @@
       evidence=measurement-evidence
   ==
 +$  battery-reading  [digits=@ud places=@ud]
++$  charging-cost-component-entry
+  $:  component=cost-component
+      quantity=@ud
+      quantity-decimals=@ud
+      quantity-unit=@tas
+      rate-mills=@ud
+      amount-mills=@ud
+  ==
 +$  charge-entry
   $:  vehicle-label=@t
       definition-label=@t
@@ -213,6 +221,8 @@
       mileage=(unit odo-reading)
       cost-state=cost-state
       currency=currency
+      cost-components=(list charging-cost-component-entry)
+      source-total-mills=(unit @ud)
       subtype-label=(unit @t)
   ==
 +$  consumable-entry

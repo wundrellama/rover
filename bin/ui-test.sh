@@ -2447,6 +2447,20 @@ grep -q 'name="energySource"' <<<"$view" \
   || fail "add-charge form lacks delivered-energy source"
 grep -q 'name="costState"' <<<"$view" || fail "add-charge form lacks cost state"
 charge_html="$(html_slice 'id="add-charge"' '</section>' <<<"$view")"
+grep -q '<option value="itemized">Itemized</option>' <<<"$charge_html" \
+  || fail "fixture 94 add-charge form lacks the itemized cost state"
+grep -q '<option value="receipt-total-only">Receipt total only</option>' <<<"$charge_html" \
+  || fail "fixture 94 add-charge form lacks the receipt-total-only cost state"
+grep -q 'id="charge-itemized-cost"' <<<"$charge_html" \
+  || fail "fixture 94 add-charge form lacks the itemized component group"
+grep -q 'id="charge-add-component"' <<<"$charge_html" \
+  || fail "fixture 94 add-charge form lacks the repeatable-component control"
+for field in componentKind componentQuantity componentUnit componentRate componentAmount; do
+  grep -Fq "name=\"$field\"" <<<"$charge_html" \
+    || fail "fixture 94 add-charge form lacks the component field: $field"
+done
+grep -q 'id="charge-receipt-cost"' <<<"$charge_html" \
+  || fail "fixture 94 add-charge form lacks the receipt total group"
 grep -q '>Energy Source<' <<<"$charge_html" \
   || fail "Add Charge does not use Energy Source owner naming"
 if grep -Eqi '>[[:space:]]*[^<]*definition' <<<"$charge_html"; then
@@ -2955,6 +2969,87 @@ saved_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-charge")"
 [ "$saved_charge" = $'Saved charge - Energy delivered 41.25 kWh\n201' ] \
   || fail "valid charge was not saved: $saved_charge"
+
+empty_itemized="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-08-01T09:00","end":"2026-08-01T09:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","receiptTotal":"","components":[]}' \
+  "$URL/apps/rover/add-charge")"
+[ "$empty_itemized" = $'%bad-shape: charge.components\n400' ] \
+  || fail "fixture 94 empty itemized charge was not refused: $empty_itemized"
+
+receipt_with_component="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-08-01T09:10","end":"2026-08-01T09:40","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","receiptTotal":"10.000","components":[{"kind":"session","quantity":"1","unit":"session","rate":"10.000","amount":"10.000"}]}' \
+  "$URL/apps/rover/add-charge")"
+[ "$receipt_with_component" = $'%bad-shape: charge.components\n400' ] \
+  || fail "fixture 94 receipt-only charge with components was not refused: $receipt_with_component"
+
+bad_component_kind="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-08-01T09:20","end":"2026-08-01T09:50","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","receiptTotal":"","components":[{"kind":"parking","quantity":"1","unit":"session","rate":"1.000","amount":"1.000"}]}' \
+  "$URL/apps/rover/add-charge")"
+[ "$bad_component_kind" = $'%bad-shape: charge.components.kind\n400' ] \
+  || fail "fixture 94 bad charging component kind was not refused: $bad_component_kind"
+
+itemized_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T20:11","end":"2026-07-28T20:56","zone":"America/Chicago","energyDelivered":"40.0","energySource":"charger-reported","startBattery":"20","endBattery":"80","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","receiptTotal":"","components":[{"kind":"energy","quantity":"40.000","unit":"kwh","rate":"0.321","amount":"12.840"},{"kind":"time","quantity":"15","unit":"minute","rate":"0.050","amount":"0.750"},{"kind":"session","quantity":"1","unit":"session","rate":"1.250","amount":"1.250"},{"kind":"idle","quantity":"2","unit":"minute","rate":"0.400","amount":"0.800"},{"kind":"tax","quantity":"1","unit":"session","rate":"0.930","amount":"0.930"},{"kind":"discount","quantity":"1","unit":"session","rate":"1.570","amount":"1.570"}]}' \
+  "$URL/apps/rover/add-charge")"
+[ "$itemized_charge" = $'Saved charge - Energy delivered 40.0 kWh\n201' ] \
+  || fail "fixture 94 itemized charge was not saved: $itemized_charge"
+
+itemized_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+itemized_card="$(html_slice '2026-07-28 20:11:00' '</article>' <<<"$itemized_view")"
+grep -q '>itemized / usd<' <<<"$itemized_card" \
+  || fail "fixture 94 itemized cost state is absent from charge history"
+for component in energy time session idle tax discount; do
+  grep -q "<strong>$component</strong>" <<<"$itemized_card" \
+    || fail "fixture 94 itemized component is absent from charge history: $component"
+done
+grep -q '40.000 kwh' <<<"$itemized_card" \
+  || fail "fixture 94 itemized quantity and unit did not round-trip"
+grep -q '\$0\.321' <<<"$itemized_card" \
+  || fail "fixture 94 itemized rate did not round-trip"
+grep -q '\$12\.840' <<<"$itemized_card" \
+  || fail "fixture 94 itemized amount did not round-trip"
+grep -q '\$15\.000' <<<"$itemized_card" \
+  || fail "fixture 94 derive-charging-total result is absent or incorrect"
+note "fixture 94 PASS - itemized charge preserves six tariff components and derives the exact total through the product surface"
+
+unknown_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T21:01","end":"2026-07-28T21:11","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"unknown","currency":"usd","receiptTotal":"","components":[]}' \
+  "$URL/apps/rover/add-charge")"
+[ "$unknown_charge" = $'Saved charge - Energy delivered not recorded\n201' ] \
+  || fail "fixture 95 unknown-cost charge was not saved: $unknown_charge"
+
+receipt_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T21:20","end":"2026-07-28T21:40","zone":"America/Chicago","energyDelivered":"20.0","energySource":"charger-reported","startBattery":"40","endBattery":"70","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","receiptTotal":"22.340","components":[]}' \
+  "$URL/apps/rover/add-charge")"
+[ "$receipt_charge" = $'Saved charge - Energy delivered 20.0 kWh\n201' ] \
+  || fail "fixture 95 receipt-total charge was not saved: $receipt_charge"
+
+zero_receipt_charge="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Electricity","start":"2026-07-28T21:41","end":"2026-07-28T21:51","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","receiptTotal":"0.000","components":[]}' \
+  "$URL/apps/rover/add-charge")"
+[ "$zero_receipt_charge" = $'Saved charge - Energy delivered not recorded\n201' ] \
+  || fail "fixture 95 source-reported zero receipt was treated as missing: $zero_receipt_charge"
+
+cost_state_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+unknown_card="$(html_slice '2026-07-28 21:01:00' '</article>' <<<"$cost_state_view")"
+receipt_card="$(html_slice '2026-07-28 21:20:00' '</article>' <<<"$cost_state_view")"
+zero_receipt_card="$(html_slice '2026-07-28 21:41:00' '</article>' <<<"$cost_state_view")"
+grep -q '>unknown / usd<' <<<"$unknown_card" \
+  || fail "fixture 95 unknown cost state is absent from charge history"
+grep -q '>receipt-total-only / usd<' <<<"$receipt_card" \
+  || fail "fixture 95 receipt-only cost state is absent from charge history"
+grep -q '\$22\.340' <<<"$receipt_card" \
+  || fail "fixture 95 source-reported receipt total did not survive exactly"
+grep -q '\$0\.000' <<<"$zero_receipt_card" \
+  || fail "fixture 95 source-reported zero receipt was omitted as though it were missing"
+note "fixture 95 PASS - all four cost states round-trip, including exact nonzero and zero source-reported receipt totals"
 
 bad_odometer="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \

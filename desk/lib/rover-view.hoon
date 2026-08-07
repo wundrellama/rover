@@ -1373,8 +1373,11 @@
     "<div class=\"form-grid\"><label>Start battery <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"startBattery\" inputmode=\"decimal\" placeholder=\"20\"><output>%</output></div></label><label>End battery <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"endBattery\" inputmode=\"decimal\" placeholder=\"80\"><output>%</output></div></label></div>"
     "<label>Mileage <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" placeholder=\"10020.0\"></label>"
     "<label>Mileage unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label>"
-    "<label>Cost state<select name=\"costState\"><option value=\"unknown\">Unknown</option><option value=\"free\">Free</option></select></label>"
+    "<label>Cost state<select name=\"costState\"><option value=\"unknown\">Unknown</option><option value=\"free\">Free</option><option value=\"itemized\">Itemized</option><option value=\"receipt-total-only\">Receipt total only</option></select></label>"
     "<label>Currency<select name=\"currency\"><option value=\"usd\">USD</option><option value=\"eur\">EUR</option></select></label>"
+    "<fieldset id=\"charge-itemized-cost\" class=\"charge-cost-group\" hidden><legend>Cost components</legend><div id=\"charge-cost-components\"></div><button id=\"charge-add-component\" type=\"button\">Add component</button></fieldset>"
+    "<template id=\"charge-cost-component-template\"><div class=\"charge-cost-component\"><label>Kind<select name=\"componentKind\"><option value=\"energy\">Energy</option><option value=\"time\">Charging time</option><option value=\"session\">Session</option><option value=\"idle\">Idle</option><option value=\"tax\">Tax</option><option value=\"discount\">Discount</option></select></label><label>Quantity<input name=\"componentQuantity\" inputmode=\"decimal\" autocomplete=\"off\"></label><label>Unit<select name=\"componentUnit\"><option value=\"kwh\">kWh</option><option value=\"minute\">Minute</option><option value=\"session\">Session</option></select></label><label>Rate<input name=\"componentRate\" inputmode=\"decimal\" autocomplete=\"off\"></label><label>Amount<input name=\"componentAmount\" inputmode=\"decimal\" autocomplete=\"off\"></label><button type=\"button\" data-remove-charge-component>Remove component</button></div></template>"
+    "<label id=\"charge-receipt-cost\" class=\"charge-cost-group\" hidden>Source-reported receipt total<input name=\"receiptTotal\" inputmode=\"decimal\" autocomplete=\"off\"></label>"
     "<div class=\"form-actions\"><button type=\"submit\">Save charge</button><button type=\"button\" data-close-screen>Cancel</button></div>"
     "<output id=\"charge-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
     "</form></section>"
@@ -1598,12 +1601,61 @@
     ==
   $(rows t.rows)
 ::
+++  charge-component-items
+  |=  [rows=(list vector:ast) currency=@tas]
+  ^-  tape
+  =/  ordered  (order-vectors:act %component-id %.n rows)
+  =/  render-items
+    |=  remaining=(list vector:ast)
+    ^-  tape
+    ?~  remaining
+      ~
+    =/  row  i.remaining
+    =/  item=tape
+      ;:  weld
+        "<li><strong>"
+        (escape (scot %tas (cell-term %component row)))
+        "</strong> "
+        (trip (format-scaled:render (cell-atom %quantity row) (cell-atom %quantity-decimals row) %.y))
+        " "
+        (escape (scot %tas (cell-term %quantity-unit row)))
+        " at "
+        (escape (format-unit-price:render (cell-atom %rate-mills row) currency))
+        " = "
+        (escape (format-unit-price:render (cell-atom %amount-mills row) currency))
+        "</li>"
+      ==
+    (weld item $(remaining t.remaining))
+  (render-items ordered)
+::
+++  itemized-total
+  |=  [rows=(list vector:ast) currency=@tas]
+  ^-  tape
+  =/  amounts=(list charging-component-amount:rover)
+    %+  turn  rows
+    |=  row=vector:ast
+    [;;(cost-component:rover (cell-term %component row)) (cell-atom %amount-mills row)]
+  =/  proof=(each charging-total-proof:rover tang)
+    (mule |.((derive-charging-total:act amounts)))
+  ?:  ?=(%| -.proof)
+    "Unavailable - component total is invalid"
+  (escape (format-unit-price:render total-mills.p.proof currency))
+::
 ++  charge-card
-  |=  [row=vector:ast measurements=(list vector:ast) batteries=(list vector:ast)]
+  |=  $:  row=vector:ast
+          measurements=(list vector:ast)
+          batteries=(list vector:ast)
+          cost-components=(list vector:ast)
+          source-totals=(list vector:ast)
+      ==
   ^-  tape
   =/  acquisition-id  (cell-atom %acquisition-id row)
   =/  energy-rows  (rows-by %acquisition-id acquisition-id measurements)
   =/  battery-rows  (rows-by %acquisition-id acquisition-id batteries)
+  =/  component-rows  (rows-by %acquisition-id acquisition-id cost-components)
+  =/  source-total-rows  (rows-by %acquisition-id acquisition-id source-totals)
+  =/  cost-state  (cell-term %cost-state row)
+  =/  currency  (cell-term %currency row)
   =/  delivered=tape
     ?~  energy-rows
       "Not recorded"
@@ -1623,6 +1675,25 @@
       (escape (cell-text %source-zone row))
       ")"
     ==
+  =/  cost-details=tape
+    ?+  cost-state  ~
+      %itemized
+        ;:  weld
+          "<div class=\"charge-components\"><dt>COST COMPONENTS</dt><dd><ul>"
+          (charge-component-items component-rows currency)
+          "</ul></dd></div><div class=\"derived\"><dt>DERIVED ITEMIZED TOTAL</dt><dd>"
+          (itemized-total component-rows currency)
+          "</dd></div>"
+        ==
+      %receipt-total-only
+        ;:  weld
+          "<div><dt>SOURCE-REPORTED RECEIPT TOTAL</dt><dd>"
+          ?~  source-total-rows
+            "Not recorded"
+          (escape (format-unit-price:render (cell-atom %total-mills i.source-total-rows) currency))
+          "</dd></div>"
+        ==
+    ==
   ;:  weld
     "<article class=\"history-card charge\"><header><span>CHARGE</span><time>"
     observed
@@ -1636,16 +1707,20 @@
     "</dd></div><div><dt>END BATTERY</dt><dd>"
     (battery-at %end battery-rows)
     "</dd></div><div><dt>COST STATE</dt><dd>"
-    (escape (scot %tas (cell-term %cost-state row)))
+    (escape (scot %tas cost-state))
     " / "
-    (escape (scot %tas (cell-term %currency row)))
-    "</dd></div></dl></article>"
+    (escape (scot %tas currency))
+    "</dd></div>"
+    cost-details
+    "</dl></article>"
   ==
 ::
 ++  history-cards
   |=  $:  rows=(list vector:ast)
           measurements=(list vector:ast)
           batteries=(list vector:ast)
+          cost-components=(list vector:ast)
+          source-totals=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
@@ -1658,7 +1733,7 @@
   =/  card=tape
     ?^  is-fill
       (fill-card i.rows station-links additive-links subtype-links economy-breaks)
-    (charge-card i.rows measurements batteries)
+    (charge-card i.rows measurements batteries cost-components source-totals)
   (weld card $(rows t.rows))
 ::
 ++  pagination-controls
@@ -1701,6 +1776,8 @@
           charges=(list vector:ast)
           measurements=(list vector:ast)
           batteries=(list vector:ast)
+          cost-components=(list vector:ast)
+          source-totals=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
@@ -1716,7 +1793,7 @@
   ?:  ?=(~ ordered)
     "<p class=\"empty\">No acquisition history.</p>"
   ;:  weld
-    (history-cards ordered measurements batteries station-links additive-links subtype-links economy-breaks)
+    (history-cards ordered measurements batteries cost-components source-totals station-links additive-links subtype-links economy-breaks)
     (pagination-controls history-page (lent all-ordered) 'vehicle-settings-screen')
   ==
 ::
@@ -1729,6 +1806,8 @@
           charges=(list vector:ast)
           measurements=(list vector:ast)
           batteries=(list vector:ast)
+          cost-components=(list vector:ast)
+          source-totals=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           preferences=(list vector:ast)
@@ -1830,6 +1909,8 @@
         (rows-for id charges)
         measurements
         batteries
+        cost-components
+        source-totals
         station-links
         additive-links
         subtype-links
@@ -2760,6 +2841,8 @@
   =/  def-odometers  (rows-at commands 36)
   =/  localities  (rows-at commands 37)
   =/  refill-reserves  (rows-at commands 38)
+  =/  charge-cost-components  (rows-at commands 39)
+  =/  charge-source-totals  (rows-at commands 40)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -2785,6 +2868,8 @@
           charges
           measurements
           batteries
+          charge-cost-components
+          charge-source-totals
           station-links
           additive-links
           preferences

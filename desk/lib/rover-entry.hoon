@@ -4,7 +4,7 @@
 ::  the human-facing field; no raw database ID is accepted by this boundary.
 ::
 /-  rover
-/+  render=rover-render
+/+  act=rover-act, render=rover-render
 |%
 +$  price-proof
   $:  unit-price-mills=@ud
@@ -999,6 +999,70 @@
     [%| %bad-shape 'odometer.zone']
   [%& u.vehicle [digits.p.parsed-reading places.p.parsed-reading odo-unit] u.observed-start u.zone]
 ::
+++  decode-charge-components
+  |=  values=(list json)
+  ^-  (each (list charging-cost-component-entry:rover) entry-verdict:rover)
+  =/  out=(list charging-cost-component-entry:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'charge.components']
+  =/  kind-text  (json-string 'kind' u.object)
+  ?~  kind-text
+    [%| %missing-key 'charge.components.kind']
+  =/  kind-term  (slaw %tas u.kind-text)
+  ?.  ?&  ?=(^ kind-term)
+          ?|  =(%energy u.kind-term)
+              =(%time u.kind-term)
+              =(%session u.kind-term)
+              =(%idle u.kind-term)
+              =(%tax u.kind-term)
+              =(%discount u.kind-term)
+          ==
+      ==
+    [%| %bad-shape 'charge.components.kind']
+  =/  quantity-text  (json-string 'quantity' u.object)
+  ?~  quantity-text
+    [%| %missing-key 'charge.components.quantity']
+  =/  quantity
+    (parse-decimal:render u.quantity-text (lent (trip u.quantity-text)))
+  ?:  ?=(%| -.quantity)
+    [%| %bad-shape 'charge.components.quantity']
+  =/  unit-text  (json-string 'unit' u.object)
+  ?~  unit-text
+    [%| %missing-key 'charge.components.unit']
+  =/  unit-term  (slaw %tas u.unit-text)
+  ?.  ?&  ?=(^ unit-term)
+          ?|  =(%kwh u.unit-term)
+              =(%minute u.unit-term)
+              =(%session u.unit-term)
+          ==
+      ==
+    [%| %bad-shape 'charge.components.unit']
+  =/  rate-text  (json-string 'rate' u.object)
+  ?~  rate-text
+    [%| %missing-key 'charge.components.rate']
+  =/  rate  (parse-decimal:render u.rate-text 3)
+  ?:  ?=(%| -.rate)
+    [%| %bad-shape 'charge.components.rate']
+  =/  amount-text  (json-string 'amount' u.object)
+  ?~  amount-text
+    [%| %missing-key 'charge.components.amount']
+  =/  amount  (parse-decimal:render u.amount-text 3)
+  ?:  ?=(%| -.amount)
+    [%| %bad-shape 'charge.components.amount']
+  =/  row=charging-cost-component-entry:rover
+    :*  ;;(cost-component:rover u.kind-term)
+        digits.p.quantity
+        places.p.quantity
+        u.unit-term
+        (mul digits.p.rate (pow-ten:render (sub 3 places.p.rate)))
+        (mul digits.p.amount (pow-ten:render (sub 3 places.p.amount)))
+    ==
+  $(values t.values, out [row out])
+::
 ++  decode-charge
   |=  body=@t
   ^-  (each charge-entry:rover entry-verdict:rover)
@@ -1127,6 +1191,8 @@
   ?.  ?&  ?=(^ cost-term)
           ?|  =(%free u.cost-term)
               =(%unknown u.cost-term)
+              =(%itemized u.cost-term)
+              =(%receipt-total-only u.cost-term)
           ==
       ==
     [%| %bad-shape 'charge.cost-state']
@@ -1140,6 +1206,78 @@
           ==
       ==
     [%| %bad-shape 'charge.currency']
+  =/  component-value  (~(get by object) 'components')
+  =/  component-json  (json-array 'components' object)
+  ?:  ?&  ?=(^ component-value)
+          ?=(~ component-json)
+      ==
+    [%| %bad-shape 'charge.components']
+  =/  components-json=(list json)
+    ?~  component-json
+      ~
+    u.component-json
+  =/  components  (decode-charge-components components-json)
+  ?:  ?=(%| -.components)
+    components
+  =/  receipt-value  (~(get by object) 'receiptTotal')
+  =/  receipt-text  (json-string 'receiptTotal' object)
+  ?:  ?&  ?=(^ receipt-value)
+          ?=(~ receipt-text)
+      ==
+    [%| %bad-shape 'charge.receipt-total']
+  =/  source-total-mills=(unit @ud)
+    ?~  receipt-text
+      ~
+    ?:  =(0 (lent (trim-spaces:render (trip u.receipt-text))))
+      ~
+    =/  total  (parse-decimal:render u.receipt-text 3)
+    ?:  ?=(%| -.total)
+      ~
+    `(mul digits.p.total (pow-ten:render (sub 3 places.p.total)))
+  ?:  ?&  ?=(^ receipt-text)
+          (gth (lent (trim-spaces:render (trip u.receipt-text))) 0)
+          ?=(~ source-total-mills)
+      ==
+    [%| %bad-shape 'charge.receipt-total']
+  =/  cost-verdict=(unit entry-verdict:rover)
+    ?+  u.cost-term  `[%bad-shape 'charge.cost-state']
+    %itemized
+      ?:  ?=(~ p.components)
+        `[%bad-shape 'charge.components']
+      ?:  ?=(^ source-total-mills)
+        `[%bad-shape 'charge.receipt-total']
+      =/  amounts=(list charging-component-amount:rover)
+        %+  turn  p.components
+        |=  component=charging-cost-component-entry:rover
+        [component.component amount-mills.component]
+      =/  total=(each charging-total-proof:rover tang)
+        (mule |.((derive-charging-total:act amounts)))
+      ?:  ?=(%| -.total)
+        `[%bad-shape 'charge.components']
+      ~
+    %receipt-total-only
+      ?:  ?=(^ p.components)
+        `[%bad-shape 'charge.components']
+      ?~  receipt-value
+        `[%missing-key 'charge.receipt-total']
+      ?~  source-total-mills
+        `[%bad-shape 'charge.receipt-total']
+      ~
+    %free
+      ?:  ?=(^ p.components)
+        `[%bad-shape 'charge.components']
+      ?:  ?=(^ source-total-mills)
+        `[%bad-shape 'charge.receipt-total']
+      ~
+    %unknown
+      ?:  ?=(^ p.components)
+        `[%bad-shape 'charge.components']
+      ?:  ?=(^ source-total-mills)
+        `[%bad-shape 'charge.receipt-total']
+      ~
+    ==
+  ?^  cost-verdict
+    [%| u.cost-verdict]
   =/  subtype-text  (json-string 'subtype' object)
   =/  subtype-label=(unit @t)
     ?~  subtype-text
@@ -1159,6 +1297,8 @@
       mileage
       ;;(cost-state:rover u.cost-term)
       ;;(currency:rover u.currency-term)
+      p.components
+      source-total-mills
       subtype-label
   ==
 ::

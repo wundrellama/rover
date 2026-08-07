@@ -104,6 +104,7 @@
       start-battery=@ux
       end-battery=@ux
       odometer=@ux
+      cost-components=(list @ux)
   ==
 +$  fill-edit-support-ids
   [place=@ux station=@ux payment=@ux mode=@ux additive=@ux tag=@ux]
@@ -1633,6 +1634,8 @@
     " FROM consumable-acquisition-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.consumable-acquisition-id, O.value-digits, O.decimal-places, O.unit;"
     " FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE A.part = %locality SELECT P.place-id, P.label AS place, A.value AS locality;"
     " FROM vehicle-refill-reserve R SELECT R.vehicle-id, R.reserve-percent;"
+    " FROM charging-cost-components C SELECT C.component-id, C.acquisition-id, C.component, C.quantity, C.quantity-decimals, C.quantity-unit, C.rate-mills, C.amount-mills;"
+    " FROM charging-cost-source-totals T SELECT T.acquisition-id, T.total-mills;"
   ==
 ::
 ++  sql-quote
@@ -3033,6 +3036,38 @@
     ");"
   ==
 ::
+++  insert-charge-cost-components
+  |=  $:  component-ids=(list @ux)
+          acquisition-id=@ux
+          components=(list charging-cost-component-entry:rover)
+      ==
+  ^-  tape
+  ?~  components
+    ~
+  ?>  ?=(^ component-ids)
+  =/  item  i.components
+  =/  row=tape
+    ;:  weld
+      " INSERT INTO charging-cost-components VALUES ("
+      (scow %ux i.component-ids)
+      ", "
+      (scow %ux acquisition-id)
+      ", "
+      (sql-term component.item)
+      ", "
+      (sql-ud quantity.item)
+      ", "
+      (sql-ud quantity-decimals.item)
+      ", "
+      (sql-term quantity-unit.item)
+      ", "
+      (sql-ud rate-mills.item)
+      ", "
+      (sql-ud amount-mills.item)
+      ");"
+    ==
+  (weld row $(component-ids t.component-ids, components t.components))
+::
 ++  insert-charge
   |=  $:  ids=charge-ids
           vehicle-id=@ux
@@ -3135,7 +3170,19 @@
     =/  odo-input=odometer-entry:rover
       [vehicle-label.input u.mileage.input observed-end.input source-zone.input]
     (insert-odometer odometer.ids vehicle-id odo-input recorded-at)
-  ;:(weld base subtype-row delivered-row start-row end-row mileage-row)
+  =/  component-rows=tape
+    (insert-charge-cost-components cost-components.ids acquisition.ids cost-components.input)
+  =/  source-total-row=tape
+    ?~  source-total-mills.input
+      ~
+    ;:  weld
+      " INSERT INTO charging-cost-source-totals VALUES ("
+      acquisition
+      ", "
+      (sql-ud u.source-total-mills.input)
+      ");"
+    ==
+  ;:(weld base subtype-row delivered-row start-row end-row mileage-row component-rows source-total-row)
 ::
 ++  vector-key
   |=  [key=@tas row=vector:ast]

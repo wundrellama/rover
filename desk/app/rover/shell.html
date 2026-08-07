@@ -536,6 +536,7 @@
 
     .energy-source-control[hidden],
     .charge-energy-source-control[hidden],
+    .charge-cost-group[hidden],
     #fill-tags-picker[hidden],
     #fill-new-station[hidden] {
       display: none;
@@ -662,6 +663,7 @@
     }
 
     .station-field,
+    #charge-itemized-cost,
     #fill-additives,
     #fill-tags,
     #fill-custom-fields,
@@ -672,6 +674,7 @@
     }
 
     .station-field legend,
+    #charge-itemized-cost legend,
     #fill-additives legend,
     #fill-tags legend,
     #fill-custom-fields legend,
@@ -723,6 +726,23 @@
       font-size: 0.72rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+    }
+
+    #charge-cost-components,
+    .charge-cost-component {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .charge-cost-component {
+      margin-bottom: 0.75rem;
+      padding: 0.75rem;
+      border: 1px dashed var(--rv-olive);
+    }
+
+    .charge-cost-component [data-remove-charge-component] {
+      border-color: var(--rv-warn);
+      color: var(--rv-warn);
     }
 
     .read-only-row output,
@@ -797,6 +817,7 @@
       }
 
       .entry-screen .preview-row,
+      .entry-screen .charge-cost-group,
       .entry-screen .form-actions,
       .entry-screen .form-verdict {
         grid-column: 1 / -1;
@@ -1500,6 +1521,15 @@
         const chargeSubtype = chargeForm.elements.subtype;
         const chargeEnergySourceControl =
           chargeForm.querySelector('.charge-energy-source-control');
+        const chargeCostState = chargeForm.elements.costState;
+        const itemizedCost = chargeForm.querySelector('#charge-itemized-cost');
+        const receiptCost = chargeForm.querySelector('#charge-receipt-cost');
+        const receiptTotal = chargeForm.elements.receiptTotal;
+        const componentList = chargeForm.querySelector('#charge-cost-components');
+        const componentTemplate = chargeForm.querySelector(
+          '#charge-cost-component-template'
+        );
+        const addComponent = chargeForm.querySelector('#charge-add-component');
         if (defaultVehicle) chargeVehicle.value = defaultVehicle;
         const syncChargeDefinitions = () => {
           const options = [...chargeDefinition.options];
@@ -1526,7 +1556,42 @@
         };
         chargeVehicle.addEventListener('change', syncChargeDefinitions);
         chargeDefinition.addEventListener('change', syncChargeDefinitions);
+        const componentPayload = (row) => ({
+          kind: row.querySelector('[name="componentKind"]').value,
+          quantity: row.querySelector('[name="componentQuantity"]').value,
+          unit: row.querySelector('[name="componentUnit"]').value,
+          rate: row.querySelector('[name="componentRate"]').value,
+          amount: row.querySelector('[name="componentAmount"]').value
+        });
+        const setComponentRequired = (row, required) => {
+          row.querySelectorAll('input, select').forEach((field) => {
+            field.required = required;
+          });
+        };
+        const appendCostComponent = () => {
+          const row = componentTemplate.content.firstElementChild.cloneNode(true);
+          row.querySelector('[data-remove-charge-component]').addEventListener(
+            'click',
+            () => row.remove()
+          );
+          setComponentRequired(row, chargeCostState.value === 'itemized');
+          componentList.append(row);
+        };
+        const syncChargeCostState = () => {
+          const itemized = chargeCostState.value === 'itemized';
+          const receiptOnly = chargeCostState.value === 'receipt-total-only';
+          itemizedCost.hidden = !itemized;
+          receiptCost.hidden = !receiptOnly;
+          receiptTotal.required = receiptOnly;
+          componentList.querySelectorAll('.charge-cost-component').forEach((row) => {
+            setComponentRequired(row, itemized);
+          });
+          if (itemized && !componentList.children.length) appendCostComponent();
+        };
+        addComponent.addEventListener('click', appendCostComponent);
+        chargeCostState.addEventListener('change', syncChargeCostState);
         syncChargeDefinitions();
+        syncChargeCostState();
         chargeForm.elements.start.value = local.toISOString().slice(0, 16);
         chargeForm.elements.end.value = local.toISOString().slice(0, 16);
         chargeForm.elements.zone.value =
@@ -1535,14 +1600,23 @@
           event.preventDefault();
           const verdict = app.querySelector('#charge-verdict');
           verdict.value = 'Saving…';
+          const formData = new FormData(chargeForm);
+          const payload = Object.fromEntries(formData.entries());
+          ['componentKind', 'componentQuantity', 'componentUnit', 'componentRate',
+            'componentAmount'].forEach((key) => delete payload[key]);
+          payload.components = chargeCostState.value === 'itemized'
+            ? [...componentList.querySelectorAll('.charge-cost-component')]
+                .map(componentPayload)
+            : [];
+          payload.receiptTotal = chargeCostState.value === 'receipt-total-only'
+            ? receiptTotal.value
+            : '';
           try {
             const response = await fetch('/apps/rover/add-charge', {
               method: 'POST',
               credentials: 'same-origin',
               headers: {'content-type': 'application/json'},
-              body: JSON.stringify(
-                Object.fromEntries(new FormData(chargeForm).entries())
-              )
+              body: JSON.stringify(payload)
             });
             verdict.value = await response.text();
             if (response.ok) await loadView();
