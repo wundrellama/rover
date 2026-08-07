@@ -43,7 +43,7 @@
     " FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE A.part = %locality SELECT P.place-id, P.label AS place, A.value AS locality;"
   ==
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %rover query]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %rover %vector query]))
 ;<  [mark =vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 (pure:m !>(~))

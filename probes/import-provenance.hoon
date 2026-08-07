@@ -27,11 +27,11 @@
       "FROM energy-acquisitions A SELECT A.acquisition-id, A.observed-start; "
   ==
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %impprobe script]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %impprobe %vector script]))
 ;<  [pour-mark=@tas pour-vase=vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %impprobe verify]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %impprobe %vector verify]))
 ;<  [mark =vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 (pure:m vase)

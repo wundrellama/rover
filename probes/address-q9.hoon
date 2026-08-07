@@ -31,11 +31,11 @@
       "FROM places P JOIN place-address-parts A ON P.place-id = A.place-id SELECT P.label, A.part, A.value; "
   ==
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %addrq9probe script]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %addrq9probe %vector script]))
 ;<  [pour-mark=@tas pour-vase=vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %addrq9probe verify]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %addrq9probe %vector verify]))
 ;<  [mark =vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 (pure:m vase)

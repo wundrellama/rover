@@ -38,7 +38,7 @@ comment, which is why this went unnoticed.
 
 ### `profile-view-query.hoon`
 
-Times the current 37-clause `+ui-view` `%tape` against a live profiling pier
+Times the current 37-clause `+ui-view` `%script` with `%vector` output against a live profiling pier
 without invoking Rover's Gall-side assembly or HTML renderer. It receives and
 discards the Obelisk fact, then returns only `~`, so terminal printing of the
 result vectors is excluded. Measure it from the host with `/usr/bin/time`.
@@ -50,7 +50,7 @@ nothing to Obelisk.
 
 Measures the fixed `click -k -i` startup/evaluation overhead for the query
 profile above. Subtract its median wall time from `profile-view-query.hoon` to
-isolate the `%tape` request and fact delivery.
+isolate the `%script` request and fact delivery.
 
 ### `cetane-pour.hoon`
 Import Q1. Pours `energy-subtype-cetane` into a **throwaway `cetprobe`

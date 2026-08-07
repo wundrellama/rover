@@ -23,11 +23,11 @@
       "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; "
   ==
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %cetprobe script]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %cetprobe %vector script]))
 ;<  [pour-mark pour-vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%tape %cetprobe verify]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %cetprobe %vector verify]))
 ;<  [mark =vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 (pure:m vase)
