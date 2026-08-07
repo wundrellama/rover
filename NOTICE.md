@@ -60,8 +60,8 @@ itself, in the `++license` arm.
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-Upstream: <https://github.com/jackfoxy/obelisk>. Rover pins Obelisk `dev` @
-`2b72856e`.
+Upstream: <https://github.com/jackfoxy/obelisk>. Rover pins Obelisk `master` @
+`9de6332` (v0.9.0-beta).
 
 ### Urbit system files
 

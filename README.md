@@ -134,7 +134,7 @@ The fixture coverage gate lists every skipped fixture. A partial run does not be
 | Component | Current pin |
 |---|---|
 | Urbit pill | `brass-408k-1` with zuse 408 |
-| Obelisk | `dev` @ `2b72856e` |
+| Obelisk | `master` @ `9de6332` (v0.9.0-beta) |
 | Development ships | Disposable `~bel` lineage ships |
 
 The copied Obelisk API mold and the pinned upstream mold must have the same SHA-256 value. `bin/dev-pin-test.sh` checks the commit and both files.

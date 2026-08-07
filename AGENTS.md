@@ -21,19 +21,17 @@ this order before writing or changing any code:
 4. `~/brain/projects/rover/architecture-and-access.md` — Rover/Obelisk/Hawk split
    and fail-closed reconciliation.
 
-Then the substrate docs (audit the exact checked-out commit, never "the dev
-branch"): `/tmp/rover-obelisk-2b72856e/desk/doc/usr/reference/*` and
-`/tmp/rover-obelisk-2b72856e/desk/sur/obelisk-ast.hoon`.
+Then the substrate docs (audit the exact checked-out commit, never a mutable
+branch): `/tmp/obelisk-fresh/desk/doc/usr/reference/*` and
+`/tmp/obelisk-fresh/desk/sur/obelisk-ast.hoon`.
 
 ## Substrate pin
 
-- **Working pin: Obelisk `dev` @ `2b72856e`** — verified to compile and run on
-  the brass-408k pill (zuse 408). The matching copied
+- **Working pin: Obelisk `master` @ `9de6332` (v0.9.0-beta)** — verified to
+  compile and run on the brass-408k pill (zuse 408). The exact commit is
+  `9de633299b373a1047490b48281a40b457fb2043`. The matching copied
   `sur/obelisk-ast.hoon` SHA-256 is
-  `c74bf1c911b61b7abb4de8c98b28b30d684e5e3c0b10a0c65f759f64ee9f93dd`.
-- The 2026-07-28 downgrade to `master` @ `eecab1b8` was based on a false
-  diagnosis. `strandio` is present on brass-408k; the actual `gall: failed`
-  came from an empty directory under `app/`.
+  `e7fd9775da24a34ef2d12386247fa59426a0e1c00993de35b99ad672ba1006a2`.
 - Piers run `%base`'s bundled-claim conflict away by starting the agent with an
   explicit desk: `|start %obelisk %obelisk`.
 - Before every desk commit, remove empty directories:
@@ -45,6 +43,11 @@ branch"): `/tmp/rover-obelisk-2b72856e/desk/doc/usr/reference/*` and
 `%obelisk` is installed as its **own unmodified desk** alongside `%rover`; it is never
 embedded, forked, or renamed. Rover reaches it only through Gall cards
 (`%pass ... %agent [our %obelisk] %watch /server` + `%poke %obelisk-action`).
+
+Rover sends urQL through `%script` and direct command ASTs through `%cmd-list`,
+always with explicit `%vector` output so the established fact-decode shape stays
+unchanged. Upstream deprecated the older `%tape`, `%tape-print`, and `%commands`
+actions in v0.9.0-beta; do not reintroduce them. `%parse` remains unchanged.
 
 The **only** file Rover copies from Obelisk is `sur/obelisk-ast.hoon` — the developer
 API mold, exactly as the upstream developer docs prescribe. Rover must **not** vendor
