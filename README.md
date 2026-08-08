@@ -162,6 +162,21 @@ The copied Obelisk API mold and the pinned upstream mold must have the same SHA-
 | `RESULTS.md` | Schema and data fixture evidence |
 | `RESULTS-UI.md` | Browser and owner-interface fixture evidence |
 
+## Installing
+
+Rover needs the `%obelisk` database agent on the same ship. Obelisk is upstream software and installs from its author, never from a Rover copy.
+
+```
+|install ~dister-nomryg-nilref %obelisk
+|start %obelisk %obelisk
+```
+
+The explicit desk in `|start` is required. Without it the `%base` bundled-claim conflict bites.
+
+Rover pins Obelisk `master` at `9de6332` (v0.9.0-beta) and vendors only `sur/obelisk-ast.hoon` from that commit. Confirm the running Obelisk matches before reporting a Rover bug.
+
+Rover itself has no published release yet. It does not publish until the Gate 7 fixture fence passes, because the current desk still compiles test scaffolding into the shipping action union.
+
 ## Not implemented
 
 - Cross-ship sharing and per-field grants.
@@ -170,7 +185,7 @@ The copied Obelisk API mold and the pinned upstream mold must have the same SHA-
 - Maintenance, service, insurance, tax, and modification records.
 - Database attachment storage.
 - Permanent charger and connector inventory.
-- A supported release installation or migration path.
+- A published Rover release. Gate 7 blocks it.
 
 ## License
 
