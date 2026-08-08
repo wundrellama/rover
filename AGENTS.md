@@ -123,7 +123,7 @@ identifiers — is **in scope for the single M0 pour** per Gate 6.
 ## Fixture fence (Gate 7, ratified 2026-08-06) — BLOCKING before publish
 
 The shipped `%rover` desk must not carry test scaffolding. Today the `$action`
-union in `sur/rover.hoon` exposes 42 actions, of which **32 are fixture seeds,
+union in `sur/rover.hoon` exposes 43 actions, of which **32 are fixture seeds,
 fixture readback reports, or diagnostics**, with their urQL bodies in
 `lib/rover-act.hoon`. Nothing auto-seeds (`on-init` only binds Eyre, every seed
 is same-ship-gated and explicitly poked), so a fresh install is clean — but a
