@@ -133,6 +133,80 @@ async function testVehicleSettingsLayout(page, vehicle) {
   console.log(`LAYOUT=${JSON.stringify(measurement)}`);
 }
 
+// Drives the real Add Charge form: reveal the itemized group, fill repeatable
+// component rows, read the derived preview, and submit through Eyre.
+async function testItemizedChargeEntry(page, vehicle) {
+  await page.locator('[data-open-screen="add-charge"]').first().click();
+  const form = page.locator('#charge-form');
+  await form.waitFor({state: 'visible'});
+  await form.locator('[name="vehicle"]').selectOption(vehicle);
+  const itemized = form.locator('#charge-itemized');
+  const receipt = form.locator('#charge-receipt-total');
+  if (await itemized.isVisible() || await receipt.isVisible()) {
+    throw new Error('a cost group is visible while the cost state is unknown');
+  }
+
+  await form.locator('[name="costState"]').selectOption('receipt-total-only');
+  if (await itemized.isVisible() || !await receipt.isVisible()) {
+    throw new Error('receipt-total-only did not reveal only the receipt group');
+  }
+
+  await form.locator('[name="costState"]').selectOption('itemized');
+  if (!await itemized.isVisible() || await receipt.isVisible()) {
+    throw new Error('itemized did not reveal only the component group');
+  }
+
+  const lines = [
+    ['energy', '45.678', 'kwh', '0.250', '11.420'],
+    ['time', '30', 'minute', '0.100', '3.000'],
+    ['session', '1', 'session', '1.500', '1.500'],
+    ['idle', '5', 'minute', '0.500', '2.500'],
+    ['tax', '1', 'session', '1.000', '1.000'],
+    ['discount', '1', 'session', '2.000', '2.000']
+  ];
+  const rows = form.locator('[data-cost-component-row]');
+  for (let index = 0; index < lines.length; index += 1) {
+    if (await rows.count() <= index) {
+      await form.locator('[data-add-cost-component]').click();
+    }
+    const [kind, quantity, unit, rate, amount] = lines[index];
+    const row = rows.nth(index);
+    await row.locator('[name="componentKind"]').selectOption(kind);
+    await row.locator('[name="componentQuantity"]').fill(quantity);
+    await row.locator('[name="componentUnit"]').selectOption(unit);
+    await row.locator('[name="componentRate"]').fill(rate);
+    await row.locator('[name="componentAmount"]').fill(amount);
+  }
+  if (await rows.count() !== lines.length) {
+    throw new Error(`component rows are ${await rows.count()}, want ${lines.length}`);
+  }
+  const preview = await form.locator('#charge-itemized-total')
+    .evaluate((node) => node.value);
+
+  const now = new Date();
+  const stamp = (offset) => {
+    const at = new Date(now.getTime() + offset);
+    at.setSeconds(0, 0);
+    return new Date(at.getTime() - at.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  };
+  await form.locator('[name="start"]').fill(stamp(0));
+  await form.locator('[name="end"]').fill(stamp(45 * 60 * 1000));
+  await form.locator('button[type="submit"]').click();
+  const verdict = form.locator('#charge-verdict');
+  await page.waitForFunction(
+    () => {
+      const value = document.querySelector('#charge-verdict')?.value || '';
+      return value.length > 0 && value !== 'Saving…';
+    },
+    null,
+    {timeout: 30000}
+  );
+  console.log(`CHARGE_PREVIEW=${preview}`);
+  console.log(`CHARGE_VERDICT=${await verdict.evaluate((node) => node.value)}`);
+}
+
 (async () => {
   const browser = await chromium.launch({headless: true, executablePath});
   const context = await browser.newContext({viewport: {width: 390, height: 844}});
@@ -316,6 +390,8 @@ async function testVehicleSettingsLayout(page, vehicle) {
         `GLOW=${maximum.intensity}|${maximum.shadow}|stored=${maximum.stored}`
       );
       await testVehicleSettingsLayout(page, secondVehicle);
+    } else if (mode === 'charge-cost') {
+      await testItemizedChargeEntry(page, firstVehicle);
     } else if (mode === 'layout-current') {
       await testVehicleSettingsLayout(page, firstVehicle);
     } else if (mode === 'capture-current') {

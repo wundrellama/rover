@@ -89,13 +89,20 @@
     (term-text unit)
   ==
 ::
-++  format-unit-price
-  |=  [unit-price-mills=@ud currency=@tas]
+::  Exact thousandths of the currency unit. Charging tariffs price below the
+::  minor unit, so mills never collapse to whole cents here.
+++  format-mills
+  |=  [mills=@ud currency=@tas]
   ^-  @t
   %-  crip
   %+  weld
     (currency-prefix currency)
-  (trip (format-scaled unit-price-mills 3 %.y))
+  (trip (format-scaled mills 3 %.y))
+::
+++  format-unit-price
+  |=  [unit-price-mills=@ud currency=@tas]
+  ^-  @t
+  (format-mills unit-price-mills currency)
 ::
 ++  format-total
   |=  [total-mills=@ud currency=@tas minor-unit-decimals=@ud]

@@ -129,7 +129,7 @@ The UI battery also applies a final demo-data guard. Use a pristine demo-only ow
 
 The fixture coverage gate lists every skipped fixture. A partial run does not become a complete pass because its executed checks are green.
 
-`ROVER_DEMO_ONLY=1 bin/ui-test.sh <pier>` runs all 85 defined UI fixtures and is the complete UI battery.
+`ROVER_DEMO_ONLY=1 bin/ui-test.sh <pier>` runs all 90 defined UI fixtures and is the complete UI battery.
 
 `ROVER_LEGACY_ONLY=1 bin/ui-test.sh <pier>` is a Phase-A diagnostic, not a battery. It asserts against `Phase A Vehicle`, which only exists on a pier where someone poked `%seed-spike`, so it fails on a clean pier with `per-vehicle action missing: Add Charge`. Seeding alone does not fix it: the hub renders `Add Fill` and `Add Charge` from the energy sources of the **app default vehicle**, and `seed-spike` never writes the `app-default-vehicle` singleton, so both buttons stay hidden. Running the leg needs `click -k -i probes/seed-spike.hoon <pier>` plus a default-vehicle designation. Skip it otherwise. The Gate 7 fixture fence retires this dependency.
 
@@ -161,6 +161,7 @@ The copied Obelisk API mold and the pinned upstream mold must have the same SHA-
 | `tests/view-linear-test.sh` | Static regression guard for linear, paginated views |
 | `RESULTS.md` | Schema and data fixture evidence |
 | `RESULTS-UI.md` | Browser and owner-interface fixture evidence |
+| `RESULTS-M0CC.md` | Charging cost entry fixture evidence |
 
 ## Not implemented
 

@@ -55,6 +55,71 @@
 ?>  =(205 digits.u.start-battery.p.charge)
 ?>  =(1 places.u.start-battery.p.charge)
 ?>  =(%free cost-state.p.charge)
+?>  ?=(~ components.p.charge)
+?>  ?=(~ source-total-mills.p.charge)
+::
+=/  itemized-charge
+  %-  decode-charge:entry
+  '{"vehicle":"Cost Vehicle","definition":"Electricity","start":"2026-08-01T12:00","end":"2026-08-01T12:45","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":[{"component":"energy","quantity":"45.678","unit":"kwh","rate":"0.250","amount":"11.420"},{"component":"discount","quantity":"1","unit":"session","rate":"2.000","amount":"2.000"}]}'
+?>  ?=(%& -.itemized-charge)
+?>  =(%itemized cost-state.p.itemized-charge)
+?>  =(2 (lent components.p.itemized-charge))
+?>  ?=(~ source-total-mills.p.itemized-charge)
+=/  energy-component  (snag 0 components.p.itemized-charge)
+?>  =(%energy component.energy-component)
+?>  =(45.678 quantity.energy-component)
+?>  =(3 quantity-decimals.energy-component)
+?>  =(%kwh quantity-unit.energy-component)
+?>  =(250 rate-mills.energy-component)
+?>  =(11.420 amount-mills.energy-component)
+=/  discount-component  (snag 1 components.p.itemized-charge)
+?>  =(%discount component.discount-component)
+?>  =(%session quantity-unit.discount-component)
+?>  =(2.000 amount-mills.discount-component)
+::
+=/  receipt-charge
+  %-  decode-charge:entry
+  '{"vehicle":"Cost Vehicle","definition":"Electricity","start":"2026-08-01T14:00","end":"2026-08-01T14:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","sourceTotal":"22.34","components":[]}'
+?>  ?=(%& -.receipt-charge)
+?>  =(%receipt-total-only cost-state.p.receipt-charge)
+?>  ?=(~ components.p.receipt-charge)
+?>  ?=(^ source-total-mills.p.receipt-charge)
+?>  =(22.340 u.source-total-mills.p.receipt-charge)
+::
+=/  empty-itemized
+  %-  decode-charge:entry
+  '{"vehicle":"Cost Vehicle","definition":"Electricity","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":[]}'
+?>  ?=(%| -.empty-itemized)
+?>  =(%bad-shape class.p.empty-itemized)
+?>  =('charge.components' field.p.empty-itemized)
+::
+=/  unknown-component
+  %-  decode-charge:entry
+  '{"vehicle":"Cost Vehicle","definition":"Electricity","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":[{"component":"parking","quantity":"1","unit":"session","rate":"1.000","amount":"1.000"}]}'
+?>  ?=(%| -.unknown-component)
+?>  =(%bad-shape class.p.unknown-component)
+?>  =('charge.component' field.p.unknown-component)
+::
+=/  receipt-with-components
+  %-  decode-charge:entry
+  '{"vehicle":"Cost Vehicle","definition":"Electricity","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","sourceTotal":"22.34","components":[{"component":"energy","quantity":"1","unit":"kwh","rate":"1.000","amount":"1.000"}]}'
+?>  ?=(%| -.receipt-with-components)
+?>  =(%bad-shape class.p.receipt-with-components)
+?>  =('charge.components' field.p.receipt-with-components)
+::
+=/  free-with-total
+  %-  decode-charge:entry
+  '{"vehicle":"Cost Vehicle","definition":"Electricity","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"free","currency":"usd","sourceTotal":"22.34","components":[]}'
+?>  ?=(%| -.free-with-total)
+?>  =(%bad-shape class.p.free-with-total)
+?>  =('charge.source-total' field.p.free-with-total)
+::
+=/  over-discount
+  %-  decode-charge:entry
+  '{"vehicle":"Cost Vehicle","definition":"Electricity","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":[{"component":"energy","quantity":"1","unit":"kwh","rate":"1.000","amount":"1.000"},{"component":"discount","quantity":"1","unit":"session","rate":"2.000","amount":"2.000"}]}'
+?>  ?=(%| -.over-discount)
+?>  =(%bad-range class.p.over-discount)
+?>  =('charge.components' field.p.over-discount)
 ::
 =/  odometer
   %-  decode-odometer:entry

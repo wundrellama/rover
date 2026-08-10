@@ -1531,18 +1531,96 @@
         chargeForm.elements.end.value = local.toISOString().slice(0, 16);
         chargeForm.elements.zone.value =
           Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        const chargeCostState = chargeForm.elements.costState;
+        const chargeItemized = chargeForm.querySelector('#charge-itemized');
+        const chargeReceipt = chargeForm.querySelector('#charge-receipt-total');
+        const componentRows = chargeForm.querySelector('#charge-component-rows');
+        const componentTemplate =
+          chargeForm.querySelector('#charge-component-template');
+        const itemizedTotal = chargeForm.querySelector('#charge-itemized-total');
+        // Exact thousandths. A decimal entry never becomes a float here.
+        const toMills = (text) => {
+          const trimmed = String(text ?? '').replace(/,/g, '').trim();
+          if (!/^[0-9]+(\.[0-9]{0,3})?$/.test(trimmed)) return null;
+          const [whole, fraction = ''] = trimmed.split('.');
+          return Number(whole + fraction.padEnd(3, '0'));
+        };
+        const readComponents = () =>
+          [...componentRows.querySelectorAll('[data-cost-component-row]')]
+            .map((row) => ({
+              component: row.querySelector('[name="componentKind"]').value,
+              quantity: row.querySelector('[name="componentQuantity"]').value.trim(),
+              unit: row.querySelector('[name="componentUnit"]').value,
+              rate: row.querySelector('[name="componentRate"]').value.trim(),
+              amount: row.querySelector('[name="componentAmount"]').value.trim()
+            }));
+        const syncItemizedTotal = () => {
+          let charges = 0;
+          let discounts = 0;
+          let exact = true;
+          readComponents().forEach((row) => {
+            const mills = toMills(row.amount);
+            if (mills === null) {
+              exact = false;
+              return;
+            }
+            if (row.component === 'discount') discounts += mills;
+            else charges += mills;
+          });
+          if (!exact || charges < discounts) {
+            itemizedTotal.value = '—';
+            return;
+          }
+          const total = charges - discounts;
+          itemizedTotal.value =
+            `$${Math.floor(total / 1000)}.${String(total % 1000).padStart(3, '0')}`;
+        };
+        const syncCostState = () => {
+          chargeItemized.hidden = chargeCostState.value !== 'itemized';
+          chargeReceipt.hidden = chargeCostState.value !== 'receipt-total-only';
+          if (!chargeItemized.hidden && !componentRows.children.length) {
+            addComponentRow();
+          }
+          syncItemizedTotal();
+        };
+        function addComponentRow() {
+          const row = componentTemplate.content.firstElementChild.cloneNode(true);
+          row.querySelector('[data-remove-cost-component]')
+            .addEventListener('click', () => {
+              row.remove();
+              syncItemizedTotal();
+            });
+          row.addEventListener('input', syncItemizedTotal);
+          row.addEventListener('change', syncItemizedTotal);
+          componentRows.append(row);
+          syncItemizedTotal();
+        }
+        chargeForm.querySelector('[data-add-cost-component]')
+          ?.addEventListener('click', addComponentRow);
+        chargeCostState.addEventListener('change', syncCostState);
+        syncCostState();
+
         chargeForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = app.querySelector('#charge-verdict');
           verdict.value = 'Saving…';
+          const payload = Object.fromEntries(
+            [...new FormData(chargeForm).entries()]
+              .filter(([name]) => !name.startsWith('component'))
+          );
+          payload.components =
+            chargeCostState.value === 'itemized' ? readComponents() : [];
+          payload.sourceTotal =
+            chargeCostState.value === 'receipt-total-only'
+              ? chargeForm.elements.sourceTotal.value.trim()
+              : '';
           try {
             const response = await fetch('/apps/rover/add-charge', {
               method: 'POST',
               credentials: 'same-origin',
               headers: {'content-type': 'application/json'},
-              body: JSON.stringify(
-                Object.fromEntries(new FormData(chargeForm).entries())
-              )
+              body: JSON.stringify(payload)
             });
             verdict.value = await response.text();
             if (response.ok) await loadView();
