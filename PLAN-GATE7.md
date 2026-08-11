@@ -5,9 +5,15 @@ Status: frozen 2026-08-07. Blocks publish per AGENTS.md Gate 7 (ratified 2026-08
 Amended 2026-08-07: T2 also fixes the silent-drop bail-out and asserts the 15→16
 state migration. Both came out of the M0-CC migration review. See "ALSO IN T2".
 
-Amended 2026-08-11: `seed-consumption` is exempt from the re-drive. Group F
-consumption leaves M0 for M1. Ten seeds re-drive, not eleven. See
-"RE-DRIVE THROUGH EYRE".
+Amended 2026-08-11: five seeds are exempt from the re-drive — `seed-fuel-evidence`,
+`seed-charging-evidence`, `seed-consumption`, `seed-location`, `seed-pricing`.
+The evidence they write has no product entry surface, so those areas leave M0 for
+M1 and T2 deletes all five. Six seeds re-drive, not eleven. An earlier amendment
+today exempted only `seed-consumption` on an incomplete scoping; this supersedes
+it. See "RE-DRIVE THROUGH EYRE".
+
+Open finding, not yet ruled: no endpoint archives or renames a definition, so a
+mistyped owner-created definition is permanent. Needs a ruling before publish.
 
 ## Why
 
@@ -83,14 +89,24 @@ urQL bodies move out of `lib/rover-act.hoon` into `probes/*.hoon`.
 `seed-consumption` · `seed-location` · `seed-pricing` · `seed-app-structure` ·
 `seed-fill-edit-support` · `seed-demo-fuel` · `seed-demo-def` · `seed-spike`
 
-**`seed-consumption` is EXEMPT — ruled 2026-08-11.** It cannot be re-driven,
-because `consumption-observations` has no product writer and no renderer. The
-fixture seed is the only code that has ever created one. Group F leaves M0 and
-becomes M1 scope. Do not build an endpoint for it in T1. Do not re-drive it.
-T2 deletes `seed-consumption`, its report, and its fixtures with the rest of the
-scaffolding. The relation stays in the pour — removing it is a schema change.
+**FIVE SEEDS ARE EXEMPT — ruled 2026-08-11.** `seed-fuel-evidence`,
+`seed-charging-evidence`, `seed-consumption`, `seed-location`, and
+`seed-pricing` cannot be re-driven, because the evidence they write has no
+product entry surface. Verified zero writers in both the product `insert-*`
+arms and `lib/rover-import.hoon`: `energy-subtype-blend`,
+`station-brand-operator`, `station-identifiers`, `acquisition-station-equipment`,
+`place-coordinate-accuracy`, `energy-subtype-grade-code`,
+`battery-observation-segments`, `charging-efficiency-breaks`,
+`consumption-observations`. `seed-pricing` additionally needs a drifted profile
+snapshot that no user can enter by design until a profile revision ships.
 
-That leaves **10** seeds to re-drive.
+All five are schema capacity built ahead of the product and become M1 scope. Do
+not build endpoints for them in T1. Do not re-drive them. **T2 deletes all five
+seeds, their reports, and their fixtures.** The relations stay in the pour —
+removing them is a schema change.
+
+That leaves **six** seeds to re-drive: `seed-spike`, `seed-app-structure`,
+`seed-charging-cost`, `seed-demo-fuel`, `seed-demo-def`, `seed-fill-edit-support`.
 
 These create state by privileged poke. They must create it the way a user does,
 via the 17 endpoints: `add-fill` · `add-charge` · `add-odometer` · `add-vehicle` ·
