@@ -1,7 +1,7 @@
 =/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%preview-eur 1.749]))
 ;<  now=@da  bind:m  get-time
-=/  result
-  .^(noun %gx /(scot %p our)/rover/(scot %da now)/preview/noun)
-(pure:m !>(result))
+;<  res=(unit vase)  bind:m
+  (build-file [our %rover da+now] /lib/rover-act/hoon)
+?~  res  (pure:m !>(%build-failed))
+(pure:m (slap u.res (ream (crip "(preview-eur 1.749)"))))

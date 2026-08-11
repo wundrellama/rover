@@ -1,8 +1,8 @@
 =/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%consumption-report ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))
+=/  wire  /rover-consumption-report
+;<  ~  bind:m  (watch wire [our %obelisk] /server)
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %rover %vector "FROM vehicles V JOIN consumption-observations C ON V.vehicle-id = C.vehicle-id WHERE V.label = 'Consumption Evidence Vehicle' SELECT V.label AS vehicle, C.value-digits, C.value-decimals, C.consumption-unit, C.scope, C.source, C.observed-start, C.observed-end, C.observed-precision, C.source-zone;"]))
+;<  [mark =vase]  bind:m  (take-fact wire)
+;<  ~  bind:m  (take-kick wire)
+(pure:m vase)

@@ -53,6 +53,207 @@ click_file() {
   printf '%s\n' "$out"
 }
 
+# Gate 7 T1: readback reports poke %obelisk directly with the same urQL the
+# retired %rover-action wrappers carried. The urQL text below is lifted
+# verbatim from lib/rover-act.hoon.
+URQL_APP_STRUCTURE="$(cat <<'URQL_EOF'
+FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.label AS subtype, O.rating, O.method; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.reason; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, D.label AS driving-mode; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.digits, S.decimals, S.speed-unit; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.highway-percent; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, T.label AS tag; FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id SELECT A.scope, V.label AS default-vehicle; FROM custom-field-definitions C JOIN custom-field-values-number V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.digits, V.decimals, V.value-unit; FROM custom-field-definitions C JOIN custom-field-values-text V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.value; FROM custom-field-definitions C JOIN custom-field-values-boolean V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.value;
+URQL_EOF
+)"
+URQL_STARTER="$(cat <<'URQL_EOF'
+FROM energy-definitions E WHERE E.archived = N SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived; FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id SELECT E.label AS energy, S.label AS subtype, S.archived; FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals;
+URQL_EOF
+)"
+URQL_DEMO_STARTER="$(cat <<'URQL_EOF'
+FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Rover Demo Gasoline' OR V.label = 'Rover Demo Diesel' SELECT V.label AS vehicle, A.energy-definition-id AS demo-energy-definition-id, E.energy-definition-id AS starter-energy-definition-id, E.label AS starter-energy; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = 'Rover Demo Gasoline' OR V.label = 'Rover Demo Diesel' SELECT V.label AS vehicle, A.energy-definition-id AS demo-energy-definition-id, S.energy-definition-id AS subtype-parent-definition-id, L.subtype-id AS demo-subtype-id, S.subtype-id AS starter-subtype-id, S.label AS starter-subtype;
+URQL_EOF
+)"
+URQL_CONSUMABLE_STARTER="$(cat <<'URQL_EOF'
+FROM consumable-definitions C WHERE C.archived = N SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;
+URQL_EOF
+)"
+URQL_LOCATION="$(cat <<'URQL_EOF'
+FROM places P JOIN stations S ON P.place-id = S.place-id WHERE P.label = 'Private Home' OR P.label = 'Public Market' SELECT P.label AS place, P.archived AS place-archived, S.label AS station, S.station-kind, S.archived AS station-archived; FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.source; FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, F.formatted; FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Parts Only Depot' SELECT P.label AS parts-only-with-formatted; FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Parts Only Depot' SELECT P.label AS place, A.part, A.value; FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-address; FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.part, A.value; FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source; FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-coordinates; FROM places P JOIN place-coordinate-accuracy A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.radius-digits, A.radius-decimals, A.radius-unit; FROM stations S JOIN station-brand-operator B ON S.station-id = B.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, B.role, B.label; FROM stations S JOIN station-identifiers I ON S.station-id = I.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, I.provider; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE V.label = 'Location Evidence Vehicle' SELECT V.label AS vehicle, E.physical-kind, S.label AS station, S.station-kind, A.observed-start; FROM stations S JOIN energy-acquisition-stations L ON S.station-id = L.station-id JOIN acquisition-station-equipment E ON L.acquisition-id = E.acquisition-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, E.equipment-label, E.receipt-text; FROM energy-definitions D JOIN energy-definition-subtypes S ON D.energy-definition-id = S.energy-definition-id JOIN energy-subtype-grade-code G ON S.subtype-id = G.subtype-id WHERE D.label = 'Location Fixture Fuel' SELECT D.label AS energy, S.label AS subtype, G.code;
+URQL_EOF
+)"
+URQL_VEHICLE_HISTORY="$(cat <<'URQL_EOF'
+FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, V.archived AS vehicle-archived, E.label AS energy, E.physical-kind, E.archived AS energy-archived, L.archived AS link-archived; FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN vehicle-energy-definitions L ON D.vehicle-id = L.vehicle-id AND D.energy-definition-id = L.energy-definition-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS default-energy, L.archived AS link-archived; FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.recorded-at; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end;
+URQL_EOF
+)"
+URQL_DISPLAY_PREFERENCE="$(cat <<'URQL_EOF'
+FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit; FROM vehicles V JOIN vehicle-display-preferences P ON V.vehicle-id = P.vehicle-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, P.distance-unit, P.currency;
+URQL_EOF
+)"
+URQL_TRY_SECOND_DEFAULT="$(cat <<'URQL_EOF'
+INSERT INTO app-default-vehicle VALUES (%app, 0x1, ~2026.08.11..12.00.00);
+URQL_EOF
+)"
+URQL_VEHICLE_SETTINGS="$(cat <<'URQL_EOF'
+FROM vehicles V WHERE V.label = 'XLABELX' SELECT V.label AS vehicle, V.archived; FROM vehicles V JOIN vehicle-tank-size T ON V.vehicle-id = T.vehicle-id WHERE V.label = 'XLABELX' SELECT V.label AS vehicle, T.digits, T.decimals, T.size-unit; FROM vehicles V JOIN vehicle-refill-reserve R ON V.vehicle-id = R.vehicle-id WHERE V.label = 'XLABELX' SELECT V.label AS vehicle, R.reserve-percent; FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id WHERE V.label = 'XLABELX' SELECT V.label AS vehicle, S.label AS default-subtype; FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = 'XLABELX' SELECT E.label AS energy, L.archived AS link-archived; FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = 'XLABELX' SELECT D.label AS driving-mode, L.archived AS link-archived; FROM vehicles V JOIN vehicle-consumables L ON V.vehicle-id = L.vehicle-id JOIN consumable-definitions C ON L.consumable-id = C.consumable-id WHERE V.label = 'XLABELX' AND C.label = 'DEF' SELECT C.label AS consumable, L.archived AS link-archived; FROM vehicles V JOIN vehicle-consumable-tank-size T ON V.vehicle-id = T.vehicle-id JOIN consumable-definitions C ON T.consumable-id = C.consumable-id WHERE V.label = 'XLABELX' AND C.label = 'DEF' SELECT T.digits, T.decimals, T.unit; FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id WHERE V.label = 'XLABELX' SELECT E.label AS default-energy;
+URQL_EOF
+)"
+URQL_FILL_EDIT="$(cat <<'URQL_EOF'
+FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT V.label AS vehicle, A.acquisition-id, A.observed-start, A.source-zone, F.quantity-milli, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT S.label AS subtype; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT S.label AS station; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT D.label AS driving-mode; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT S.digits, S.decimals, S.speed-unit; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT B.highway-percent; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fill-notes X ON A.acquisition-id = X.acquisition-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT X.note; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-payment-method L ON A.acquisition-id = L.acquisition-id JOIN payment-method-definitions P ON L.method-id = P.method-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT P.label AS payment-method; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT D.label AS additive; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT T.label AS tag; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT O.odometer-id, O.value-digits, O.decimal-places, O.unit;
+URQL_EOF
+)"
+URQL_STATION="$(cat <<'URQL_EOF'
+FROM stations S JOIN places P ON S.place-id = P.place-id WHERE S.label = 'XLABELX' SELECT S.label AS station, P.label AS place, S.station-kind; FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-addresses A ON P.place-id = A.place-id WHERE S.label = 'XLABELX' SELECT A.source; FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-address-formatted F ON P.place-id = F.place-id WHERE S.label = 'XLABELX' SELECT F.formatted; FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-address-parts A ON P.place-id = A.place-id WHERE S.label = 'XLABELX' SELECT A.part, A.value; FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-coordinates C ON P.place-id = C.place-id WHERE S.label = 'XLABELX' SELECT C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source;
+URQL_EOF
+)"
+URQL_CONSUMABLE_REPORT="$(cat <<'URQL_EOF'
+FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN consumable-definitions D ON A.consumable-id = D.consumable-id JOIN consumable-purchases P ON A.consumable-acquisition-id = P.consumable-acquisition-id WHERE V.label = 'XLABELX' AND D.label = 'XCONSX' AND A.observed-start = ~2000.01.01 SELECT V.label AS vehicle, D.label AS consumable, P.quantity-milli, P.quantity-unit, P.unit-price-mills, P.currency, P.settlement-mode, P.price-profile, P.minor-unit-decimals, P.cash-increment-mills; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = 'XLABELX' SELECT A.acquisition-id AS fuel-acquisition;
+URQL_EOF
+)"
+URQL_CHARGE_SUBTYPE="$(cat <<'URQL_EOF'
+FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN charging-session-subtype L ON C.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = 'XLABELX' AND A.observed-start = ~2000.01.01 SELECT V.label AS vehicle, S.label AS charging-subtype;
+URQL_EOF
+)"
+
+rover_report() {
+  local script="$1"
+  click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+=/  wire  /rover-ui-report
+;<  ~  bind:m  (watch wire [our %obelisk] /server)
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %rover %vector \"$script\"]))
+;<  [mark =vase]  bind:m  (take-fact wire)
+;<  ~  bind:m  (take-kick wire)
+(pure:m vase)"
+}
+
+urql_vehicle_settings() { printf '%s' "${URQL_VEHICLE_SETTINGS//XLABELX/$1}"; }
+urql_station() { printf '%s' "${URQL_STATION//XLABELX/$1}"; }
+urql_fill_edit() {
+  local t="${URQL_FILL_EDIT//XLABELX/$1}"
+  printf '%s' "${t//'~2000.01.01'/$2}"
+}
+urql_consumable() {
+  local t="${URQL_CONSUMABLE_REPORT//XLABELX/$1}"
+  t="${t//XCONSX/$2}"
+  printf '%s' "${t//'~2000.01.01'/$3}"
+}
+urql_charge_subtype() {
+  local t="${URQL_CHARGE_SUBTYPE//XLABELX/$1}"
+  printf '%s' "${t//'~2000.01.01'/$2}"
+}
+
+# Gate 7 T1: fixture state that a user can create arrives through the same
+# HTTP endpoints the browser uses. eyre_post asserts the exact endpoint
+# response so a refused write fails loudly at the write, not downstream.
+eyre_post() {
+  local path="$1" payload="$2" expected="$3" label="$4" response
+  response="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$payload" "$URL/apps/rover/$path")"
+  [ "$response" = "$expected" ] || fail "$label: $response"
+}
+
+import_definitions() {
+  local payload="$1" expected="$2" label="$3" report
+  report="$(curl -s -b "$JAR" -H 'content-type: application/json' \
+    --data-raw "$payload" "$URL/apps/rover/import")"
+  grep -q "$expected" <<<"$report" || fail "$label: $report"
+}
+
+demo_fill() {
+  # vehicle definition subtype station payment observed mileage quantity
+  # price saved-suffix missed [new-station-label new-place-label]
+  local vehicle="$1" definition="$2" subtype="$3" station="$4" payment="$5"
+  local observed="$6" mileage="$7" quantity="$8" price="$9" saved="${10}"
+  local missed="${11}" newstation="${12:-}" newplace="${13:-}"
+  local payload
+  payload="$(printf '{"vehicle":"%s","definition":"%s","quantity":"%s","price":"%s","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"%s","newPlaceLabel":"%s","newStationKind":"fuel","additives":[],"subtype":"%s","missedFill":"%s","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":"%s"}' \
+    "$vehicle" "$definition" "$quantity" "$price" "$observed" "$mileage" \
+    "$station" "$newstation" "$newplace" "$subtype" "$missed" "$payment")"
+  eyre_post add-fill "$payload" "Saved fill - $saved"$'\n201' "demo fill ($vehicle $observed)"
+}
+
+seed_demo_fuel_via_eyre() {
+  import_definitions \
+    '{"rover-import":1,"source":{"app":"rover-demo"},"definitions":{"energy":[],"additives":[],"driving-modes":[],"tags":[],"payment-methods":[{"label":"Demo Cash"},{"label":"Demo Fleet Card"}]},"places":[],"vehicles":[]}' \
+    'Definitions: created 2, reused 0' 'demo payment methods via import'
+  eyre_post add-vehicle '{"label":"Rover Demo Gasoline","energy":"Gasoline"}' \
+    $'Added vehicle - Rover Demo Gasoline\n201' 'demo gasoline vehicle'
+  eyre_post add-vehicle '{"label":"Rover Demo Diesel","energy":"Diesel"}' \
+    $'Added vehicle - Rover Demo Diesel\n201' 'demo diesel vehicle'
+  eyre_post edit-vehicle '{"vehicle":"Rover Demo Gasoline","label":"Rover Demo Gasoline","tankSize":"15.5","tankUnit":"gal","defaultSubtype":"","energySources":["Gasoline"],"drivingModes":[],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' \
+    $'Saved vehicle settings\n201' 'demo gasoline tank size'
+  eyre_post edit-vehicle '{"vehicle":"Rover Demo Diesel","label":"Rover Demo Diesel","tankSize":"26","tankUnit":"gal","defaultSubtype":"","energySources":["Diesel"],"drivingModes":[],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' \
+    $'Saved vehicle settings\n201' 'demo diesel tank size'
+  demo_fill 'Rover Demo Gasoline' Gasoline 87 new 'Demo Cash' 2026-07-01T12:00 10000 10.000 '$3.39' '$3.399 - derived $33.99' no 'North Fuel' 'Rover Demo North'
+  demo_fill 'Rover Demo Gasoline' Gasoline 93 new 'Demo Fleet Card' 2026-07-02T12:00 10300 10.000 '$3.49' '$3.499 - derived $34.99' no 'South Fuel' 'Rover Demo South'
+  demo_fill 'Rover Demo Gasoline' Gasoline 87 'North Fuel' 'Demo Fleet Card' 2026-07-03T12:00 10608 11.000 '$3.45' '$3.459 - derived $38.05' no
+  demo_fill 'Rover Demo Gasoline' Gasoline 93 'South Fuel' 'Demo Cash' 2026-07-04T12:00 10908 10.000 '$3.57' '$3.579 - derived $35.79' yes
+  demo_fill 'Rover Demo Gasoline' Gasoline 87 'North Fuel' 'Demo Fleet Card' 2026-07-05T12:00 11232 12.000 '$3.42' '$3.429 - derived $41.15' no
+  demo_fill 'Rover Demo Gasoline' Gasoline 93 'South Fuel' 'Demo Fleet Card' 2026-07-06T12:00 11522 10.000 '$3.61' '$3.619 - derived $36.19' no
+  demo_fill 'Rover Demo Diesel' Diesel '#2' 'North Fuel' 'Demo Fleet Card' 2026-07-02T13:00 50000 12.000 '$3.89' '$3.899 - derived $46.79' no
+  demo_fill 'Rover Demo Diesel' Diesel B20 'South Fuel' 'Demo Cash' 2026-07-03T13:00 50400 12.500 '$3.97' '$3.979 - derived $49.74' no
+  demo_fill 'Rover Demo Diesel' Diesel '#2' 'North Fuel' 'Demo Fleet Card' 2026-07-04T13:00 50810 12.500 '$4.02' '$4.029 - derived $50.36' no
+  demo_fill 'Rover Demo Diesel' Diesel B20 'South Fuel' 'Demo Fleet Card' 2026-07-05T13:00 51200 12.000 '$3.94' '$3.949 - derived $47.39' no
+  demo_fill 'Rover Demo Diesel' Diesel '#2' 'North Fuel' 'Demo Cash' 2026-07-06T13:00 51620 14.000 '$4.09' '$4.099 - derived $57.39' no
+  demo_fill 'Rover Demo Diesel' Diesel B20 'South Fuel' 'Demo Fleet Card' 2026-07-07T13:00 52020 12.500 '$4.05' '$4.059 - derived $50.74' no
+}
+
+seed_demo_def_via_eyre() {
+  eyre_post edit-vehicle '{"vehicle":"Rover Demo Diesel","label":"Rover Demo Diesel","tankSize":"26","tankUnit":"gal","defaultSubtype":"","energySources":["Diesel"],"drivingModes":[],"defEnabled":"yes","defTankSize":"5","defTankUnit":"gal"}' \
+    $'Saved vehicle settings\n201' 'demo DEF enablement'
+  eyre_post add-consumable '{"vehicle":"Rover Demo Diesel","consumable":"DEF","quantity":"1.000","price":"$4.29","observed":"2026-07-10T14:00","zone":"America/Chicago","mileage":"50200","mileageUnit":"mi"}' \
+    $'Saved consumable purchase - $4.30\n201' 'demo DEF purchase 1'
+  eyre_post add-consumable '{"vehicle":"Rover Demo Diesel","consumable":"DEF","quantity":"2.000","price":"$4.29","observed":"2026-07-24T14:00","zone":"America/Chicago","mileage":"51200","mileageUnit":"mi"}' \
+    $'Saved consumable purchase - $8.60\n201' 'demo DEF purchase 2'
+  eyre_post add-consumable '{"vehicle":"Rover Demo Diesel","consumable":"DEF","quantity":"2.000","price":"$4.29","observed":"2026-07-29T14:00","zone":"America/Chicago","mileage":"52200","mileageUnit":"mi"}' \
+    $'Saved consumable purchase - $8.60\n201' 'demo DEF purchase 3'
+}
+
+seed_fill_edit_support_via_eyre() {
+  local vehicle="$1"
+  import_definitions \
+    '{"rover-import":1,"source":{"app":"rover-fixture"},"definitions":{"energy":[],"additives":[{"label":"Octane Booster"}],"driving-modes":[{"label":"Mixed Driving"}],"tags":[{"label":"Road Trip"}],"payment-methods":[{"label":"Personal Visa"}]},"places":[],"vehicles":[]}' \
+    'Definitions: created 4, reused 0' 'fill-edit support definitions via import'
+  eyre_post edit-vehicle "$(printf '{"vehicle":"%s","label":"%s","tankSize":"","tankUnit":"gal","defaultSubtype":"","energySources":["Gasoline"],"drivingModes":["Mixed Driving"],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' "$vehicle" "$vehicle")" \
+    $'Saved vehicle settings\n201' 'fill-edit vehicle mode link'
+}
+
+seed_spike_via_eyre() {
+  eyre_post add-energy-source-type '{"label":"Regular 87","physicalKind":"reservoir","quantityUnit":"gal"}' \
+    $'Created energy source type\n201' 'spike energy definition'
+  eyre_post add-vehicle '{"label":"Phase A Vehicle","energy":"Regular 87","additionalEnergy":["Electricity"]}' \
+    $'Added vehicle - Phase A Vehicle\n201' 'spike vehicle'
+  eyre_post add-odometer '{"vehicle":"Phase A Vehicle","reading":"10000.0","unit":"mi","observed":"2026-07-27T12:00","zone":"America/Chicago"}' \
+    $'Saved odometer - 10,000.0 mi\n201' 'spike first odometer'
+  eyre_post add-fill '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"12.345","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T12:00","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' \
+    $'Saved fill - $3.499 - derived $43.20\n201' 'spike fill'
+  eyre_post add-odometer '{"vehicle":"Phase A Vehicle","reading":"10012.5","unit":"mi","observed":"2026-07-28T12:00","zone":"America/Chicago"}' \
+    $'Saved odometer - 10,012.5 mi\n201' 'spike second odometer'
+}
+
+seed_app_structure_via_eyre() {
+  import_definitions \
+    '{"rover-import":1,"source":{"app":"rover-fixture"},"definitions":{"energy":[{"label":"Structure Gasoline","physicalKind":"reservoir","quantityUnit":"gal","subtypes":[{"label":"Structure 87 AKI","octane":"87","method":"aki"},{"label":"Structure 91 AKI","octane":"91","method":"aki"},{"label":"Structure 93 AKI","octane":"93","method":"aki"}]}],"additives":[],"driving-modes":[{"label":"Tow / Haul"}],"tags":[{"label":"Road trip"},{"label":"Winter"}],"payment-methods":[]},"places":[],"vehicles":[]}' \
+    'Definitions: created 4, reused 0' 'structure definitions via import'
+  eyre_post add-vehicle '{"label":"Structure Vehicle","energy":"Structure Gasoline","drivingModes":["Tow / Haul"]}' \
+    $'Added vehicle - Structure Vehicle\n201' 'structure vehicle'
+  eyre_post edit-vehicle '{"vehicle":"Structure Vehicle","label":"Structure Vehicle","tankSize":"","tankUnit":"gal","defaultSubtype":"Structure 91 AKI","energySources":["Structure Gasoline"],"drivingModes":["Tow / Haul"],"defEnabled":"no","defTankSize":"","defTankUnit":"gal"}' \
+    $'Saved vehicle settings\n201' 'structure default subtype'
+  eyre_post add-vehicle '{"label":"Mode Scope Vehicle","energy":"Structure Gasoline"}' \
+    $'Added vehicle - Mode Scope Vehicle\n201' 'mode scope vehicle'
+}
+
+seed_charging_cost_via_eyre() {
+  eyre_post add-energy-source-type '{"label":"Cost Fixture Electricity","physicalKind":"electricity","quantityUnit":"kwh"}' \
+    $'Created energy source type\n201' 'charging cost energy definition'
+  eyre_post add-vehicle '{"label":"Charging Cost Vehicle","energy":"Cost Fixture Electricity"}' \
+    $'Added vehicle - Charging Cost Vehicle\n201' 'charging cost vehicle'
+  eyre_post add-charge '{"vehicle":"Charging Cost Vehicle","definition":"Cost Fixture Electricity","start":"2026-07-28T16:00","end":"2026-07-28T16:01","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"free","currency":"usd"}' \
+    $'Saved charge - Energy delivered not recorded\n201' 'free charge'
+  eyre_post add-charge '{"vehicle":"Charging Cost Vehicle","definition":"Cost Fixture Electricity","start":"2026-07-28T16:01","end":"2026-07-28T16:02","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"unknown","currency":"usd"}' \
+    $'Saved charge - Energy delivered not recorded\n201' 'unknown charge'
+  eyre_post add-charge '{"vehicle":"Charging Cost Vehicle","definition":"Cost Fixture Electricity","start":"2026-07-28T16:02","end":"2026-07-28T16:03","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":[{"component":"energy","quantity":"45.678","unit":"kwh","rate":"0.250","amount":"11.420"},{"component":"time","quantity":"30","unit":"minute","rate":"0.100","amount":"3.000"},{"component":"session","quantity":"1","unit":"session","rate":"1.500","amount":"1.500"},{"component":"idle","quantity":"5","unit":"minute","rate":"0.500","amount":"2.500"},{"component":"tax","quantity":"1","unit":"session","rate":"1.000","amount":"1.000"},{"component":"discount","quantity":"1","unit":"session","rate":"2.000","amount":"2.000"}]}' \
+    $'Saved charge - Energy delivered not recorded - itemized total $17.420\n201' 'itemized charge'
+  eyre_post add-charge '{"vehicle":"Charging Cost Vehicle","definition":"Cost Fixture Electricity","start":"2026-07-28T16:03","end":"2026-07-28T16:04","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","sourceTotal":"22.340","components":[]}' \
+    $'Saved charge - Energy delivered not recorded - receipt total $22.340\n201' 'receipt-total charge'
+}
+
 derive_code() {
   local target="$1" raw decimal dotted
   raw="$(click_file '=/  m  (strand ,vase)
@@ -68,47 +269,19 @@ derive_code() {
 }
 
 read_structure_report() {
-  click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%app-structure-report ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))'
+  rover_report "$URQL_APP_STRUCTURE"
 }
 
 read_starter_report() {
-  click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%starter-report ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))'
+  rover_report "$URQL_STARTER"
 }
 
 read_demo_starter_report() {
-  click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%demo-starter-report ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))'
+  rover_report "$URQL_DEMO_STARTER"
 }
 
 read_consumable_starter_report() {
-  click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%consumable-starter-report ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))'
+  rover_report "$URQL_CONSUMABLE_STARTER"
 }
 
 html_slice() {
@@ -393,14 +566,7 @@ settings_tank_second="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_tank_second" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 70 second tank-size edit failed: $settings_tank_second"
-settings_tank_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_tank_report="$(rover_report "$(urql_vehicle_settings "$settings_vehicle")")"
 grep -q '\[%digits 25717 185\] \[%decimals 25717 1\] \[%size-unit %tas %gal\]' \
   <<<"$settings_tank_report" \
   || fail "fixture 70 second tank size did not persist exactly: $settings_tank_report"
@@ -421,14 +587,7 @@ settings_subtype_second="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_subtype_second" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 71 second default-subtype edit failed: $settings_subtype_second"
-settings_subtype_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_subtype_report="$(rover_report "$(urql_vehicle_settings "$settings_vehicle")")"
 grep -q '\[%default-subtype 116 13113\]' <<<"$settings_subtype_report" \
   || fail "fixture 71 second default subtype did not persist: $settings_subtype_report"
 note "fixture 71 PASS - two consecutive default-subtype edits succeeded and the latest subtype persisted"
@@ -442,14 +601,7 @@ settings_combined="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_combined" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 72 combined tank/subtype edit failed: $settings_combined"
-settings_combined_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_combined_report="$(rover_report "$(urql_vehicle_settings "$settings_vehicle")")"
 grep -q '\[%digits 25717 2025\] \[%decimals 25717 2\] \[%size-unit %tas %gal\]' \
   <<<"$settings_combined_report" \
   || fail "fixture 72 combined tank size did not persist exactly: $settings_combined_report"
@@ -466,14 +618,7 @@ settings_cleared="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_cleared" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 73 clear tank-size edit failed: $settings_cleared"
-settings_cleared_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_cleared_report="$(rover_report "$(urql_vehicle_settings "$settings_vehicle")")"
 if grep -q '\[%size-unit ' <<<"$settings_cleared_report"; then
   fail "fixture 73 clear left a vehicle-tank-size row: $settings_cleared_report"
 fi
@@ -542,14 +687,7 @@ settings_other_first="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_other_first" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 74 first all-settings edit failed: $settings_other_first"
-settings_other_first_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_first\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_other_first_report="$(rover_report "$(urql_vehicle_settings "$settings_label_first")")"
 grep -q "\\[%vehicle 116 '$settings_label_first'\\]" <<<"$settings_other_first_report" \
   || fail "fixture 74 first label edit did not persist: $settings_other_first_report"
 grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 1\\]" \
@@ -572,14 +710,7 @@ settings_other_second="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_other_second" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 74 second all-settings edit failed: $settings_other_second"
-settings_other_second_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_second\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_other_second_report="$(rover_report "$(urql_vehicle_settings "$settings_label_second")")"
 grep -q "\\[%vehicle 116 '$settings_label_second'\\]" <<<"$settings_other_second_report" \
   || fail "fixture 74 second label edit did not persist: $settings_other_second_report"
 grep -q "\\[%energy 116 'Diesel'\\].*\\[%link-archived 102 1\\]" \
@@ -626,14 +757,7 @@ settings_def_clear="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_def_clear" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 74 clearing the optional DEF tank size failed: $settings_def_clear"
-settings_def_clear_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_second\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_def_clear_report="$(rover_report "$(urql_vehicle_settings "$settings_label_second")")"
 if grep -q '\[%unit %tas %gal\]' <<<"$settings_def_clear_report"; then
   fail "fixture 74 clearing optional DEF tank size left a child row: $settings_def_clear_report"
 fi
@@ -644,14 +768,7 @@ settings_def_disabled="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_def_disabled" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 74 disabling DEF failed: $settings_def_disabled"
-settings_def_disabled_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_second\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_def_disabled_report="$(rover_report "$(urql_vehicle_settings "$settings_label_second")")"
 grep -q "\\[%consumable 116 'DEF'\\].*\\[%link-archived 102 0\\]" \
   <<<"$settings_def_disabled_report" \
   || fail "fixture 74 disabling DEF did not archive its membership: $settings_def_disabled_report"
@@ -662,14 +779,7 @@ settings_def_reenabled="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$settings_def_reenabled" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 74 re-enabling DEF failed: $settings_def_reenabled"
-settings_def_reenabled_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$settings_label_second\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+settings_def_reenabled_report="$(rover_report "$(urql_vehicle_settings "$settings_label_second")")"
 grep -q "\\[%consumable 116 'DEF'\\].*\\[%link-archived 102 1\\]" \
   <<<"$settings_def_reenabled_report" \
   || fail "fixture 74 re-enabling DEF did not restore its membership: $settings_def_reenabled_report"
@@ -682,11 +792,7 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 74 ]; then
 fi
 
 if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
-  click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-demo-fuel ~]))
-;<  ~  bind:m  (sleep ~s4)
-(pure:m !>(~))' >/dev/null
+  seed_demo_fuel_via_eyre
   demo_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
     -H 'content-type: application/json' \
     --data-raw '{"vehicle":"Rover Demo Gasoline"}' \
@@ -1084,11 +1190,7 @@ print("|".join(part.strip() for part in match.groups()) if match else "")' <<<"$
   fi
 
   diesel_before_def="${demo_parts[1]}"
-  click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-demo-def ~]))
-;<  ~  bind:m  (sleep ~s4)
-(pure:m !>(~))' >/dev/null
+  seed_demo_def_via_eyre
   demo_after_def="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
   demo_sources_after="$(
     python3 -c 'import html, re, sys
@@ -1608,14 +1710,7 @@ edited_vehicle_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$edited_vehicle_result" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 37 vehicle edit failed: $edited_vehicle_result"
-vehicle_settings_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$edited_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+vehicle_settings_report="$(rover_report "$(urql_vehicle_settings "$edited_vehicle")")"
 grep -q "\\[%vehicle 116 '$edited_vehicle'\\]" <<<"$vehicle_settings_report" \
   || fail "fixture 37 edited label did not persist in Obelisk; actual: $vehicle_settings_report"
 grep -q '\[%digits 25717 185\] \[%decimals 25717 1\] \[%size-unit %tas %gal\]' <<<"$vehicle_settings_report" \
@@ -1650,7 +1745,7 @@ fill_edit_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 fill_edit_baseline_observed='2026-07-26T11:45'
 fill_edit_baseline="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"8.000","price":"$3.39","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"19900.0","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$fill_edit_vehicle" "$fill_edit_baseline_observed")" \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"8.000","price":"$3.39","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"19900.0","mileageUnit":"mi","station":"new","newStationLabel":"Edit Station","newPlaceLabel":"Edit Station Place","newStationKind":"fuel","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' "$fill_edit_vehicle" "$fill_edit_baseline_observed")" \
   "$URL/apps/rover/add-fill")"
 [ "$fill_edit_baseline" = $'Saved fill - $3.399 - derived $27.19\n201' ] \
   || fail "fixture 39 baseline fill failed: $fill_edit_baseline"
@@ -1672,16 +1767,7 @@ for field in quantity price observed partialFill subtype station drivingMode ave
   fi
 done
 note "fixture 38 field gate PASS - fill-edit screen exposes owner controls, including Partial fill, for every editable field"
-fill_edit_support="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-fill-edit-support (crip \"$fill_edit_vehicle\")]))
-;<  ~  bind:m  (sleep ~s3)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
-grep -q '%noun 0' <<<"$fill_edit_support" \
-  || fail "fixture 38 support definitions failed: $fill_edit_support"
+seed_fill_edit_support_via_eyre "$fill_edit_vehicle"
 fill_edit_new_observed='2026-07-27T11:45'
 fill_edit_payload="$(
   printf '{"vehicle":"%s","definition":"Gasoline","originalObserved":"%s","quantity":"11.111","price":"$3.59","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"Edit Station","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":["Octane Booster"],"subtype":"95","missedFill":"no","drivingMode":"Mixed Driving","averageSpeed":"55.5","speedUnit":"mph","driveBalance":"64","tags":["Road Trip"],"newTag":"","notes":"Owner corrected every field","paymentMethod":"Personal Visa"}' \
@@ -1692,14 +1778,7 @@ fill_edit_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-fill")"
 [ "$fill_edit_result" = $'Saved fill changes - $39.99\n201' ] \
   || fail "fixture 38 full fill edit failed: $fill_edit_result"
-fill_edit_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.27..11.45.00]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+fill_edit_report="$(rover_report "$(urql_fill_edit "$fill_edit_vehicle" '~2026.07.27..11.45.00')")"
 grep -q '\[%quantity-milli 25717 11111\].*\[%tank-state %tas %partial\].*\[%unit-price-mills 25717 3599\]' <<<"$fill_edit_report" \
   || fail "fixture 38 main fill fields did not round-trip; actual: $fill_edit_report"
 grep -q '\[%minor-unit-decimals 25717 2\] \[%cash-increment-mills 25717 50\]' <<<"$fill_edit_report" \
@@ -1731,14 +1810,7 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 38 ]; then
   exit 0
 fi
 
-fill_edit_pre_odometer="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.27..11.45.00]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+fill_edit_pre_odometer="$(rover_report "$(urql_fill_edit "$fill_edit_vehicle" '~2026.07.27..11.45.00')")"
 [ "$(grep -oF '[%vector-count 0]' <<<"$fill_edit_pre_odometer" | wc -l)" -eq 1 ] \
   || fail "fixture 39 target fill unexpectedly had an odometer link before edit: $fill_edit_pre_odometer"
 fill_edit_odometer_payload="$(
@@ -1750,14 +1822,7 @@ fill_edit_odometer_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-fill")"
 [ "$fill_edit_odometer_result" = $'Saved fill changes - $39.99\n201' ] \
   || fail "fixture 39 historical odometer edit failed: $fill_edit_odometer_result"
-fill_edit_post_odometer="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.27..11.45.00]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+fill_edit_post_odometer="$(rover_report "$(urql_fill_edit "$fill_edit_vehicle" '~2026.07.27..11.45.00')")"
 grep -Fq '[%value-digits 25717 0x30d40] [%decimal-places 25717 1] [%unit %tas 26989]' <<<"$fill_edit_post_odometer" \
   || fail "fixture 39 did not create and link the exact historical odometer observation: $fill_edit_post_odometer"
 fill_edit_economy_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
@@ -1783,14 +1848,7 @@ address_station_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-fill")"
 [ "$address_station_result" = $'Saved fill - $3.499 - derived $17.50\n201' ] \
   || fail "fixture 40 manual station create failed: $address_station_result"
-address_station_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%station-report (crip \"$address_station\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+address_station_report="$(rover_report "$(urql_station "$address_station")")"
 for expected in \
   "$address_station" \
   '123 Market St, Chicago, IL 60601, US' \
@@ -1813,14 +1871,7 @@ parts_only_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-fill")"
 [ "$parts_only_result" = $'Saved fill - $3.499 - derived $14.00\n201' ] \
   || fail "fixture 40 parts-only station create failed: $parts_only_result"
-parts_only_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%station-report (crip \"$parts_only_station\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+parts_only_report="$(rover_report "$(urql_station "$parts_only_station")")"
 grep -Fq "$parts_only_station" <<<"$parts_only_report" \
   || fail "fixture 40 parts-only station row missing: $parts_only_report"
 grep -Fq '20 Example Road' <<<"$parts_only_report" \
@@ -1840,14 +1891,7 @@ name_only_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-fill")"
 [ "$name_only_result" = $'Saved fill - $3.499 - derived $14.00\n201' ] \
   || fail "fixture 41 name-only station create failed: $name_only_result"
-name_only_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%station-report (crip \"$name_only_station\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+name_only_report="$(rover_report "$(urql_station "$name_only_station")")"
 grep -Fq "$name_only_station" <<<"$name_only_report" \
   || fail "fixture 41 station row missing: $name_only_report"
 [ "$(grep -oF '[%vector-count 0]' <<<"$name_only_report" | wc -l)" -eq 4 ] \
@@ -1879,14 +1923,7 @@ def_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-consumable")"
 [ "$def_result" = $'Saved consumable purchase - $11.25\n201' ] \
   || fail "fixture 42 DEF purchase failed: $def_result"
-def_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%consumable-report (crip \"$fill_edit_vehicle\") 'DEF' ~2026.7.30..12.00.00]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+def_report="$(rover_report "$(urql_consumable "$fill_edit_vehicle" 'DEF' '~2026.07.30..12.00.00')")"
 grep -q "\\[%consumable 116 'DEF'\\].*\\[%quantity-milli 25717 2500\\].*\\[%unit-price-mills 25717 4499\\].*\\[%settlement-mode %tas %standard\\].*\\[%price-profile %tas %us-usd-gal\\].*\\[%minor-unit-decimals 25717 2\\].*\\[%cash-increment-mills 25717 50\\]" <<<"$def_report" \
   || fail "fixture 42 DEF purchase did not retain exact snapshotted pricing: $def_report"
 consumable_after="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
@@ -1911,14 +1948,7 @@ charge_subtype_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-charge")"
 [ "$charge_subtype_result" = $'Saved charge - Energy delivered 40.0 kWh\n201' ] \
   || fail "fixture 43 charge with subtype failed: $charge_subtype_result"
-charge_subtype_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%charge-subtype-report (crip \"$charge_subtype_vehicle\") ~2026.7.31..12.00.00]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+charge_subtype_report="$(rover_report "$(urql_charge_subtype "$charge_subtype_vehicle" '~2026.07.31..12.00.00')")"
 grep -q "\\[%vehicle 116 '$charge_subtype_vehicle'\\].*\\[%charging-subtype 116 'DC Fast'\\]" <<<"$charge_subtype_report" \
   || fail "fixture 43 charging-session-subtype link missing: $charge_subtype_report"
 note "fixture 43 PASS - charge persists its electricity subtype through charging-session-subtype"
@@ -1943,14 +1973,13 @@ itemized_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 [ "$itemized_result" = $'Saved charge - Energy delivered 45.678 kWh - itemized total $17.420\n201' ] \
   || fail "fixture 105 itemized charge was not saved: $itemized_result"
 
-itemized_proof="$(click_file "=/  m  (strand ,vase)
+itemized_proof="$(click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%derive-charging-total ~[[%energy 11.420] [%time 3.000] [%session 1.500] [%idle 2.500] [%tax 1.000] [%discount 2.000]]]))
-;<  ~  bind:m  (sleep ~s2)
 ;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/charging-total/noun)))
-(pure:m !>(result))")"
+;<  res=(unit vase)  bind:m
+  (build-file [our %rover da+now] /lib/rover-act/hoon)
+?~  res  (pure:m !>(%build-failed))
+(pure:m (slap u.res (ream (crip "(derive-charging-total ~[[%energy 11.420] [%time 3.000] [%session 1.500] [%idle 2.500] [%tax 1.000] [%discount 2.000]])"))))')"
 grep -q '19420 2000 17420' <<<"$itemized_proof" \
   || fail "fixture 105 derive-charging-total did not report the expected proof: $itemized_proof"
 
@@ -2082,22 +2111,8 @@ with_payment_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   || fail "fixture 44 no-payment control failed: $without_payment_result"
 [ "$with_payment_result" = "$without_payment_result" ] \
   || fail "fixture 44 payment link changed derived total: without=$without_payment_result with=$with_payment_result"
-payment_without_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.28..18.00.00]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
-payment_with_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%fill-edit-report (crip \"$fill_edit_vehicle\") ~2026.7.28..19.00.00]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+payment_without_report="$(rover_report "$(urql_fill_edit "$fill_edit_vehicle" '~2026.07.28..18.00.00')")"
+payment_with_report="$(rover_report "$(urql_fill_edit "$fill_edit_vehicle" '~2026.07.28..19.00.00')")"
 for report in "$payment_without_report" "$payment_with_report"; do
   grep -q '\[%unit-price-mills 25717 3499\].*\[%settlement-mode %tas %standard\]' <<<"$report" \
     || fail "fixture 44 settlement/arithmetic evidence changed: $report"
@@ -2132,14 +2147,7 @@ phev_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-vehicle")"
 [ "$phev_created" = "Added vehicle - $phev_vehicle"$'\n201' ] \
   || fail "fixture 46 PHEV create failed: $phev_created"
-phev_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$phev_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+phev_report="$(rover_report "$(urql_vehicle_settings "$phev_vehicle")")"
 grep -q "\\[%energy 116 'Gasoline'\\].*\\[%link-archived 102 1\\]" <<<"$phev_report" \
   || fail "fixture 46 active Gasoline link missing: $phev_report"
 grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 1\\]" <<<"$phev_report" \
@@ -2167,14 +2175,7 @@ phev_edited="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$phev_edited" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 47 energy-set edit failed: $phev_edited"
-phev_edited_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$phev_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+phev_edited_report="$(rover_report "$(urql_vehicle_settings "$phev_vehicle")")"
 grep -q "\\[%energy 116 'Gasoline'\\].*\\[%link-archived 102 0\\]" <<<"$phev_edited_report" \
   || fail "fixture 47 removed source was not retired with archived Y: $phev_edited_report"
 grep -q "\\[%energy 116 'Electricity'\\].*\\[%link-archived 102 1\\]" <<<"$phev_edited_report" \
@@ -2200,14 +2201,7 @@ mode_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-vehicle")"
 [ "$mode_created" = "Added vehicle - $mode_vehicle"$'\n201' ] \
   || fail "fixture 48 mode create failed: $mode_created"
-mode_create_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$mode_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+mode_create_report="$(rover_report "$(urql_vehicle_settings "$mode_vehicle")")"
 grep -q "\\[%driving-mode 116 'Towing'\\].*\\[%link-archived 102 1\\]" <<<"$mode_create_report" \
   || fail "fixture 48 create-mode membership missing: $mode_create_report"
 mode_edited="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
@@ -2216,14 +2210,7 @@ mode_edited="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-vehicle")"
 [ "$mode_edited" = $'Saved vehicle settings\n201' ] \
   || fail "fixture 48 mode edit failed: $mode_edited"
-mode_edit_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$mode_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+mode_edit_report="$(rover_report "$(urql_vehicle_settings "$mode_vehicle")")"
 grep -q "\\[%driving-mode 116 'Towing'\\].*\\[%link-archived 102 0\\]" <<<"$mode_edit_report" \
   || fail "fixture 48 removed mode was not retired with archived Y: $mode_edit_report"
 grep -q "\\[%driving-mode 116 'Mixed Driving'\\].*\\[%link-archived 102 1\\]" <<<"$mode_edit_report" \
@@ -2262,22 +2249,8 @@ no_def_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   || fail "fixture 49 DEF-enabled vehicle create failed: $def_created"
 [ "$no_def_created" = "Added vehicle - $no_def_vehicle"$'\n201' ] \
   || fail "fixture 49 DEF-disabled control create failed: $no_def_created"
-def_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$def_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
-no_def_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-settings-report (crip \"$no_def_vehicle\")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+def_report="$(rover_report "$(urql_vehicle_settings "$def_vehicle")")"
+no_def_report="$(rover_report "$(urql_vehicle_settings "$no_def_vehicle")")"
 grep -q "\\[%consumable 116 'DEF'\\].*\\[%link-archived 102 1\\]" <<<"$def_report" \
   || fail "fixture 49 DEF enablement link missing or archived: $def_report"
 if grep -q "\\[%consumable 116 'DEF'\\]" <<<"$no_def_report"; then
@@ -2375,14 +2348,7 @@ fuel_after_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 fuel_after_fixture53="$(grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" <<<"$fuel_after_view" | wc -l)"
 [ "$fuel_before_fixture53" -eq 1 ] && [ "$fuel_after_fixture53" -eq 1 ] \
   || fail "fixture 53 DEF changed fuel economy: before=$fuel_before_fixture53 after=$fuel_after_fixture53"
-fixture53_report="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%consumable-report (crip \"$fill_edit_vehicle\") 'DEF' ~2026.8.21..08.00.00]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
+fixture53_report="$(rover_report "$(urql_consumable "$fill_edit_vehicle" 'DEF' '~2026.08.21..08.00.00')")"
 grep -q "\\[%consumable 116 'DEF'\\]" <<<"$fixture53_report" \
   || fail "fixture 53 DEF purchase missing from consumable parent: $fixture53_report"
 note "fixture 53 PASS - DEF remains outside fuel acquisitions and leaves exact 9.000 mpg unchanged"
@@ -2427,8 +2393,13 @@ fi
 fi
 
 if ! grep -q 'Phase A Vehicle' <<<"$view"; then
-  for support_action in seed-spike seed-app-structure seed-fuel-evidence \
-    seed-charging-evidence seed-charging-cost seed-consumption seed-location seed-pricing; do
+  seed_spike_via_eyre
+  seed_app_structure_via_eyre
+  seed_charging_cost_via_eyre
+  # The five remaining scenario seeds stay privileged pokes. Their evidence
+  # rows have no product entry surface. See QUESTIONS.md (Gate 7 T1).
+  for support_action in seed-fuel-evidence \
+    seed-charging-evidence seed-consumption seed-location seed-pricing; do
     support_result="$(click_file "=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%$support_action ~]))
@@ -2441,14 +2412,7 @@ if ! grep -q 'Phase A Vehicle' <<<"$view"; then
       || fail "real-substrate support seed failed ($support_action): $support_result"
   done
 fi
-location_q9_report="$(click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%location-report ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))')"
+location_q9_report="$(rover_report "$URQL_LOCATION")"
 for expected in \
   "\\[%place 116 'Parts Only Depot'\\] \\[%part %tas 'line1'\\] \\[%value 116 '900 Depot Rd'\\]" \
   "\\[%place 116 'Parts Only Depot'\\] \\[%part %tas %locality\\] \\[%value 116 'Aurora'\\]"; do
@@ -2668,15 +2632,8 @@ changed_default_report="$(read_structure_report)"
   || fail "fixture 20 default UPDATE did not preserve singleton; actual Obelisk report: $changed_default_report"
 grep -q "\\[%default-vehicle 116 'Mode Scope Vehicle'\\]" \
   <<<"$changed_default_report" || fail "fixture 20 app default did not update in place; actual Obelisk report: $changed_default_report"
-second_insert="$(click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%try-second-app-default ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))')"
-grep -q '%noun 0 0 1 ' <<<"$second_insert" \
+second_insert="$(rover_report "$URQL_TRY_SECOND_DEFAULT")"
+grep -q '%avow 0 %noun 1 ' <<<"$second_insert" \
   || fail "fixture 20 second %app INSERT was not rejected; actual response: $second_insert"
 note "fixture 20 PASS - live Obelisk kept one %app row across INSERT/UPDATE and rejected a second INSERT"
 
@@ -3014,14 +2971,7 @@ saved_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-fill")"
 [ "$saved_fill" = $'Saved fill - $3.499 - derived $22.89\n201' ] \
   || fail "valid fill was not saved: $saved_fill"
-history="$(click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%vehicle-history ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))')"
+history="$(rover_report "$URQL_VEHICLE_HISTORY")"
 grep -q '\[%quantity-milli 25717 6543\].*\[%unit-price-mills 25717 3499\]' <<<"$history" \
   || fail "saved fill did not retain exact 6543/3499 machine integers"
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
@@ -3075,14 +3025,7 @@ grep -Fq '32,186.9 km (converted)' <<<"$view" \
 phase_card="$(html_slice '<h2>Phase A Vehicle</h2>' '<h2>' <<<"$view")"
 grep -q 'value="native" selected' <<<"$phase_card" \
   || fail "Phase A Vehicle preference was affected by the other vehicle"
-preference_report="$(click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%display-preference-report ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))')"
+preference_report="$(rover_report "$URQL_DISPLAY_PREFERENCE")"
 grep -q '\[%value-digits 25717 0x30d40\].*\[%decimal-places 25717 1\].*\[%unit %tas 26989\]' <<<"$preference_report" \
   || fail "display preference changed stored odometer evidence"
 grep -q '\[%distance-unit %tas 28011\]' <<<"$preference_report" \

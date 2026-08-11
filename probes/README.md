@@ -34,6 +34,47 @@ comment, which is why this went unnoticed.
     =/  stamp=tape  (scow %da now)
     "INSERT INTO t VALUES (0x1, 'x', N, "  stamp  "); "
 
+## Gate 7 T1 — readbacks and diagnostics poke %obelisk directly
+
+Every readback report and diagnostic probe now sends its urQL straight to
+`%obelisk` with `[%script %rover %vector "<urql>"]` on a per-probe wire. No
+probe in this directory pokes a `%rover-action` readback, diagnostic, or
+calculator arm. The urQL text is lifted verbatim from the matching arm in
+`desk/lib/rover-act.hoon`, which stays in place until T2 deletes it.
+
+Probe defaults for the parametrized reports name demo fixture rows:
+`vehicle-settings-report` and `fill-edit-report` read `Rover Demo Gasoline`,
+`consumable-report` reads the `Rover Demo Diesel` DEF purchase, and
+`station-report` reads `Market Mixed Station`. Run `bin/ui-test.sh` with
+`ROVER_DEMO_ONLY=1` and `ROVER_NO_FIXTURE_ISOLATION=1` first, or the reports
+return empty result sets. `charge-subtype-report` reads the
+`Charging Evidence Vehicle` session and returns an empty set until a
+charging subtype entry surface exists (see QUESTIONS.md).
+
+The six `integrity-*` mutation probes carry fixed fixture ids. Each script
+ends in a statement the substrate must refuse, the whole script is atomic,
+so nothing persists and reruns never collide. The expected result is an
+error fact: `[0 %avow 0 %noun 1 ...]`. `integrity-zero-subtype` and
+`integrity-two-subtypes` exercise the Rover-side XOR check, so they build
+`lib/rover-act.hoon` and call `validate-acquisition-subtypes` directly.
+
+The calculator probes (`pricing-preview*`, `pricing-total*`,
+`charging-total`) also build the lib and call the arm. They no longer keep
+a poke alive to test a function.
+
+The probe files for `seed-spike`, `seed-app-structure`, `seed-charging-cost`,
+and `seed-demo-fuel` are gone: `bin/ui-test.sh` now creates that state
+through the product endpoints. The five remaining `seed-*` probes
+(`seed-fuel-evidence`, `seed-charging-evidence`, `seed-consumption`,
+`seed-location`, `seed-pricing`) still poke their `%rover-action` arms
+because no endpoint can express their evidence rows. QUESTIONS.md carries
+one finding per gap.
+
+Note on the date-literal pitfall below: the generated Gate 7 probes embed
+dates in the padded `scow %da` form (`~2026.07.01..12.00.00`) inside their
+urQL tapes, and those parse and execute (verified 2026-08-11 on the live
+pier). Keep the interpolation habit for hand-written probes.
+
 ## Probe index — import/export work
 
 ### `profile-view-query.hoon`
