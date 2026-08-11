@@ -217,6 +217,25 @@ the back doors this task removes, so it cannot prove the fence.
 
 Not `~/piers/fakezod` or `~/piers/fakenec` (erpit, live).
 
+**"Fresh" means pill-booted plus the two-poke owner baseline, not literally
+empty.** The batteries rename the owner `rover` database aside for fixture
+isolation and restore it afterward, so a pier with no `rover` database fails at
+`owner-facing rover database is absent` before any fixture runs. Establish the
+baseline first with `%init-db` then `%seed-starters` — both KEEP arms, both real
+product surfaces, so this does not weaken the fence.
+
+**Boot the pier under tmux, not as a bare process.** Desk setup needs `|merge`,
+`|mount`, `|commit`, and `|install` from a dojo. Driving kiln through
+`click`/conn.sock works but the argument molds are unforgiving: `%kiln-merge`
+takes a bare `[syd ali sud cas gim]` tuple, not a unit, and a wrong shape returns
+a `nest-fail` tang whose `%leaf` byte arrays decode to ASCII and name the exact
+mold expected. Decode the tang rather than guessing.
+
+**Check the Ames port is free before booting.** A collision kills the pier
+*after* it rolls a new epoch, which can corrupt the snapshot and leave a pier
+that crashes in `_disk_epoc_load` on every subsequent boot, at any loom size.
+That pier is unrecoverable.
+
 1. Boot fresh fake pier, install pinned Obelisk v0.9.0-beta
    (`9de633299b373a1047490b48281a40b457fb2043`).
 2. Install the shipped `%rover` desk. No dev variant exists.
