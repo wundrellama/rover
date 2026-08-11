@@ -34,6 +34,56 @@ comment, which is why this went unnoticed.
     =/  stamp=tape  (scow %da now)
     "INSERT INTO t VALUES (0x1, 'x', N, "  stamp  "); "
 
+## Gate 7 T1 — readbacks and diagnostics poke %obelisk directly
+
+Every readback report and diagnostic probe now sends its urQL straight to
+`%obelisk` with `[%script %rover %vector "<urql>"]` on a per-probe wire. No
+probe in this directory pokes a `%rover-action` readback, diagnostic, or
+calculator arm. The urQL text is lifted verbatim from the matching arm in
+`desk/lib/rover-act.hoon`, which stays in place until T2 deletes it.
+
+Probe defaults for the parametrized reports name demo fixture rows:
+`vehicle-settings-report` and `fill-edit-report` read `Rover Demo Gasoline`,
+`consumable-report` reads the `Rover Demo Diesel` DEF purchase,
+`station-report` reads `Edit Station`, and `charge-subtype-report` reads
+the `DC Fast` session at `~2026.07.31..12.00.00` (its vehicle label carries
+a run timestamp, so the probe keys on the observed start). Run
+`bin/ui-test.sh` with `ROVER_DEMO_ONLY=1` and
+`ROVER_NO_FIXTURE_ISOLATION=1` first, or the reports return empty result
+sets.
+
+The six `integrity-*` mutation probes carry fixed fixture ids. Each script
+ends in a statement the substrate must refuse, the whole script is atomic,
+so nothing persists and reruns never collide. The expected result is an
+error fact: `[0 %avow 0 %noun 1 ...]`. `integrity-zero-subtype` and
+`integrity-two-subtypes` exercise the Rover-side XOR check, so they build
+`lib/rover-act.hoon` and call `validate-acquisition-subtypes` directly.
+
+The calculator probes (`pricing-preview*`, `pricing-total*`,
+`charging-total`) also build the lib and call the arm. They no longer keep
+a poke alive to test a function.
+
+`bin/ui-test.sh` now creates the `seed-spike`, `seed-app-structure`,
+`seed-charging-cost`, `seed-demo-fuel`, `seed-demo-def`, and
+`seed-fill-edit-support` state through the product endpoints. The probe
+files for the first four remain in this directory unchanged from master.
+They are superseded, and T2 deletes them.
+
+Five seeds are exempt from the re-drive per the 2026-08-11 ruling in
+`PLAN-GATE7.md`: `seed-fuel-evidence`, `seed-charging-evidence`,
+`seed-consumption`, `seed-location`, `seed-pricing`. The evidence they
+write has no product entry surface, so those areas leave M0 for M1. No
+battery or probe pokes them. Their report probes
+(`fuel-evidence-report`, `charging-evidence-report`, `consumption-report`,
+`location-report`, `pricing-report`) execute but return empty result sets
+on a fence-clean pier. T2 deletes the five seeds, these five reports, and
+their fixtures.
+
+Note on the date-literal pitfall below: the generated Gate 7 probes embed
+dates in the padded `scow %da` form (`~2026.07.01..12.00.00`) inside their
+urQL tapes, and those parse and execute (verified 2026-08-11 on the live
+pier). Keep the interpolation habit for hand-written probes.
+
 ## Probe index — import/export work
 
 ### `profile-view-query.hoon`
