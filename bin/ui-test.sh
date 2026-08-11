@@ -2704,7 +2704,7 @@ const fs = require('fs');
     (select) => [...select.options]
       .filter((option) => option.dataset.vehicle && !option.hidden).length
   );
-  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Phase A Vehicle'});
+  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Structure Vehicle'});
   await fillForm.locator('[name="quantity"]').fill('12.344');
   await fillForm.locator('[name="price"]').fill('$3.49');
   const read = selector => page.locator(selector).evaluate(element => element.value);
