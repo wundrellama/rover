@@ -44,12 +44,13 @@ calculator arm. The urQL text is lifted verbatim from the matching arm in
 
 Probe defaults for the parametrized reports name demo fixture rows:
 `vehicle-settings-report` and `fill-edit-report` read `Rover Demo Gasoline`,
-`consumable-report` reads the `Rover Demo Diesel` DEF purchase, and
-`station-report` reads `Market Mixed Station`. Run `bin/ui-test.sh` with
-`ROVER_DEMO_ONLY=1` and `ROVER_NO_FIXTURE_ISOLATION=1` first, or the reports
-return empty result sets. `charge-subtype-report` reads the
-`Charging Evidence Vehicle` session and returns an empty set until a
-charging subtype entry surface exists (see QUESTIONS.md).
+`consumable-report` reads the `Rover Demo Diesel` DEF purchase,
+`station-report` reads `Edit Station`, and `charge-subtype-report` reads
+the `DC Fast` session at `~2026.07.31..12.00.00` (its vehicle label carries
+a run timestamp, so the probe keys on the observed start). Run
+`bin/ui-test.sh` with `ROVER_DEMO_ONLY=1` and
+`ROVER_NO_FIXTURE_ISOLATION=1` first, or the reports return empty result
+sets.
 
 The six `integrity-*` mutation probes carry fixed fixture ids. Each script
 ends in a statement the substrate must refuse, the whole script is atomic,
@@ -62,13 +63,21 @@ The calculator probes (`pricing-preview*`, `pricing-total*`,
 `charging-total`) also build the lib and call the arm. They no longer keep
 a poke alive to test a function.
 
-The probe files for `seed-spike`, `seed-app-structure`, `seed-charging-cost`,
-and `seed-demo-fuel` are gone: `bin/ui-test.sh` now creates that state
-through the product endpoints. The five remaining `seed-*` probes
-(`seed-fuel-evidence`, `seed-charging-evidence`, `seed-consumption`,
-`seed-location`, `seed-pricing`) still poke their `%rover-action` arms
-because no endpoint can express their evidence rows. QUESTIONS.md carries
-one finding per gap.
+`bin/ui-test.sh` now creates the `seed-spike`, `seed-app-structure`,
+`seed-charging-cost`, `seed-demo-fuel`, `seed-demo-def`, and
+`seed-fill-edit-support` state through the product endpoints. The probe
+files for the first four remain in this directory unchanged from master.
+They are superseded, and T2 deletes them.
+
+Five seeds are exempt from the re-drive per the 2026-08-11 ruling in
+`PLAN-GATE7.md`: `seed-fuel-evidence`, `seed-charging-evidence`,
+`seed-consumption`, `seed-location`, `seed-pricing`. The evidence they
+write has no product entry surface, so those areas leave M0 for M1. No
+battery or probe pokes them. Their report probes
+(`fuel-evidence-report`, `charging-evidence-report`, `consumption-report`,
+`location-report`, `pricing-report`) execute but return empty result sets
+on a fence-clean pier. T2 deletes the five seeds, these five reports, and
+their fixtures.
 
 Note on the date-literal pitfall below: the generated Gate 7 probes embed
 dates in the padded `scow %da` form (`~2026.07.01..12.00.00`) inside their

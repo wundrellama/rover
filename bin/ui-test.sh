@@ -72,16 +72,12 @@ URQL_CONSUMABLE_STARTER="$(cat <<'URQL_EOF'
 FROM consumable-definitions C WHERE C.archived = N SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;
 URQL_EOF
 )"
-URQL_LOCATION="$(cat <<'URQL_EOF'
-FROM places P JOIN stations S ON P.place-id = S.place-id WHERE P.label = 'Private Home' OR P.label = 'Public Market' SELECT P.label AS place, P.archived AS place-archived, S.label AS station, S.station-kind, S.archived AS station-archived; FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.source; FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, F.formatted; FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Parts Only Depot' SELECT P.label AS parts-only-with-formatted; FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Parts Only Depot' SELECT P.label AS place, A.part, A.value; FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-address; FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.part, A.value; FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source; FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-coordinates; FROM places P JOIN place-coordinate-accuracy A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.radius-digits, A.radius-decimals, A.radius-unit; FROM stations S JOIN station-brand-operator B ON S.station-id = B.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, B.role, B.label; FROM stations S JOIN station-identifiers I ON S.station-id = I.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, I.provider; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE V.label = 'Location Evidence Vehicle' SELECT V.label AS vehicle, E.physical-kind, S.label AS station, S.station-kind, A.observed-start; FROM stations S JOIN energy-acquisition-stations L ON S.station-id = L.station-id JOIN acquisition-station-equipment E ON L.acquisition-id = E.acquisition-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, E.equipment-label, E.receipt-text; FROM energy-definitions D JOIN energy-definition-subtypes S ON D.energy-definition-id = S.energy-definition-id JOIN energy-subtype-grade-code G ON S.subtype-id = G.subtype-id WHERE D.label = 'Location Fixture Fuel' SELECT D.label AS energy, S.label AS subtype, G.code;
-URQL_EOF
-)"
 URQL_VEHICLE_HISTORY="$(cat <<'URQL_EOF'
 FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, V.archived AS vehicle-archived, E.label AS energy, E.physical-kind, E.archived AS energy-archived, L.archived AS link-archived; FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN vehicle-energy-definitions L ON D.vehicle-id = L.vehicle-id AND D.energy-definition-id = L.energy-definition-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS default-energy, L.archived AS link-archived; FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.recorded-at; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end;
 URQL_EOF
 )"
 URQL_DISPLAY_PREFERENCE="$(cat <<'URQL_EOF'
-FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit; FROM vehicles V JOIN vehicle-display-preferences P ON V.vehicle-id = P.vehicle-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, P.distance-unit, P.currency;
+FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Preference Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit; FROM vehicles V JOIN vehicle-display-preferences P ON V.vehicle-id = P.vehicle-id WHERE V.label = 'Preference Vehicle' SELECT V.label AS vehicle, P.distance-unit, P.currency;
 URQL_EOF
 )"
 URQL_TRY_SECOND_DEFAULT="$(cat <<'URQL_EOF'
@@ -2396,41 +2392,6 @@ if ! grep -q 'Phase A Vehicle' <<<"$view"; then
   seed_spike_via_eyre
   seed_app_structure_via_eyre
   seed_charging_cost_via_eyre
-  # The five remaining scenario seeds stay privileged pokes. Their evidence
-  # rows have no product entry surface. See QUESTIONS.md (Gate 7 T1).
-  for support_action in seed-fuel-evidence \
-    seed-charging-evidence seed-consumption seed-location seed-pricing; do
-    support_result="$(click_file "=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%$support_action ~]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))")"
-    grep -q '%noun 0' <<<"$support_result" \
-      || fail "real-substrate support seed failed ($support_action): $support_result"
-  done
-fi
-location_q9_report="$(rover_report "$URQL_LOCATION")"
-for expected in \
-  "\\[%place 116 'Parts Only Depot'\\] \\[%part %tas 'line1'\\] \\[%value 116 '900 Depot Rd'\\]" \
-  "\\[%place 116 'Parts Only Depot'\\] \\[%part %tas %locality\\] \\[%value 116 'Aurora'\\]"; do
-  grep -q "$expected" <<<"$location_q9_report" ||
-    fail "fixture 93 parts-only address evidence missing ($expected): $location_q9_report"
-done
-if grep -q '\[%parts-only-with-formatted ' <<<"$location_q9_report"; then
-  fail "fixture 93 parts-only place unexpectedly has formatted text: $location_q9_report"
-fi
-if grep -q '\[%private-place-with-address ' <<<"$location_q9_report"; then
-  fail "fixture 93 no-address place unexpectedly has an address parent: $location_q9_report"
-fi
-location_q9_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-grep -q 'Aurora' <<<"$location_q9_view" \
-  || fail "fixture 93 parts-only locality is stored but absent from the served view"
-note "fixture 93 PASS - parts-only address reads and renders locality with no formatted child, while no-address place remains unaffected"
-if [ "${ROVER_FIXTURE_STOP:-}" = 93 ]; then
-  exit 0
 fi
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "seeded vehicle view not 200"
@@ -2497,8 +2458,6 @@ grep -q '\$3\.499' <<<"$view" || fail "unit price is not human-formatted"
 grep -q '\$43\.20' <<<"$view" || fail "derived fill total is not rendered"
 grep -q 'CALCULATED TOTAL' <<<"$view" || fail "fill total is not labelled Calculated Total"
 grep -q 'FUEL SUBTYPE' <<<"$view" || fail "fill detail has no Fuel Subtype field"
-grep -q 'Regular 87 E10' <<<"$view" ||
-  fail "fill detail does not render the subtype label"
 if grep -Eq '(^|[^0-9,.])(12345|3499)([^0-9,.]|$)|0x[0-9a-fA-F]+' <<<"$view"; then
   fail "vehicle view leaked a raw machine value or ID"
 fi
@@ -2652,7 +2611,7 @@ grep -q 'Tank size is not recorded for this vehicle.' <<<"$default_view" \
 
 phev_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Location Evidence Vehicle"}' \
+  --data-raw '{"vehicle":"Phase A Vehicle"}' \
   "$URL/apps/rover/set-default-vehicle")"
 [ "$phev_default" = $'Saved default vehicle\n201' ] \
   || fail "setting multi-source default failed: $phev_default"
@@ -2745,7 +2704,7 @@ const fs = require('fs');
     (select) => [...select.options]
       .filter((option) => option.dataset.vehicle && !option.hidden).length
   );
-  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Fuel Evidence Vehicle'});
+  await fillForm.locator('[name="vehicle"]').selectOption({label: 'Phase A Vehicle'});
   await fillForm.locator('[name="quantity"]').fill('12.344');
   await fillForm.locator('[name="price"]').fill('$3.49');
   const read = selector => page.locator(selector).evaluate(element => element.value);
@@ -2759,7 +2718,7 @@ const fs = require('fs');
   await fillForm.locator('[name="price"]').fill('$3.49');
   await fillForm.locator('[name="partialFill"]').check();
   const afterTank = await read('#fill-derived-total');
-  await fillForm.locator('[name="station"]').selectOption('Home Charger');
+  await fillForm.locator('[name="station"]').selectOption('Edit Station');
   const firstAdditive = fillForm.locator('[name="additives"]').first();
   if (await firstAdditive.count()) await firstAdditive.check();
   const afterEvidence = await read('#fill-derived-total');
@@ -2979,23 +2938,25 @@ grep -q '6.543 gal' <<<"$view" || fail "saved fill quantity did not render back 
 grep -q '\$22\.89' <<<"$view" || fail "saved fill derived total did not render"
 note "valid human fill saves exact 6543/3499 integers and renders 6.543 gal at derived \$22.89"
 
-saved_station_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
-  -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"5.111","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-29T00:10","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"Home Charger","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":["Injector cleaner"]}' \
-  "$URL/apps/rover/add-fill")"
-[ "$saved_station_fill" = $'Saved fill - $3.499 - derived $17.88\n201' ] \
-  || fail "saved-station fill failed: $saved_station_fill"
-
 new_station_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"5.222","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-29T00:20","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"new","newStationLabel":"UI Home Pump","newPlaceLabel":"UI Home","newStationKind":"private","additives":["Injector cleaner","Fuel stabilizer"]}' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"5.111","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","observed":"2026-07-29T00:10","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"new","newStationLabel":"UI Home Pump","newPlaceLabel":"UI Home","newStationKind":"private","additives":["Injector cleaner"]}' \
   "$URL/apps/rover/add-fill")"
-[ "$new_station_fill" = $'Saved fill - $3.499 - derived $18.27\n201' ] \
+[ "$new_station_fill" = $'Saved fill - $3.499 - derived $17.88\n201' ] \
   || fail "new-station fill failed: $new_station_fill"
 
+saved_station_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Phase A Vehicle","definition":"Regular 87","quantity":"5.222","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-29T00:20","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"UI Home Pump","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":["Injector cleaner","Fuel stabilizer"]}' \
+  "$URL/apps/rover/add-fill")"
+[ "$saved_station_fill" = $'Saved fill - $3.499 - derived $18.27\n201' ] \
+  || fail "saved-station fill failed: $saved_station_fill"
+
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-grep -q 'Home Charger' <<<"$view" || fail "saved private station did not render"
-grep -q 'UI Home Pump' <<<"$view" || fail "new private station did not render"
+[ "$(grep -o 'UI Home Pump' <<<"$view" | wc -l)" -ge 2 ] \
+  || fail "new and saved private station fills did not both render"
+grep -q 'Structure 93 AKI' <<<"$view" \
+  || fail "fill detail does not render the stored subtype label"
 grep -q 'Injector cleaner' <<<"$view" || fail "one-additive fill did not render"
 grep -q 'Fuel stabilizer' <<<"$view" || fail "several-additive fill did not render"
 grep -q 'No station recorded' <<<"$view" || fail "zero-station fill is not honest"
@@ -3012,16 +2973,35 @@ native_preference="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 [ "$native_preference" = $'Saved display preference - source-native\n201' ] \
   || fail "source-native preference failed: $native_preference"
 
+preference_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"label":"Preference Vehicle","energy":"Gasoline"}' \
+  "$URL/apps/rover/add-vehicle")"
+[ "$preference_created" = $'Added vehicle - Preference Vehicle\n201' ] \
+  || fail "preference vehicle create failed: $preference_created"
+preference_odometer="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Preference Vehicle","reading":"20000.0","unit":"mi","observed":"2026-07-28T09:00","zone":"America/Chicago"}' \
+  "$URL/apps/rover/add-odometer")"
+[ "$preference_odometer" = $'Saved odometer - 20,000.0 mi\n201' ] \
+  || fail "preference vehicle odometer failed: $preference_odometer"
+preference_fill="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Preference Vehicle","definition":"Gasoline","quantity":"10.000","price":"$3.49","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-07-28T09:00","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":""}' \
+  "$URL/apps/rover/add-fill")"
+[ "$preference_fill" = $'Saved fill - $3.499 - derived $34.99\n201' ] \
+  || fail "preference vehicle fill failed: $preference_fill"
+
 km_preference="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Fuel Evidence Vehicle","distanceUnit":"km","currency":"usd"}' \
+  --data-raw '{"vehicle":"Preference Vehicle","distanceUnit":"km","currency":"usd"}' \
   "$URL/apps/rover/set-preference")"
 [ "$km_preference" = $'Saved display preference - km\n201' ] \
   || fail "per-vehicle km preference failed: $km_preference"
 
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -Fq '32,186.9 km (converted)' <<<"$view" \
-  || fail "Fuel Evidence Vehicle did not render converted and labelled"
+  || fail "Preference Vehicle did not render converted and labelled"
 phase_card="$(html_slice '<h2>Phase A Vehicle</h2>' '<h2>' <<<"$view")"
 grep -q 'value="native" selected' <<<"$phase_card" \
   || fail "Phase A Vehicle preference was affected by the other vehicle"
@@ -3034,7 +3014,7 @@ note "per-vehicle km preference converts and labels one vehicle without rewritin
 
 human_hub_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Fuel Evidence Vehicle"}' \
+  --data-raw '{"vehicle":"Preference Vehicle"}' \
   "$URL/apps/rover/set-default-vehicle")"
 [ "$human_hub_default" = $'Saved default vehicle\n201' ] \
   || fail "setting human-readout fixture default failed: $human_hub_default"
@@ -3265,18 +3245,18 @@ fixture_80_new_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   || fail "fixture 80 could not redesignate its always-seeded settings vehicle: $fixture_80_new_default"
 archive_history_vehicle="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
-  --data-raw '{"vehicle":"Fuel Evidence Vehicle"}' \
+  --data-raw '{"vehicle":"Preference Vehicle"}' \
   "$URL/apps/rover/remove-vehicle")"
 [ "$archive_history_vehicle" = $'Archived vehicle\n201' ] \
   || fail "fixture 80 could not archive a non-default vehicle with history: $archive_history_vehicle"
 archived_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
-if grep -Eq '<option value="Fuel Evidence Vehicle"[^>]*>' <<<"$archived_view"; then
+if grep -Eq '<option value="Preference Vehicle"[^>]*>' <<<"$archived_view"; then
   fail "fixture 80 archived vehicle remains in a default selector"
 fi
-grep -q '<summary>View archived vehicles</summary>.*data-vehicle="Fuel Evidence Vehicle"' \
+grep -q '<summary>View archived vehicles</summary>.*data-vehicle="Preference Vehicle"' \
   <<<"$(tr '\n' ' ' <<<"$archived_view")" \
   || fail "fixture 80 archived vehicle is absent from the archived-vehicle view"
-grep -q 'data-vehicle-settings-panel data-vehicle="Fuel Evidence Vehicle".*ARCHIVED.*ORDERED HISTORY.*history-card fill' \
+grep -q 'data-vehicle-settings-panel data-vehicle="Preference Vehicle".*ARCHIVED.*ORDERED HISTORY.*history-card fill' \
   <<<"$(tr '\n' ' ' <<<"$archived_view")" \
   || fail "fixture 80 archived vehicle history is not intact and viewable"
 note "fixture 80 PASS - literal-Y archive hides selectors, preserves history, and refuses the app default until redesignation"
