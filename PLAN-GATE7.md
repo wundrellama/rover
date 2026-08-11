@@ -5,6 +5,10 @@ Status: frozen 2026-08-07. Blocks publish per AGENTS.md Gate 7 (ratified 2026-08
 Amended 2026-08-07: T2 also fixes the silent-drop bail-out and asserts the 15→16
 state migration. Both came out of the M0-CC migration review. See "ALSO IN T2".
 
+Amended 2026-08-11: `seed-consumption` is exempt from the re-drive. Group F
+consumption leaves M0 for M1. Ten seeds re-drive, not eleven. See
+"RE-DRIVE THROUGH EYRE".
+
 ## Why
 
 `sur/rover.hoon` ships a 43-arm `$action` union. None of it is reachable over
@@ -78,6 +82,15 @@ urQL bodies move out of `lib/rover-act.hoon` into `probes/*.hoon`.
 `seed-fuel-evidence` · `seed-charging-evidence` · `seed-charging-cost` ·
 `seed-consumption` · `seed-location` · `seed-pricing` · `seed-app-structure` ·
 `seed-fill-edit-support` · `seed-demo-fuel` · `seed-demo-def` · `seed-spike`
+
+**`seed-consumption` is EXEMPT — ruled 2026-08-11.** It cannot be re-driven,
+because `consumption-observations` has no product writer and no renderer. The
+fixture seed is the only code that has ever created one. Group F leaves M0 and
+becomes M1 scope. Do not build an endpoint for it in T1. Do not re-drive it.
+T2 deletes `seed-consumption`, its report, and its fixtures with the rest of the
+scaffolding. The relation stays in the pour — removing it is a schema change.
+
+That leaves **10** seeds to re-drive.
 
 These create state by privileged poke. They must create it the way a user does,
 via the 17 endpoints: `add-fill` · `add-charge` · `add-odometer` · `add-vehicle` ·
