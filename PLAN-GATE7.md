@@ -2,6 +2,9 @@
 
 Status: frozen 2026-08-07. Blocks publish per AGENTS.md Gate 7 (ratified 2026-08-06).
 
+Amended 2026-08-07: T2 also fixes the silent-drop bail-out and asserts the 15→16
+state migration. Both came out of the M0-CC migration review. See "ALSO IN T2".
+
 ## Why
 
 `sur/rover.hoon` ships a 43-arm `$action` union. None of it is reachable over
@@ -107,6 +110,52 @@ Move to host-side or delete. Nothing named `test-*` ships.
 
 AGENTS.md says 42 actions. The union holds 43. Fix the ratified text.
 
+*Done on master in `41089c6`. AGENTS.md and the GBrain entry both read 43.*
+
+### ALSO IN T2 — the silent-drop bail-out
+
+Found reviewing the M0-CC v16 state migration, 2026-08-07. Pre-existing, not
+introduced by that commit. Folded here because T2 already rewrites these
+handlers when the 21 read-back actions move to probes, and fixing it separately
+means touching the same code twice.
+
+Every `on-agent` fact handler that answers an HTTP request opens the same way:
+
+```hoon
+=/  eyre-id  (~(get by http-pending) wire)
+=/  input    (~(get by charge-pending) wire)
+?:  ?|(?=(~ eyre-id) ?=(~ input))
+  `this
+```
+
+When either lookup misses, the handler returns bare `this` — **no HTTP
+response, no cleanup**. The browser hangs until Eyre times out and the orphaned
+`http-pending` entry leaks for the life of the agent. 24 of the 25 handlers
+that read `http-pending` share this shape.
+
+The state migration makes it reachable rather than theoretical. `on-load`
+preserves `http-pending` but drops `charge-pending` to `~` (see `%15`, and `%13`
+before it for fills). That is the right call — the two new `charge-entry` fields
+have no honest value for an in-flight request, and bunting them would fabricate
+an empty component list that reads as "user entered no components" instead of
+"this request predates components." But it means an upgrade landing between poke
+and fact leaves a live `eyre-id` with no input, which is exactly the silent-drop
+path.
+
+Fix: the bail-out answers with a 503 and a human reason, and deletes the
+orphaned `http-pending` key. Per Ruling 8 the boundary speaks; it does not hang.
+A caller who resubmits gets a working request.
+
+Blast radius is small — it needs an upgrade or a lost pending entry inside a
+narrow window, and the worst case is one dropped form submission on a
+single-user app. It is not a publish blocker on its own. It rides with T2
+because the code is already open.
+
+**Also in T2:** add a fixture that asserts the migration itself. The M0-CC
+batteries cover the charging-cost feature and restart persistence at v16, but
+nothing boots a v15 agent, puts a charge in flight, upgrades, and asserts the
+outcome. The 15→16 transition is the only untested edge in that commit.
+
 ## Split
 
 The freeze-split rule applies. This plan is wider than one dispatch can finish.
@@ -118,9 +167,10 @@ union. Existing tests stay green without modification. After T1 the union is
 still 43 arms, but no battery and no probe pokes the 32 doomed ones.
 
 **T2 — delete the sweep.** Remove the 32 actions, the four calculator wrappers,
-`desk/gen/test-*.hoon`, and `desk/tests/`. The batteries already run through the
-new paths, so the deletion is provable by the batteries staying green. T2 cuts
-its base from the merged trunk of T1.
+`desk/gen/test-*.hoon`, and `desk/tests/`. Fix the silent-drop bail-out and add
+the migration fixture. The batteries already run through the new paths, so the
+deletion is provable by the batteries staying green. T2 cuts its base from the
+merged trunk of T1.
 
 The firewall keeps the T1 diff purely additive, which keeps the divergence
 analysis clean.
@@ -148,6 +198,11 @@ Not `~/piers/fakezod` or `~/piers/fakenec` (erpit, live).
    every seed driven through Eyre.
 6. Restart persistence holds.
 7. `grep -c` on the shipped desk: zero fixture actions, zero `test-*` files.
+8. No handler silently drops an HTTP request. Every bail-out that finds a live
+   `eyre-id` with a missing input answers 503 with a human reason and clears its
+   `http-pending` key. Prove it: put a request in flight, drop its pending
+   input, and assert the caller gets 503 rather than a hang.
+9. The 15→16 state migration is asserted by a fixture, not by inspection.
 
 Mocked evidence does not count. Fixtures run against real Obelisk on a real fake
 pier.
