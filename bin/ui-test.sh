@@ -1926,6 +1926,149 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 43 ]; then
   exit 0
 fi
 
+cost_vehicle="Charge Cost Vehicle $(date +%s%N)"
+cost_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Electricity"}' "$cost_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$cost_created" = "Added vehicle - $cost_vehicle"$'\n201' ] \
+  || fail "fixture 105 setup vehicle failed: $cost_created"
+
+cost_components='[{"component":"energy","quantity":"45.678","unit":"kwh","rate":"0.250","amount":"11.420"},{"component":"time","quantity":"30","unit":"minute","rate":"0.100","amount":"3.000"},{"component":"session","quantity":"1","unit":"session","rate":"1.500","amount":"1.500"},{"component":"idle","quantity":"5","unit":"minute","rate":"0.500","amount":"2.500"},{"component":"tax","quantity":"1","unit":"session","rate":"1.000","amount":"1.000"},{"component":"discount","quantity":"1","unit":"session","rate":"2.000","amount":"2.000"}]'
+
+itemized_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-08-01T12:00","end":"2026-08-01T12:45","zone":"America/Chicago","energyDelivered":"45.678","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":%s}' "$cost_vehicle" "$cost_components")" \
+  "$URL/apps/rover/add-charge")"
+[ "$itemized_result" = $'Saved charge - Energy delivered 45.678 kWh - itemized total $17.420\n201' ] \
+  || fail "fixture 105 itemized charge was not saved: $itemized_result"
+
+itemized_proof="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%derive-charging-total ~[[%energy 11.420] [%time 3.000] [%session 1.500] [%idle 2.500] [%tax 1.000] [%discount 2.000]]]))
+;<  ~  bind:m  (sleep ~s2)
+;<  now=@da  bind:m  get-time
+=/  result
+  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/charging-total/noun)))
+(pure:m !>(result))")"
+grep -q '19420 2000 17420' <<<"$itemized_proof" \
+  || fail "fixture 105 derive-charging-total did not report the expected proof: $itemized_proof"
+
+charge_card_for() {
+  python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+vehicle, state = sys.argv[1:3]
+marker = "data-vehicle-settings-panel data-vehicle=\"%s\"" % vehicle
+at = document.find(marker)
+if at < 0:
+    raise SystemExit("vehicle settings panel is absent")
+end = document.find("<article class=\"vehicle-card\"", at)
+panel = document[at:] if end < 0 else document[at:end]
+for card in re.findall(r"<article class=\"history-card charge\".*?</article>", panel, re.S):
+    if "data-cost-state=\"%s\"" % state in card:
+        print(card)
+        break
+else:
+    raise SystemExit("no %s charge card for %s" % (state, vehicle))' "$1" "$2"
+}
+
+cost_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+cost_card="$(charge_card_for "$cost_vehicle" itemized <<<"$cost_view")" \
+  || fail "fixture 105 could not read the itemized charge back through the view"
+grep -q 'data-cost-state="itemized"' <<<"$cost_card" \
+  || fail "fixture 105 view does not report the itemized cost state: $cost_card"
+grep -q 'data-itemized-total="\$17.420"' <<<"$cost_card" \
+  || fail "fixture 105 view does not derive the itemized total: $cost_card"
+for expected in \
+  'data-cost-component="energy">energy</span><span>45.678 kwh</span><span>$0.250</span><span>$11.420<' \
+  'data-cost-component="time">time</span><span>30 minute</span><span>$0.100</span><span>$3.000<' \
+  'data-cost-component="session">session</span><span>1 session</span><span>$1.500</span><span>$1.500<' \
+  'data-cost-component="idle">idle</span><span>5 minute</span><span>$0.500</span><span>$2.500<' \
+  'data-cost-component="tax">tax</span><span>1 session</span><span>$1.000</span><span>$1.000<' \
+  'data-cost-component="discount">discount</span><span>1 session</span><span>$2.000</span><span>-$2.000<' \
+  ; do
+  grep -qF "$expected" <<<"$cost_card" \
+    || fail "fixture 105 itemized component row is missing or inexact: want '$expected' in $cost_card"
+done
+cost_order="$(grep -oE 'data-cost-component="[a-z]+"' <<<"$cost_card" \
+  | sed 's/.*"\([a-z]*\)"/\1/' | tr '\n' ' ')"
+[ "$cost_order" = "energy time session idle tax discount " ] \
+  || fail "fixture 105 itemized components are not in the ratified order: $cost_order"
+note "fixture 105 PASS - the add-charge surface records six itemized components and the view derives the same total derive-charging-total proves"
+
+receipt_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-08-01T14:00","end":"2026-08-01T14:30","zone":"America/Chicago","energyDelivered":"40.0","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","sourceTotal":"22.34","components":[]}' "$cost_vehicle")" \
+  "$URL/apps/rover/add-charge")"
+[ "$receipt_result" = $'Saved charge - Energy delivered 40.0 kWh - receipt total $22.340\n201' ] \
+  || fail "fixture 106 receipt-total-only charge was not saved: $receipt_result"
+receipt_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+receipt_card="$(charge_card_for "$cost_vehicle" receipt-total-only <<<"$receipt_view")" \
+  || fail "fixture 106 could not read the receipt total back through the view"
+grep -q 'data-receipt-total="\$22.340"' <<<"$receipt_card" \
+  || fail "fixture 106 view does not preserve the source-reported receipt total: $receipt_card"
+grep -q 'source reported' <<<"$receipt_card" \
+  || fail "fixture 106 view does not mark the receipt total as source reported: $receipt_card"
+if grep -q 'data-cost-component=' <<<"$receipt_card"; then
+  fail "fixture 106 receipt-total-only charge carries component rows: $receipt_card"
+fi
+if grep -q 'data-itemized-total=' <<<"$receipt_card"; then
+  fail "fixture 106 receipt-total-only charge derives an itemized total: $receipt_card"
+fi
+note "fixture 106 PASS - a receipt-only total survives as reported evidence with no components and no derived total"
+
+empty_itemized="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":[]}' "$cost_vehicle")" \
+  "$URL/apps/rover/add-charge")"
+[ "$empty_itemized" = $'%bad-shape: charge.components\n400' ] \
+  || fail "fixture 107 itemized charge without components was accepted: $empty_itemized"
+
+receipt_with_components="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","sourceTotal":"22.34","components":%s}' "$cost_vehicle" "$cost_components")" \
+  "$URL/apps/rover/add-charge")"
+[ "$receipt_with_components" = $'%bad-shape: charge.components\n400' ] \
+  || fail "fixture 107 receipt-total-only charge with components was accepted: $receipt_with_components"
+
+bad_kind="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":[{"component":"parking","quantity":"1","unit":"session","rate":"1.000","amount":"1.000"}]}' "$cost_vehicle")" \
+  "$URL/apps/rover/add-charge")"
+[ "$bad_kind" = $'%bad-shape: charge.component\n400' ] \
+  || fail "fixture 107 component with an unknown kind was accepted: $bad_kind"
+
+free_with_total="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"free","currency":"usd","sourceTotal":"22.34","components":[]}' "$cost_vehicle")" \
+  "$URL/apps/rover/add-charge")"
+[ "$free_with_total" = $'%bad-shape: charge.source-total\n400' ] \
+  || fail "fixture 107 free charge with a source total was accepted: $free_with_total"
+
+missing_total="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"receipt-total-only","currency":"usd","sourceTotal":"","components":[]}' "$cost_vehicle")" \
+  "$URL/apps/rover/add-charge")"
+[ "$missing_total" = $'%bad-shape: charge.source-total\n400' ] \
+  || fail "fixture 107 receipt-total-only charge without a total was accepted: $missing_total"
+
+over_discount="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s","definition":"Electricity","subtype":"DC Fast","start":"2026-08-01T16:00","end":"2026-08-01T16:30","zone":"America/Chicago","energyDelivered":"","energySource":"charger-reported","startBattery":"","endBattery":"","mileage":"","mileageUnit":"mi","costState":"itemized","currency":"usd","sourceTotal":"","components":[{"component":"energy","quantity":"1","unit":"kwh","rate":"1.000","amount":"1.000"},{"component":"discount","quantity":"1","unit":"session","rate":"2.000","amount":"2.000"}]}' "$cost_vehicle")" \
+  "$URL/apps/rover/add-charge")"
+[ "$over_discount" = $'%bad-range: charge.components\n400' ] \
+  || fail "fixture 107 discount larger than the charged components was accepted: $over_discount"
+
+refused_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+refused_cards="$(grep -c 'history-card charge' <<<"$refused_view")"
+accepted_cards="$(grep -c 'history-card charge' <<<"$receipt_view")"
+[ "$refused_cards" = "$accepted_cards" ] \
+  || fail "fixture 107 a refused charge still reached the database: before=$accepted_cards after=$refused_cards"
+note "fixture 107 PASS - Rover refuses an empty itemized set, a receipt total with components, an unknown component kind, a cost total on a free charge, and a discount larger than its charges, and writes none of them"
+if [ "${ROVER_FIXTURE_STOP:-}" = 107 ]; then
+  exit 0
+fi
+
 payment_base_payload="$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"1.000","price":"$3.49","profile":"us-usd-gal","tank":"partial","settlement":"standard","zone":"America/Chicago","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"87","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":""' "$fill_edit_vehicle")"
 without_payment_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
@@ -2455,6 +2598,31 @@ fi
 if grep -Eqi 'full|partial|battery filled' <<<"$charge_html"; then
   fail "add-charge screen contains a fuel tank-state concept"
 fi
+for cost_option in unknown free itemized receipt-total-only; do
+  grep -qF "<option value=\"$cost_option\"" <<<"$charge_html" \
+    || fail "fixture 108 add-charge cost state omits $cost_option: $charge_html"
+done
+grep -q 'id="charge-itemized"' <<<"$charge_html" \
+  || fail "fixture 108 add-charge has no itemized component group"
+grep -q 'id="charge-receipt-total"' <<<"$charge_html" \
+  || fail "fixture 108 add-charge has no receipt total group"
+grep -q 'data-add-cost-component' <<<"$charge_html" \
+  || fail "fixture 108 itemized component rows are not repeatable"
+for component_field in componentKind componentQuantity componentUnit componentRate componentAmount; do
+  grep -qF "name=\"$component_field\"" <<<"$charge_html" \
+    || fail "fixture 108 itemized component row lacks $component_field: $charge_html"
+done
+grep -q 'name="sourceTotal"' <<<"$charge_html" \
+  || fail "fixture 108 receipt total group lacks its total field"
+for component_kind in energy time session idle tax discount; do
+  grep -qF "<option value=\"$component_kind\"" <<<"$charge_html" \
+    || fail "fixture 108 component kind $component_kind is not offered: $charge_html"
+done
+for quantity_unit in kwh minute session; do
+  grep -qF "<option value=\"$quantity_unit\"" <<<"$charge_html" \
+    || fail "fixture 108 component quantity unit $quantity_unit is not offered: $charge_html"
+done
+note "fixture 108 PASS - add-charge offers all four cost states with repeatable itemized component rows and a receipt total field"
 grep -q 'id="odometer-form"' <<<"$view" || fail "standalone odometer form is missing"
 grep -q 'name="reading"' <<<"$view" || fail "odometer form lacks source-native reading"
 grep -q 'id="fill-station"' <<<"$view" || fail "fill station selector is missing"
@@ -3218,6 +3386,44 @@ note "fixture 86 PASS - changing the app default refreshes the rendered header v
 grep -q '^GLOW=' <<<"$header_browser" ||
   fail "fixture 87 live browser did not report the persisted maximum glow: $header_browser"
 note "fixture 87 PASS - bounded glow slider disables with the toggle, persists across reload, and drives a materially stronger CSS shadow"
+
+browser_charge_vehicle="Browser Charge Cost Vehicle $(date +%s%N)"
+browser_charge_created="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"label":"%s","energy":"Electricity"}' "$browser_charge_vehicle")" \
+  "$URL/apps/rover/add-vehicle")"
+[ "$browser_charge_created" = "Added vehicle - $browser_charge_vehicle"$'\n201' ] \
+  || fail "fixture 109 setup vehicle failed: $browser_charge_created"
+browser_charge_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s"}' "$browser_charge_vehicle")" \
+  "$URL/apps/rover/set-default-vehicle")"
+grep -q '201$' <<<"$browser_charge_default" \
+  || fail "fixture 109 could not make the charging vehicle the app default: $browser_charge_default"
+charge_browser="$(
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/ui-browser-fixtures.cjs" \
+      charge-cost "$URL" "$auth_cookie_name" "$auth_cookie" "$running_ship" \
+      "$browser_charge_vehicle" "$browser_charge_vehicle"
+)" ||
+  fail "fixture 109 live browser itemized charge entry failed: $charge_browser"
+grep -q '^CHARGE_PREVIEW=\$17.420$' <<<"$charge_browser" \
+  || fail "fixture 109 browser preview did not derive the itemized total: $charge_browser"
+grep -q '^CHARGE_VERDICT=Saved charge - Energy delivered not recorded - itemized total \$17.420$' <<<"$charge_browser" \
+  || fail "fixture 109 browser submission did not save the itemized charge: $charge_browser"
+browser_charge_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+browser_charge_card="$(charge_card_for "$browser_charge_vehicle" itemized <<<"$browser_charge_view")" \
+  || fail "fixture 109 browser-entered charge is absent from the view"
+grep -q 'data-itemized-total="\$17.420"' <<<"$browser_charge_card" \
+  || fail "fixture 109 browser-entered charge did not persist its derived total: $browser_charge_card"
+[ "$(grep -o 'data-cost-component=' <<<"$browser_charge_card" | wc -l)" = 6 ] \
+  || fail "fixture 109 browser-entered charge did not persist six component rows: $browser_charge_card"
+note "fixture 109 PASS - a real browser fills repeatable itemized component rows, previews the exact derived total, and saves it through Eyre"
+curl -s -b "$JAR" -o /dev/null \
+  -H 'content-type: application/json' \
+  --data-raw "$(printf '{"vehicle":"%s"}' "$settings_label_second")" \
+  "$URL/apps/rover/set-default-vehicle"
 
 settings_layout_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 settings_layout_report="$(

@@ -4,7 +4,7 @@
 ::  the human-facing field; no raw database ID is accepted by this boundary.
 ::
 /-  rover
-/+  render=rover-render
+/+  act=rover-act, render=rover-render
 |%
 +$  price-proof
   $:  unit-price-mills=@ud
@@ -124,6 +124,74 @@
   ?:  (nonempty u.value)
     value
   ~
+::
+++  decode-mills
+  |=  [key=@t field=@t object=(map @t json)]
+  ^-  (each @ud entry-verdict:rover)
+  =/  text  (json-string key object)
+  ?~  text
+    [%| %missing-key field]
+  =/  parsed  (parse-decimal:render u.text 3)
+  ?:  ?=(%| -.parsed)
+    [%| %bad-shape field]
+  [%& (mul digits.p.parsed (pow-ten:render (sub 3 places.p.parsed)))]
+::
+++  decode-charging-components
+  |=  values=(list json)
+  ^-  (each (list charging-component-entry:rover) entry-verdict:rover)
+  =/  rows=(list charging-component-entry:rover)  ~
+  |-
+  ?~  values
+    [%& (flop rows)]
+  =/  fields  (json-map i.values)
+  ?~  fields
+    [%| %bad-shape 'charge.components']
+  =/  kind  (json-string 'component' u.fields)
+  ?~  kind
+    [%| %missing-key 'charge.component']
+  =/  kind-term  (slaw %tas u.kind)
+  ?.  ?&  ?=(^ kind-term)
+          ?|  =(%energy u.kind-term)
+              =(%time u.kind-term)
+              =(%session u.kind-term)
+              =(%idle u.kind-term)
+              =(%tax u.kind-term)
+              =(%discount u.kind-term)
+          ==
+      ==
+    [%| %bad-shape 'charge.component']
+  =/  quantity-text  (json-string 'quantity' u.fields)
+  ?~  quantity-text
+    [%| %missing-key 'charge.component-quantity']
+  =/  quantity  (parse-decimal:render u.quantity-text 3)
+  ?:  ?=(%| -.quantity)
+    [%| %bad-shape 'charge.component-quantity']
+  =/  unit-text  (json-string 'unit' u.fields)
+  ?~  unit-text
+    [%| %missing-key 'charge.component-unit']
+  =/  unit-term  (slaw %tas u.unit-text)
+  ?.  ?&  ?=(^ unit-term)
+          ?|  =(%kwh u.unit-term)
+              =(%minute u.unit-term)
+              =(%session u.unit-term)
+          ==
+      ==
+    [%| %bad-shape 'charge.component-unit']
+  =/  rate  (decode-mills 'rate' 'charge.component-rate' u.fields)
+  ?:  ?=(%| -.rate)
+    [%| p.rate]
+  =/  amount  (decode-mills 'amount' 'charge.component-amount' u.fields)
+  ?:  ?=(%| -.amount)
+    [%| p.amount]
+  =/  row=charging-component-entry:rover
+    :*  ;;(cost-component:rover u.kind-term)
+        digits.p.quantity
+        places.p.quantity
+        ;;(cost-quantity-unit:rover u.unit-term)
+        p.rate
+        p.amount
+    ==
+  $(values t.values, rows [row rows])
 ::
 ++  parse-coordinate
   |=  txt=@t
@@ -1127,9 +1195,61 @@
   ?.  ?&  ?=(^ cost-term)
           ?|  =(%free u.cost-term)
               =(%unknown u.cost-term)
+              =(%itemized u.cost-term)
+              =(%receipt-total-only u.cost-term)
           ==
       ==
     [%| %bad-shape 'charge.cost-state']
+  =/  cost-state  ;;(cost-state:rover u.cost-term)
+  ::  Both cost fields stay optional keys. A caller that records no charging
+  ::  cost evidence omits them; an absent key is not an empty-but-present one.
+  =/  decoded-components
+    ^-  (each (list charging-component-entry:rover) entry-verdict:rover)
+    =/  value  (~(get by object) 'components')
+    ?~  value
+      [%& ~]
+    ?.  ?=(%a -.u.value)
+      [%| %bad-shape 'charge.components']
+    (decode-charging-components +.u.value)
+  ?:  ?=(%| -.decoded-components)
+    [%| p.decoded-components]
+  =/  components  p.decoded-components
+  =/  decoded-total
+    ^-  (each (unit @ud) entry-verdict:rover)
+    =/  value  (~(get by object) 'sourceTotal')
+    ?~  value
+      [%& ~]
+    ?.  ?=(%s -.u.value)
+      [%| %bad-shape 'charge.source-total']
+    ?.  (nonempty +.u.value)
+      [%& ~]
+    =/  mills  (decode-mills 'sourceTotal' 'charge.source-total' object)
+    ?:  ?=(%| -.mills)
+      [%| p.mills]
+    [%& `p.mills]
+  ?:  ?=(%| -.decoded-total)
+    [%| p.decoded-total]
+  =/  source-total-mills  p.decoded-total
+  ::  %itemized needs at least one component and derives its own total.
+  ::  %receipt-total-only needs exactly one source total and no components.
+  ::  %free and %unknown take neither. An omitted row means no total; a zero
+  ::  row would claim the source reported zero.
+  =/  wants-components  =(%itemized cost-state)
+  =/  wants-source-total  =(%receipt-total-only cost-state)
+  ?.  =(wants-components ?=(^ components))
+    [%| %bad-shape 'charge.components']
+  ?.  =(wants-source-total ?=(^ source-total-mills))
+    [%| %bad-shape 'charge.source-total']
+  ::  derive-charging-total owns the arithmetic and refuses discounts that
+  ::  exceed the charged components. Report its refusal, do not restate it.
+  =/  amounts=(list charging-component-amount:rover)
+    %+  turn  components
+    |=  row=charging-component-entry:rover
+    ^-  charging-component-amount:rover
+    [component.row amount-mills.row]
+  =/  balance  (mule |.((derive-charging-total:act amounts)))
+  ?:  ?=(%| -.balance)
+    [%| %bad-range 'charge.components']
   =/  currency-text  (json-string 'currency' object)
   ?~  currency-text
     [%| %missing-key 'charge.currency']
@@ -1157,8 +1277,10 @@
       start-battery
       end-battery
       mileage
-      ;;(cost-state:rover u.cost-term)
+      cost-state
       ;;(currency:rover u.currency-term)
+      components
+      source-total-mills
       subtype-label
   ==
 ::

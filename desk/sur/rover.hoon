@@ -24,6 +24,7 @@
 +$  session-endpoint  ?(%start %end)
 +$  cost-state  ?(%free %unknown %itemized %receipt-total-only)
 +$  cost-component  ?(%energy %time %session %idle %tax %discount)
++$  cost-quantity-unit  ?(%kwh %minute %session)
 +$  consumption-unit
   ?(%wh-mi %wh-km %mi-kwh %km-kwh %kwh-100mi %kwh-100km %mpge)
 +$  consumption-scope
@@ -201,6 +202,17 @@
       evidence=measurement-evidence
   ==
 +$  battery-reading  [digits=@ud places=@ud]
+::  One itemized charging-cost line as the owner entered it. Quantity keeps
+::  source-native digits and decimals; rate and amount are exact mills. The
+::  amount is source-reported, not quantity times rate: a tariff may round.
++$  charging-component-entry
+  $:  component=cost-component
+      quantity=@ud
+      quantity-decimals=@ud
+      quantity-unit=cost-quantity-unit
+      rate-mills=@ud
+      amount-mills=@ud
+  ==
 +$  charge-entry
   $:  vehicle-label=@t
       definition-label=@t
@@ -213,6 +225,8 @@
       mileage=(unit odo-reading)
       cost-state=cost-state
       currency=currency
+      components=(list charging-component-entry)
+      source-total-mills=(unit @ud)
       subtype-label=(unit @t)
   ==
 +$  consumable-entry

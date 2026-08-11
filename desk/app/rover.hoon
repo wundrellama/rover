@@ -25,6 +25,7 @@
       [%13 state-13]
       [%14 state-14]
       [%15 state-15]
+      [%16 state-16]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -186,7 +187,7 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry-5)
-      charge-pending=(map wire charge-entry:rover)
+      charge-pending=(map wire charge-entry-15)
       odometer-pending=(map wire odometer-entry:rover)
   ==
 +$  state-7
@@ -198,7 +199,7 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry-10)
-      charge-pending=(map wire charge-entry:rover)
+      charge-pending=(map wire charge-entry-15)
       odometer-pending=(map wire odometer-entry:rover)
   ==
 +$  state-8
@@ -210,7 +211,7 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry-8)
-      charge-pending=(map wire charge-entry:rover)
+      charge-pending=(map wire charge-entry-15)
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
   ==
@@ -223,7 +224,7 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry-10)
-      charge-pending=(map wire charge-entry:rover)
+      charge-pending=(map wire charge-entry-15)
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
   ==
@@ -236,7 +237,7 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry-10)
-      charge-pending=(map wire charge-entry:rover)
+      charge-pending=(map wire charge-entry-15)
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
@@ -250,7 +251,7 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry-11)
-      charge-pending=(map wire charge-entry:rover)
+      charge-pending=(map wire charge-entry-15)
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
@@ -319,7 +320,7 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry-13)
-      charge-pending=(map wire charge-entry:rover)
+      charge-pending=(map wire charge-entry-15)
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
@@ -333,12 +334,41 @@
       integrity=(unit integrity-proof:rover)
       http-pending=(map wire @ta)
       fill-pending=(map wire fill-entry:rover)
-      charge-pending=(map wire charge-entry:rover)
+      charge-pending=(map wire charge-entry-15)
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
   ==
++$  charge-entry-15
+  $:  vehicle-label=@t
+      definition-label=@t
+      observed-start=@da
+      observed-end=@da
+      source-zone=@t
+      delivered=(unit delivered-energy:rover)
+      start-battery=(unit battery-reading:rover)
+      end-battery=(unit battery-reading:rover)
+      mileage=(unit odo-reading:rover)
+      cost-state=cost-state:rover
+      currency=currency:rover
+      subtype-label=(unit @t)
+  ==
 +$  state-15
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry-15)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+      import-run=(unit import-run:rover)
+  ==
++$  state-16
   $:  pending=(map wire @t)
       last=(unit (each (list cmd-result:ast) tang))
       preview=(unit price-preview:rover)
@@ -463,8 +493,8 @@
   ==
 ::
 ++  continue-import
-  |=  [sat=state-15 our=@p run=import-run:rover]
-  ^-  [(list card) state-15]
+  |=  [sat=state-16 our=@p run=import-run:rover]
+  ^-  [(list card) state-16]
   ?~  remaining.run
     :_  sat(import-run ~)
     %:  http-give
@@ -492,8 +522,8 @@
   ==
 ::
 ++  handle-http
-  |=  [sat=state-15 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-15]
+  |=  [sat=state-16 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-16]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -894,7 +924,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-15
+=|  state-16
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -906,7 +936,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%15 state])
+++  on-save  !>([%16 state])
 ::
 ++  on-load
   |=  old=vase
@@ -920,16 +950,17 @@
       %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~ ~])
       %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~])
       %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~])
-      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~ ~])
-      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s ~ ~ ~])
-      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~ ~])
-      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s ~ ~])
-      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~])
+      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~])
+      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~])
+      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~])
+      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
       %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
+      %16  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -2650,6 +2681,7 @@
             (fixture-id:act base 303)
             (fixture-id:act base 304)
             (fixture-id:act base 305)
+            (charging-component-ids:act base (lent components.u.input) 310)
         ==
       =/  write-wire=path  /rover-charge-write/(scot %da now.bowl)/[u.eyre-id]
       =/  script
@@ -2702,7 +2734,29 @@
           (trip (format-scaled:render digits.u.delivered.u.input places.u.delivered.u.input %.n))
           " kWh"
         ==
-      =/  message  (cat 3 'Saved charge - ' delivered-text)
+      ::  Only an itemized or receipt-only charge reports a cost. %free and
+      ::  %unknown carry no total, so their verdict stays the delivered energy.
+      =/  cost-text=@t
+        ?-  cost-state.u.input
+          %free     ''
+          %unknown  ''
+          %itemized
+            =/  amounts=(list charging-component-amount:rover)
+              %+  turn  components.u.input
+              |=  row=charging-component-entry:rover
+              ^-  charging-component-amount:rover
+              [component.row amount-mills.row]
+            =/  proof  (derive-charging-total:act amounts)
+            =/  total  (format-mills:render total-mills.proof currency.u.input)
+            (cat 3 ' - itemized total ' total)
+          %receipt-total-only
+            ?~  source-total-mills.u.input
+              ''
+            =/  mills  u.source-total-mills.u.input
+            =/  total  (format-mills:render mills currency.u.input)
+            (cat 3 ' - receipt total ' total)
+        ==
+      =/  message  (cat 3 (cat 3 'Saved charge - ' delivered-text) cost-text)
       :_  this
       %:  http-give
           u.eyre-id
@@ -2732,7 +2786,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-15]
+        =/  continued=[(list card) state-16]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -2934,7 +2988,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-15]
+        =/  continued=[(list card) state-16]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -2986,7 +3040,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-15]
+        =/  continued=[(list card) state-16]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3039,7 +3093,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-15]
+        =/  continued=[(list card) state-16]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3196,7 +3250,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-15]
+        =/  continued=[(list card) state-16]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  phase=@ta
@@ -3225,7 +3279,7 @@
           report.run
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-15]
+        =/  continued=[(list card) state-16]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -3241,7 +3295,7 @@
         report.run
       =/  next
         run(writing %.n, remaining t.remaining.run, report report)
-      =/  continued=[(list card) state-15]
+      =/  continued=[(list card) state-16]
         (continue-import state our.bowl next)
       [-.continued this(state +.continued)]
     ::

@@ -104,6 +104,7 @@
       start-battery=@ux
       end-battery=@ux
       odometer=@ux
+      components=(list @ux)
   ==
 +$  fill-edit-support-ids
   [place=@ux station=@ux payment=@ux mode=@ux additive=@ux tag=@ux]
@@ -117,6 +118,15 @@
   ?:  =(0 candidate)
     `@ux`(add ordinal 1)
   candidate
+::
+++  charging-component-ids
+  |=  [seed=@ux count=@ud base-ordinal=@ud]
+  ^-  (list @ux)
+  =/  index=@ud  0
+  |-  ^-  (list @ux)
+  ?:  =(index count)
+    ~
+  [(fixture-id seed (add base-ordinal index)) $(index +(index))]
 ::
 ++  starter-definition
   |=  [base=@ux ordinal=@ud label=tape kind=@tas unit=@tas now=@da]
@@ -1633,6 +1643,8 @@
     " FROM consumable-acquisition-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.consumable-acquisition-id, O.value-digits, O.decimal-places, O.unit;"
     " FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE A.part = %locality SELECT P.place-id, P.label AS place, A.value AS locality;"
     " FROM vehicle-refill-reserve R SELECT R.vehicle-id, R.reserve-percent;"
+    " FROM charging-cost-components C SELECT C.acquisition-id, C.component, C.quantity, C.quantity-decimals, C.quantity-unit, C.rate-mills, C.amount-mills;"
+    " FROM charging-cost-source-totals T SELECT T.acquisition-id, T.total-mills;"
   ==
 ::
 ++  sql-quote
@@ -3033,6 +3045,38 @@
     ");"
   ==
 ::
+++  insert-charge-components
+  |=  $:  component-ids=(list @ux)
+          acquisition-id=@ux
+          rows=(list charging-component-entry:rover)
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  ?~  component-ids
+    ~
+  =/  row=tape
+    ;:  weld
+      " INSERT INTO charging-cost-components VALUES ("
+      (scow %ux i.component-ids)
+      ", "
+      (scow %ux acquisition-id)
+      ", "
+      (sql-term component.i.rows)
+      ", "
+      (sql-ud quantity.i.rows)
+      ", "
+      (sql-ud quantity-decimals.i.rows)
+      ", "
+      (sql-term quantity-unit.i.rows)
+      ", "
+      (sql-ud rate-mills.i.rows)
+      ", "
+      (sql-ud amount-mills.i.rows)
+      ");"
+    ==
+  (weld row $(component-ids t.component-ids, rows t.rows))
+::
 ++  insert-charge
   |=  $:  ids=charge-ids
           vehicle-id=@ux
@@ -3135,7 +3179,30 @@
     =/  odo-input=odometer-entry:rover
       [vehicle-label.input u.mileage.input observed-end.input source-zone.input]
     (insert-odometer odometer.ids vehicle-id odo-input recorded-at)
-  ;:(weld base subtype-row delivered-row start-row end-row mileage-row)
+  =/  component-rows=tape
+    (insert-charge-components components.ids acquisition.ids components.input)
+  ::  Absence of this row means no total. A zero row would claim the source
+  ::  reported zero, so never write one to stand for a missing total.
+  =/  source-total-row=tape
+    ?~  source-total-mills.input
+      ~
+    ;:  weld
+      " INSERT INTO charging-cost-source-totals VALUES ("
+      acquisition
+      ", "
+      (sql-ud u.source-total-mills.input)
+      ");"
+    ==
+  ;:  weld
+    base
+    subtype-row
+    delivered-row
+    start-row
+    end-row
+    mileage-row
+    component-rows
+    source-total-row
+  ==
 ::
 ++  vector-key
   |=  [key=@tas row=vector:ast]
