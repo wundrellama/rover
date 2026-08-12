@@ -289,7 +289,6 @@ CODE="$(derive_code "$PIER")"
 JAR="$(mktemp /tmp/rover-ui-cookie.XXXXXX)"
 HDRS="$(mktemp /tmp/rover-ui-headers.XXXXXX)"
 ASSET="$(mktemp /tmp/rover-ui-asset.XXXXXX)"
-IMPORT_ONE_VEHICLE="$(mktemp /tmp/rover-ui-import-one-vehicle.XXXXXX.json)"
 IMPORT_VEHICLES="$(mktemp /tmp/rover-ui-import-vehicles.XXXXXX.json)"
 IMPORT_VERSION="$(mktemp /tmp/rover-ui-import-version.XXXXXX.json)"
 IMPORT_FILLS="$(mktemp /tmp/rover-ui-import-fills.XXXXXX.json)"
@@ -342,7 +341,7 @@ restore_test_database() {
 
 cleanup() {
   restore_test_database
-  rm -f "$JAR" "$HDRS" "$ASSET" "$IMPORT_ONE_VEHICLE" "$IMPORT_VEHICLES" \
+  rm -f "$JAR" "$HDRS" "$ASSET" "$IMPORT_VEHICLES" \
     "$IMPORT_VERSION" "$IMPORT_FILLS" "$IMPORT_REFUSED"
 }
 trap cleanup EXIT
@@ -3437,28 +3436,13 @@ if prepared["fills"] != upload.fill_count(document):
   fail "fixture 111 browser batching does not match tools/rover-import/upload.py"
 note "fixture 111 PASS - the browser batch split equals the one tools/rover-import/upload.py builds for the same document and batch size"
 
-# One vehicle, three fills, one batch each. A document whose vehicles all appear
-# in the batch that creates them, which is the case the desk supports today.
-# QUESTIONS.md records the case it does not.
-python3 -c 'import copy, json, sys
-source, target = sys.argv[1:3]
-with open(source, encoding="utf-8") as handle:
-    original = json.load(handle)
-document = {
-    "rover-import": 1,
-    "source": copy.deepcopy(original["source"]),
-    "definitions": copy.deepcopy(original["definitions"]),
-    "places": copy.deepcopy(original["places"]),
-    "vehicles": [copy.deepcopy(original["vehicles"][0])],
-}
-with open(target, "w", encoding="utf-8") as handle:
-    json.dump(document, handle, separators=(",", ":"), sort_keys=True)' \
-  "$IMPORT_SOURCE" "$IMPORT_ONE_VEHICLE" ||
-  fail "fixture 112 could not build the single-vehicle document"
+# Two vehicles, six fills, three batches. Both vehicles are created by batch 1,
+# and both carry fills in a batch that did not create them, so every batch after
+# the first has to widen a vehicle it did not build.
 import_before="$(import_provenance_count)"
 [ "$import_before" = 0 ] ||
   fail "fixture 112 the disposable database already holds $import_before synthetic import records"
-import_upload="$(import_browser import-upload "$IMPORT_ONE_VEHICLE" 1)" ||
+import_upload="$(import_browser import-upload "$IMPORT_SOURCE" 2)" ||
   fail "fixture 112 the live browser import failed: $import_upload"
 import_result="$(import_line IMPORT_RESULT "$import_upload")"
 [ -n "$import_result" ] ||
@@ -3467,10 +3451,10 @@ import_result="$(import_line IMPORT_RESULT "$import_upload")"
   fail "fixture 112 the browser import did not succeed: $import_result"
 [ "$(import_line IMPORT_POSTS "$import_upload")" = 3 ] ||
   fail "fixture 112 the browser did not post exactly three batches: $import_upload"
-[ "$(import_line IMPORT_VALIDATED "$import_upload")" = '"3 fills in 3 batches"' ] ||
+[ "$(import_line IMPORT_VALIDATED "$import_upload")" = '"6 fills in 3 batches"' ] ||
   fail "fixture 112 the validate step did not plan three batches: $import_upload"
 [ "$(import_result_field progress <<<"$import_result")" = \
-  'Batch 3 of 3 - imported 3, already-imported 0, conflicts 0, failures 0' ] ||
+  'Batch 3 of 3 - imported 6, already-imported 0, conflicts 0, failures 0' ] ||
   fail "fixture 112 the running tally is wrong: $import_result"
 import_reports_sum="$(
   python3 -c 'import json, re, sys
@@ -3491,12 +3475,12 @@ for report in reports:
     failures += values[3]
 print(len(reports), imported, already, conflicts, failures)' <<<"$import_result"
 )"
-[ "$import_reports_sum" = "3 3 0 0 0" ] ||
-  fail "fixture 112 the per-batch reports do not account for three imported fills: $import_reports_sum"
+[ "$import_reports_sum" = "3 6 0 0 0" ] ||
+  fail "fixture 112 the per-batch reports do not account for six imported fills: $import_reports_sum"
 import_after="$(import_provenance_count)"
-[ "$import_after" = 3 ] ||
-  fail "fixture 112 the database holds $import_after synthetic import records, want 3"
-note "fixture 112 PASS - a real browser split a three-fill document into three batches, posted them one at a time, and every record landed"
+[ "$import_after" = 6 ] ||
+  fail "fixture 112 the database holds $import_after synthetic import records, want 6"
+note "fixture 112 PASS - a real browser split a two-vehicle six-fill document into three batches, posted them one at a time, and every record landed although both vehicles span batches"
 
 python3 -c 'import importlib.util, json, sys
 repository = sys.argv[1]
@@ -3515,19 +3499,19 @@ if rendered != expected:
   fail "fixture 113 the rendered aggregate is not the sum of the per-batch reports"
 note "fixture 113 PASS - the aggregate the browser renders equals the sum of its per-batch reports, line for line with the one upload.py prints"
 
-import_again="$(import_browser import-upload "$IMPORT_ONE_VEHICLE" 1)" ||
+import_again="$(import_browser import-upload "$IMPORT_SOURCE" 2)" ||
   fail "fixture 114 the second live browser import failed: $import_again"
 import_again_result="$(import_line IMPORT_RESULT "$import_again")"
 [ "$(import_result_field outcome <<<"$import_again_result")" = success ] ||
   fail "fixture 114 the re-import did not succeed: $import_again_result"
 import_again_aggregate="$(import_result_field aggregate <<<"$import_again_result")"
-grep -q 'Fills: imported 0, already-imported 3, conflicts 0, failures 0' \
+grep -q 'Fills: imported 0, already-imported 6, conflicts 0, failures 0' \
   <<<"$import_again_aggregate" ||
   fail "fixture 114 the re-import was not an already-imported no-op: $import_again_aggregate"
 import_again_count="$(import_provenance_count)"
-[ "$import_again_count" = 3 ] ||
+[ "$import_again_count" = 6 ] ||
   fail "fixture 114 the re-import changed the provenance row count to $import_again_count"
-note "fixture 114 PASS - re-uploading the same document reported already-imported 3 and wrote nothing"
+note "fixture 114 PASS - re-uploading the same document reported already-imported 6 and wrote nothing"
 
 python3 -c 'import json, sys
 source, vehicles_path, version_path, fills_path = sys.argv[1:5]
@@ -3573,7 +3557,7 @@ if prepared["ok"] or not prepared["verdict"].startswith(wanted):
     fail "fixture 115 a malformed document was not refused with its Rover verdict"
 done
 import_refused_count="$(import_provenance_count)"
-[ "$import_refused_count" = 3 ] ||
+[ "$import_refused_count" = 6 ] ||
   fail "fixture 115 a refused document changed the provenance row count to $import_refused_count"
 note "fixture 115 PASS - the browser refuses a bad version, a non-list vehicles key, and a vehicle without fills, and posts nothing"
 
@@ -3587,9 +3571,9 @@ with open(source, encoding="utf-8") as handle:
 del document["vehicles"][0]["distanceUnit"]
 with open(target, "w", encoding="utf-8") as handle:
     json.dump(document, handle, separators=(",", ":"), sort_keys=True)' \
-  "$IMPORT_ONE_VEHICLE" "$IMPORT_REFUSED" ||
+  "$IMPORT_SOURCE" "$IMPORT_REFUSED" ||
   fail "fixture 116 could not build the desk-refused document"
-import_stopped="$(import_browser import-upload "$IMPORT_REFUSED" 1)" ||
+import_stopped="$(import_browser import-upload "$IMPORT_REFUSED" 2)" ||
   fail "fixture 116 the live browser run failed: $import_stopped"
 import_stopped_result="$(import_line IMPORT_RESULT "$import_stopped")"
 [ "$(import_result_field outcome <<<"$import_stopped_result")" = stopped ] ||
@@ -3602,7 +3586,7 @@ grep -q '%missing-key: import.vehicle.distanceUnit' <<<"$import_stopped_message"
 [ "$(import_line IMPORT_POSTS "$import_stopped")" = 1 ] ||
   fail "fixture 116 the browser sent batches behind a refused one: $import_stopped"
 import_stopped_count="$(import_provenance_count)"
-[ "$import_stopped_count" = 3 ] ||
+[ "$import_stopped_count" = 6 ] ||
   fail "fixture 116 a refused batch changed the provenance row count to $import_stopped_count"
 note "fixture 116 PASS - a batch the desk refuses stops the browser where it stands, names the batch and the desk verdict, and holds back every batch behind it"
 

@@ -106,6 +106,21 @@
   |=  row=vector:ast
   =(value (cell-text key row))
 ::
+++  row-ids
+  |=  [key=@tas rows=(list vector:ast)]
+  ^-  (list @ux)
+  %+  turn  rows
+  |=  row=vector:ast
+  `@ux`(cell-atom key row)
+::
+::  The @f bunt is %.y, so an archived link reads 0 and an active link reads 1.
+++  archived-link-rows
+  |=  rows=(list vector:ast)
+  ^-  (list vector:ast)
+  %+  skim  rows
+  |=  row=vector:ast
+  =(0 (cell-atom %link-archived row))
+::
 ++  index-rows
   |=  $:  key=@tas
           rows=(list vector:ast)

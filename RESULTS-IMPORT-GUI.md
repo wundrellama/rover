@@ -256,3 +256,240 @@ MESSAGE Import complete - imported 3, already-imported 0.
 - No conversion entered the desk. No Hoon learns a source app's name.
 - No floating point. The browser refuses a floating-point JSON token before it
   parses the document.
+
+---
+
+# Rover M1-IMPORT-WIDEN results
+
+Date: 2026-08-12. Branch: `ab-widen-opus`, cut from `ab-importgui-opus`.
+
+Pier: `~/piers/rover-widen-bel`. Fresh disposable fake `~bel`, Ames port 31460,
+pill `brass-408k-1.pill`, booted this run under tmux session `roverwiden`.
+Obelisk `master` at `9de633299b373a1047490b48281a40b457fb2043` (v0.9.0-beta),
+installed from `/tmp/obelisk-fresh` and started with `|start %obelisk %obelisk`.
+HTTP port 8089, read from `.http.ports`. The owner baseline is `%init-db` plus
+`%seed-starters`.
+
+This task closes the blocking finding the M1-IMPORT-GUI run raised.
+
+## What was wrong
+
+A vehicle got its energy-definition and driving-mode links once, when import
+created it, from the fills in that document. `+vehicle-energy-labels` and
+`+vehicle-mode-labels` read `fills.vehicle`, which holds only the current
+batch's slice. A batch that created a vehicle but carried none of its fills
+created a vehicle with no usable energy source and no usable driving mode. Every
+later batch that held a fill for that vehicle failed.
+
+## The ruling
+
+`~/brain/projects/rover/import-gui.md`, section "Import batching defect - ruled
+2026-08-12", candidate A: **import widens the vehicle on every batch.**
+
+When import meets a vehicle that already exists, it adds the energy-definition
+and driving-mode links that batch's fills need. Three constraints came with the
+ruling, and all three are in the code and in a fixture.
+
+1. Import never archives a link. It adds a row, or it clears `archived` on a row
+   it links again.
+2. Import never changes the default energy.
+   `vehicle-default-energy-definitions` is untouched.
+3. Import does not tell a vehicle it created from a vehicle the owner created.
+   It widens either one.
+
+## The change
+
+Three files. No relation, no action, no wire-format change, no change under
+`tools/`.
+
+- `desk/lib/rover-import.hoon:524` `+vehicle-lookup` gains two result sets: the
+  energy links and the driving-mode links the vehicle already carries, each with
+  its `archived` flag. A vehicle that does not exist yet returns both empty.
+- `desk/lib/rover-import.hoon:781` `+widen-energy-links`,
+  `desk/lib/rover-import.hoon:807` `+widen-mode-links`, and
+  `desk/lib/rover-import.hoon:835` `+widen-import-vehicle` build the additive
+  script. For each definition or mode the batch needs: clear `archived` on an
+  archived link, insert a missing link, or write nothing. The script is empty in
+  the common case, and the caller then makes no database write.
+- `desk/app/rover.hoon:2331` the `%vehicle` work arm. The existing-vehicle path
+  still counts `vehicles-reused`. It now also submits the widening script when
+  that script is not empty. The create path is unchanged.
+- `desk/lib/rover-view.hoon:109` `+row-ids` and
+  `desk/lib/rover-view.hoon:117` `+archived-link-rows` read the ids and the
+  archived subset out of the result rows. `+row-ids` also replaces the two
+  hand-written `turn` loops the create path used.
+
+`+sync-energy-current` and `+sync-mode-current` in `desk/lib/rover-act.hoon` are
+neither called nor imitated. Those reconcile a whole set for an owner edit and
+do set `archived = Y`. The widening arms have no branch that writes `Y`.
+
+## The failing test first
+
+The defect reproduced on the fresh pier before any change, through the unchanged
+CLI, exactly as `QUESTIONS.md` recorded it.
+
+```text
+$ python3 tools/rover-import/upload.py tests/fixtures/rover-import-synthetic.json \
+    --url http://localhost:8089/apps/rover/import \
+    --cookie-file <jar> --batch-size 2
+Batch 2/3
+Fills: imported 1, already-imported 0, conflicts 0, failures 1
+Detail: Failure: Diesel Truck / ~2026.01.01..09.00.00 - driving mode was not linked to the vehicle
+Aggregate
+Fills: imported 5, already-imported 0, conflicts 0, failures 1
+EXIT=1
+```
+
+Fixtures 8 to 13 went into `bin/import-test.sh` before the desk change. Fixtures
+1 to 7 passed and fixture 8 failed on the defect.
+
+```text
+import-test: fixture 7 PASS - suspend/revive preserved imported rows and provenance
+import-test: FAIL - batch size 2 upload exited 1: Batch 1/3
+```
+
+## The same CLI run after the change
+
+```text
+Aggregate
+Fills: imported 6, already-imported 0, conflicts 0, failures 0
+Definitions: created 13, reused 32
+Places: created 2, reused 4
+Vehicles: created 2, reused 4
+Station-none fills: 3
+Total cross-check: exact 6, off-by-one 0, beyond 0
+Unit mismatches: 0
+EXIT=0
+```
+
+`Diesel Truck` is the vehicle batch 1 created with no fills. It now carries the
+link batch 2 needed.
+
+```text
+[%energy 116 'Diesel'] [%link-archived 102 1]
+[%mode 116 'Synthetic Normal'] [%link-archived 102 1]
+[%default-energy 116 'Diesel']
+```
+
+## New fixtures
+
+Six new fixtures in `bin/import-test.sh`, 8 to 13. Each builds its own vehicle
+labels and its own provenance keys, because the fixtures share one disposable
+database. Fixtures 8, 9, 11, 12, and 13 drive `tools/rover-import/upload.py`
+unchanged, so they prove the CLI path as well as the desk.
+
+| Fixture | Proves |
+|---|---|
+| 8 | The two-vehicle document at batch size 2 imports 6 of 6, and the vehicle a batch created without fills gains its driving mode |
+| 9 | The same document at batch size 1 imports 6 of 6 across six batches |
+| 10 | The same document in a single POST still imports 6 of 6 |
+| 11 | Re-uploading the whole document reports already-imported for every record and changes no link |
+| 12 | A vehicle the owner made by hand through `/apps/rover/add-vehicle` gains the links its imported fills need and keeps its original default energy |
+| 13 | Import revives the two links the owner had archived, archives none of the rest, keeps the default energy, and the widened links survive a restart |
+
+Fixture 12 is the sharp case for constraint 2. The owner creates the vehicle
+with default energy `Diesel`. The document declares `defaultEnergy` `Gasoline`
+and its fills use `Gasoline`. After the import the vehicle carries both links
+and the default is still `Diesel`.
+
+Fixture 13 is the sharp case for constraint 1. The owner adds `Diesel` and
+`Sport`, then narrows the vehicle through `/apps/rover/edit-vehicle`, which
+archives both links. The import needs both again. It clears `archived` on both,
+leaves `Gasoline` and `Normal` alone, and archives nothing. The fixture then
+counts archived link rows and requires zero.
+
+## Fixture 112 now spans batches
+
+`bin/ui-test.sh` fixture 112 used a single-vehicle document, because that was
+the only case the desk supported. It now uses the whole two-vehicle synthetic
+document at batch size 2: six fills, three batches, both vehicles created by
+batch 1 and both carrying fills in a batch that did not create them. The comment
+pointing at `QUESTIONS.md` is gone, and so is the temporary single-vehicle
+document the fixture used to build.
+
+Fixtures 114, 115, and 116 follow it onto the same document. Their counts move
+from three records to six. Fixture 116 still stops the browser at batch 1 of 3.
+
+```text
+ui-test: fixture 112 PASS - a real browser split a two-vehicle six-fill document into three batches, posted them one at a time, and every record landed although both vehicles span batches
+ui-test: fixture 114 PASS - re-uploading the same document reported already-imported 6 and wrote nothing
+```
+
+## Rover compiles
+
+```text
+$ click -k -i probes/compile-rover.hoon ~/piers/rover-widen-bel
+[0 %avow 0 %noun 0]
+```
+
+## The batteries
+
+All against `~/piers/rover-widen-bel`. Zero FAIL lines in every run.
+
+```text
+$ ROVER_DEMO_ONLY=1 bash bin/ui-test.sh ~/piers/rover-widen-bel
+ui-test: COVERAGE - all 94 defined fixtures executed
+EXIT=0        (99 PASS notes, grep -c FAIL = 0)
+
+$ bash bin/ui-test.sh ~/piers/rover-widen-bel
+ui-test: COVERAGE - ran 66 of 94 defined fixtures
+EXIT=0        (68 PASS notes, grep -c FAIL = 0; the rest need ROVER_DEMO_ONLY)
+
+$ bash bin/schema-test.sh ~/piers/rover-widen-bel
+schema-test: PASS - fixture 17 - SQL/Hoon parity and isolated live Obelisk each have 68 relations; all 75 FK constraints (78 column rows) are RESTRICT; zero cascade/set-default
+schema-test: PASS - COVERAGE - all 1 defined fixtures executed
+
+$ bash bin/import-test.sh ~/piers/rover-widen-bel
+import-test: fixture 13 PASS - import revived the two links the owner had archived, archived none of the rest, kept the default energy, and the widened links survived a restart
+import-test: COVERAGE - all 13 defined import fixtures executed
+
+$ bash bin/view-performance-test.sh ~/piers/rover-widen-bel
+view-performance-test: run 1 - 0.586189s, 279380 bytes, 25 of 420 fills
+view-performance-test: run 2 - 0.583054s, 279380 bytes, 25 of 420 fills
+view-performance-test: COVERAGE - synthetic 420-fill view stayed within 2.0s
+
+$ bash bin/dev-pin-test.sh ~/piers/rover-widen-bel
+dev-pin-test: PASS - fixture 55 source gate - v0.9.0-beta commit and compatibility mold SHA match
+
+$ bash tests/view-linear-test.sh
+view-linear-test: PASS - one-pass derivation feeds a bounded newest-first view
+
+$ python3 tools/rover-import/test_upload.py     -> Ran 6 tests, OK
+$ python3 tools/acar-import/test_convert.py     -> Ran 18 tests, OK
+```
+
+## Restart persistence
+
+Fixture 13 suspends and revives `%rover` after the widening import and compares
+the link set before and against after. They are equal.
+
+A separate end-to-end check ran on a fresh disposable database. `|suspend %rover`
+then `|revive %rover`, then the same batch size 2 upload.
+
+```text
+[0 %avow 0 %noun %restarted]
+Aggregate
+Fills: imported 6, already-imported 0, conflicts 0, failures 0
+EXIT=0
+```
+
+## Fences held
+
+- No relation was added. There is no vehicle-level import provenance.
+- The wire format is unchanged. `convert.py` still emits what the desk reads.
+- `tools/` is unchanged. The CLI was repaired by the desk change alone.
+  `test_upload.py` and `test_convert.py` still pass.
+- No action was added to the `$action` union. It stays at five arms.
+- `docs/schema-m0.sql` is unchanged, and `bin/schema-test.sh` still reports
+  68 relations and 75 RESTRICT foreign keys.
+- No fixture was weakened or deleted. Fixture 112 got a harder document, not an
+  easier one.
+- Q5 conflict detection is untouched. Fixture 4 still reports a field-level
+  conflict and preserves the original, and fixtures 3, 11, and 114 still report
+  already-imported.
+
+## Left open
+
+The second `QUESTIONS.md` finding stays open. One import run still occupies one
+Arvo event, and whether the import loop should yield between records is a
+separate question.

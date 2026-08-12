@@ -2329,27 +2329,49 @@
           (import-write-cards our.bowl serial.run script)
         ::
         %vehicle
+          ?.  (gte (lent commands) 5)
+            (fail 'incomplete vehicle lookup result')
           =/  vehicles  (rows-at:view commands 0)
           ?:  (gth (lent vehicles) 1)
             (fail 'ambiguous existing label')
+          =/  definitions  (rows-at:view commands 1)
+          =/  modes  (rows-at:view commands 2)
+          =/  definition-ids  (row-ids:view %energy-definition-id definitions)
+          =/  mode-ids  (row-ids:view %mode-id modes)
+          ::  A batch that carries none of a vehicle's fills still creates the
+          ::  vehicle, so a later batch meets a vehicle that lacks the energy
+          ::  definitions and driving modes its own fills use. Import widens the
+          ::  vehicle: it adds those links. It never archives a link and never
+          ::  moves vehicle-default-energy-definitions, so a widened vehicle
+          ::  keeps the configuration its owner chose. Ruled 2026-08-12 in
+          ::  ~/brain/projects/rover/import-gui.md.
           ?^  vehicles
             =/  report
               report.run(vehicles-reused +(vehicles-reused.report.run))
-            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
-          =/  definitions  (rows-at:view commands 1)
-          =/  modes  (rows-at:view commands 2)
+            =/  linked-definitions  (rows-at:view commands 3)
+            =/  linked-modes  (rows-at:view commands 4)
+            =/  archived-definitions  (archived-link-rows:view linked-definitions)
+            =/  archived-modes  (archived-link-rows:view linked-modes)
+            =/  script
+              %:  widen-import-vehicle:imp
+                  `@ux`(cell-atom:view %vehicle-id i.vehicles)
+                  definition-ids
+                  mode-ids
+                  (row-ids:view %energy-definition-id linked-definitions)
+                  (row-ids:view %energy-definition-id archived-definitions)
+                  (row-ids:view %mode-id linked-modes)
+                  (row-ids:view %mode-id archived-modes)
+              ==
+            ?~  script
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+            =/  next
+              run(writing %.y, serial +(serial.run), report report)
+            :_  this(import-run `next)
+            (import-write-cards our.bowl serial.run script)
           =/  default
             (row-by-text:view %label default-energy.value.work definitions)
           ?~  default
             (fail 'default energy definition was not found')
-          =/  definition-ids
-            %+  turn  definitions
-            |=  row=vector:ast
-            `@ux`(cell-atom:view %energy-definition-id row)
-          =/  mode-ids
-            %+  turn  modes
-            |=  row=vector:ast
-            `@ux`(cell-atom:view %mode-id row)
           =/  base=@ux  (cut 7 [0 1] eny.bowl)
           =/  script
             %:  insert-import-vehicle:imp

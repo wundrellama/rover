@@ -518,6 +518,9 @@
     $(labels t.labels)
   ==
 ::
+::  Result sets 3 and 4 carry the links the vehicle already has. Import needs
+::  them only when the vehicle exists, to tell a missing link from a link it
+::  must revive. A vehicle import created in this batch has neither.
 ++  vehicle-lookup
   |=  vehicle=import-vehicle:rover
   ^-  tape
@@ -530,7 +533,13 @@
     " SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived; "
     "FROM driving-mode-definitions D WHERE "
     (active-label-predicate 'D' (vehicle-mode-labels vehicle))
-    " SELECT D.mode-id, D.label, D.archived;"
+    " SELECT D.mode-id, D.label, D.archived; "
+    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = '"
+    (sql-quote:act label.vehicle)
+    "' SELECT E.energy-definition-id, E.label, L.archived AS link-archived; "
+    "FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
+    (sql-quote:act label.vehicle)
+    "' SELECT D.mode-id, D.label, L.archived AS link-archived;"
   ==
 ::
 ++  work-lookup
@@ -762,6 +771,89 @@
         recorded-at
     ==
     tank-row
+  ==
+::
+::  Widening an existing vehicle. Import adds a link the vehicle lacks and
+::  clears archived on a link it uses again. It never sets archived, so it
+::  cannot take an energy source or a driving mode away from the owner. Compare
+::  +sync-energy-current and +sync-mode-current in lib/rover-act.hoon, which
+::  reconcile the whole set for an owner edit and do flip the flag.
+++  widen-energy-links
+  |=  [vehicle-id=@ux desired=(list @ux) linked=(list @ux) archived=(list @ux)]
+  ^-  tape
+  ?~  desired
+    ~
+  =/  rest  $(desired t.desired)
+  ?:  (has-id:act i.desired archived)
+    ;:  weld
+      "UPDATE vehicle-energy-definitions SET archived = N WHERE vehicle-id = "
+      (scow %ux vehicle-id)
+      " AND energy-definition-id = "
+      (scow %ux i.desired)
+      "; "
+      rest
+    ==
+  ?:  (has-id:act i.desired linked)
+    rest
+  ;:  weld
+    "INSERT INTO vehicle-energy-definitions VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux i.desired)
+    ", N); "
+    rest
+  ==
+::
+++  widen-mode-links
+  |=  [vehicle-id=@ux desired=(list @ux) linked=(list @ux) archived=(list @ux)]
+  ^-  tape
+  ?~  desired
+    ~
+  =/  rest  $(desired t.desired)
+  ?:  (has-id:act i.desired archived)
+    ;:  weld
+      "UPDATE vehicle-driving-modes SET archived = N WHERE vehicle-id = "
+      (scow %ux vehicle-id)
+      " AND mode-id = "
+      (scow %ux i.desired)
+      "; "
+      rest
+    ==
+  ?:  (has-id:act i.desired linked)
+    rest
+  ;:  weld
+    "INSERT INTO vehicle-driving-modes VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux i.desired)
+    ", N); "
+    rest
+  ==
+::
+::  The script is empty when the vehicle already carries every link the batch
+::  needs, which is the common case. The caller then writes nothing.
+++  widen-import-vehicle
+  |=  $:  vehicle-id=@ux
+          definition-ids=(list @ux)
+          mode-ids=(list @ux)
+          linked-definition-ids=(list @ux)
+          archived-definition-ids=(list @ux)
+          linked-mode-ids=(list @ux)
+          archived-mode-ids=(list @ux)
+      ==
+  ^-  tape
+  %+  weld
+    %:  widen-energy-links
+        vehicle-id
+        (unique-ids:act definition-ids)
+        linked-definition-ids
+        archived-definition-ids
+    ==
+  %:  widen-mode-links
+      vehicle-id
+      (unique-ids:act mode-ids)
+      linked-mode-ids
+      archived-mode-ids
   ==
 ::
 ++  fill-existing-lookup

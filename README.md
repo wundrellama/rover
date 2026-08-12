@@ -93,6 +93,8 @@ Rover does not attach those photos to database records. The converter records th
 
 `tools/rover-import/upload.py` sends bounded batches to the authenticated import endpoint. Import provenance makes identical retries safe and reports changed source records as conflicts.
 
+A vehicle can span more than one batch. Each batch adds the energy sources and driving modes its own fills use. Import never removes one, and it never changes the default energy source.
+
 ```bash
 python3 tools/acar-import/convert.py /path/to/acar-export \
   --zone America/Chicago \
@@ -185,7 +187,6 @@ Rover itself has no published release yet. It does not publish until the Gate 7 
 - Cross-ship sharing and per-field grants.
 - Remote mutation.
 - Browser controls for export.
-- Import of a document whose vehicles span more than one batch. A vehicle keeps only the energy sources and driving modes that the batch which created it named. This limit applies to the command line tool too.
 - Maintenance, service, insurance, tax, and modification records.
 - Database attachment storage.
 - Permanent charger and connector inventory.

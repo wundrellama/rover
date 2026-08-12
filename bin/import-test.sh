@@ -26,6 +26,11 @@ JAR="$(mktemp /tmp/rover-import-cookie.XXXXXX)"
 CONFLICT="$(mktemp /tmp/rover-import-conflict.XXXXXX.json)"
 ATOMIC="$(mktemp /tmp/rover-import-atomic.XXXXXX.json)"
 STRESS="$(mktemp /tmp/rover-import-stress.XXXXXX.json)"
+WIDEN_BATCHED="$(mktemp /tmp/rover-import-widen-batched.XXXXXX.json)"
+WIDEN_SINGLE="$(mktemp /tmp/rover-import-widen-single.XXXXXX.json)"
+WIDEN_WHOLE="$(mktemp /tmp/rover-import-widen-whole.XXXXXX.json)"
+WIDEN_OWNER="$(mktemp /tmp/rover-import-widen-owner.XXXXXX.json)"
+WIDEN_REVIVE="$(mktemp /tmp/rover-import-widen-revive.XXXXXX.json)"
 BACKUP_DB="roverimportowner"
 SWAPPED=0
 RAN=""
@@ -86,7 +91,8 @@ restore_owner() {
 
 cleanup() {
   restore_owner || echo "import-test: cleanup could not restore owner database" >&2
-  rm -f "$JAR" "$CONFLICT" "$ATOMIC" "$STRESS"
+  rm -f "$JAR" "$CONFLICT" "$ATOMIC" "$STRESS" "$WIDEN_BATCHED" "$WIDEN_SINGLE" \
+    "$WIDEN_WHOLE" "$WIDEN_OWNER" "$WIDEN_REVIVE"
 }
 trap cleanup EXIT
 
@@ -103,6 +109,76 @@ expect_count() {
 run_fixture() {
   RAN="$RAN $1"
   note "fixture $1 PASS - $2"
+}
+
+# --- helpers for the widening fixtures 8 to 13 -------------------------------
+# Each widening scenario needs its own vehicle labels and its own provenance
+# keys, because the fixtures share one disposable database.
+widen_document() {
+  local tag="$1" target="$2"
+  python3 - "$FIXTURE" "$target" "$tag" <<'PY'
+import json
+import sys
+
+source, target, tag = sys.argv[1:4]
+with open(source, encoding="utf-8") as handle:
+    document = json.load(handle)
+for vehicle in document["vehicles"]:
+    label = f"{tag} {vehicle['label']}"
+    vehicle["label"] = label
+    for fill in vehicle["fills"]:
+        fill["vehicle"] = label
+        fill["sourceRecordId"] = f"{tag.lower()}-{fill['sourceRecordId']}"
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(document, handle, separators=(",", ":"), sort_keys=True)
+PY
+}
+
+widen_upload() {
+  python3 "$REPO/tools/rover-import/upload.py" "$1" \
+    --url "$URL/apps/rover/import" --cookie-file "$JAR" --batch-size "$2" 2>&1
+}
+
+widen_aggregate() {
+  sed -n '/^Aggregate$/,$p'
+}
+
+# Provenance rows that reached one vehicle. The label is the scenario key.
+vehicle_import_count() {
+  obelisk rover "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE V.label = '$1' SELECT I.source-record-id;" |
+    row_count source-record-id
+}
+
+# Energy links, driving-mode links, and the default energy of one vehicle.
+# archived @f prints as 1 for an active link and 0 for an archived one.
+vehicle_links() {
+  obelisk rover "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = '$1' SELECT E.label AS energy, L.archived AS link-archived; FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '$1' SELECT D.label AS mode, L.archived AS link-archived; FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id WHERE V.label = '$1' SELECT E.label AS default-energy;"
+}
+
+# Only the link content. The raw report also carries per-query server times,
+# which differ on every read and would defeat a comparison.
+vehicle_link_summary() {
+  vehicle_links "$1" |
+    grep -oE "\[%(energy|mode) 116 '[^']*'\] \[%link-archived 102 [01]\]|\[%default-energy 116 '[^']*'\]" |
+    sort
+}
+
+expect_link() {
+  local report="$1" kind="$2" label="$3" state="$4" context="$5"
+  grep -Fq "[%$kind 116 '$label'] [%link-archived 102 $state]" <<<"$report" ||
+    fail "$context - $kind $label is not in link state $state: $report"
+}
+
+expect_no_archived_link() {
+  local report="$1" context="$2" archived
+  archived="$(grep -o '\[%link-archived 102 0\]' <<<"$report" | wc -l | tr -d ' ')"
+  [ "$archived" = 0 ] || fail "$context - an import archived $archived link(s): $report"
+}
+
+expect_default_energy() {
+  local report="$1" label="$2" context="$3"
+  grep -Fq "[%default-energy 116 '$label']" <<<"$report" ||
+    fail "$context - the default energy is not $label: $report"
 }
 
 CODE="$(derive_code)"
@@ -367,11 +443,201 @@ if grep -q '%vehicle-id' <<<"$preferences"; then
 fi
 run_fixture 7 "suspend/revive preserved imported rows and provenance"
 
+# --- Import widens an existing vehicle's links -------------------------------
+# A batch that carries none of a vehicle's fills still creates the vehicle. The
+# batches behind it must add the energy definitions and driving modes their own
+# fills use. Ruling: ~/brain/projects/rover/import-gui.md, section "Import
+# batching defect - ruled 2026-08-12". Import adds a link and revives an
+# archived one. It never archives a link and never moves the default energy.
+
+widen_document Widen2 "$WIDEN_BATCHED" || fail "could not build the batched document"
+widen_batched="$(widen_upload "$WIDEN_BATCHED" 2)"
+widen_batched_status=$?
+[ "$widen_batched_status" = 0 ] \
+  || fail "batch size 2 upload exited $widen_batched_status: $widen_batched"
+widen_batched_aggregate="$(widen_aggregate <<<"$widen_batched")"
+grep -q 'Fills: imported 6, already-imported 0, conflicts 0, failures 0' \
+  <<<"$widen_batched_aggregate" \
+  || fail "batch size 2 aggregate was wrong: $widen_batched"
+grep -q 'Vehicles: created 2, reused 4' <<<"$widen_batched_aggregate" \
+  || fail "batch size 2 vehicle counts were wrong: $widen_batched"
+expect_count "$(vehicle_import_count 'Widen2 Synthetic Gas Car')" 3 "batched gas car"
+expect_count "$(vehicle_import_count 'Widen2 Diesel Truck')" 3 "batched diesel truck"
+widen_batched_links="$(vehicle_links 'Widen2 Diesel Truck')"
+expect_link "$widen_batched_links" energy Diesel 1 "fixture 8"
+expect_link "$widen_batched_links" mode 'Synthetic Normal' 1 "fixture 8"
+expect_no_archived_link "$widen_batched_links" "fixture 8"
+widen_batched_summary="$(vehicle_link_summary 'Widen2 Diesel Truck')"
+run_fixture 8 "the unchanged CLI imported a two-vehicle document at batch size 2, six of six, and the vehicle a batch created without fills gained its driving mode"
+
+widen_document Widen1 "$WIDEN_SINGLE" || fail "could not build the one-per-batch document"
+widen_single="$(widen_upload "$WIDEN_SINGLE" 1)"
+widen_single_status=$?
+[ "$widen_single_status" = 0 ] \
+  || fail "batch size 1 upload exited $widen_single_status: $widen_single"
+widen_single_aggregate="$(widen_aggregate <<<"$widen_single")"
+grep -q 'Fills: imported 6, already-imported 0, conflicts 0, failures 0' \
+  <<<"$widen_single_aggregate" \
+  || fail "batch size 1 aggregate was wrong: $widen_single"
+grep -q 'Vehicles: created 2, reused 10' <<<"$widen_single_aggregate" \
+  || fail "batch size 1 vehicle counts were wrong: $widen_single"
+expect_count "$(vehicle_import_count 'Widen1 Synthetic Gas Car')" 3 "one-per-batch gas car"
+expect_count "$(vehicle_import_count 'Widen1 Diesel Truck')" 3 "one-per-batch diesel truck"
+run_fixture 9 "the same document at batch size 1 imported six of six across six batches"
+
+widen_document Widen0 "$WIDEN_WHOLE" || fail "could not build the one-POST document"
+widen_whole="$(curl -sS -b "$JAR" -H 'content-type: application/json' \
+  --data-binary "@$WIDEN_WHOLE" "$URL/apps/rover/import")"
+grep -q 'Fills: imported 6, already-imported 0, conflicts 0, failures 0' <<<"$widen_whole" \
+  || fail "one-POST report was wrong: $widen_whole"
+grep -q 'Vehicles: created 2, reused 0' <<<"$widen_whole" \
+  || fail "one-POST vehicle counts were wrong: $widen_whole"
+run_fixture 10 "the same document in a single POST still imported six of six"
+
+widen_again="$(widen_upload "$WIDEN_BATCHED" 2)"
+widen_again_status=$?
+[ "$widen_again_status" = 0 ] \
+  || fail "re-upload exited $widen_again_status: $widen_again"
+widen_again_aggregate="$(widen_aggregate <<<"$widen_again")"
+grep -q 'Fills: imported 0, already-imported 6, conflicts 0, failures 0' \
+  <<<"$widen_again_aggregate" \
+  || fail "re-upload was not an already-imported no-op: $widen_again"
+expect_count "$(vehicle_import_count 'Widen2 Synthetic Gas Car')" 3 "re-uploaded gas car"
+expect_count "$(vehicle_import_count 'Widen2 Diesel Truck')" 3 "re-uploaded diesel truck"
+widen_again_summary="$(vehicle_link_summary 'Widen2 Diesel Truck')"
+[ "$widen_again_summary" = "$widen_batched_summary" ] \
+  || fail "the re-upload changed the vehicle links from '$widen_batched_summary' to '$widen_again_summary'"
+run_fixture 11 "re-uploading the whole document reported already-imported for every record and changed no link"
+
+widen_owner_created="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"label":"Widen Owner Truck","energy":"Diesel"}' \
+  "$URL/apps/rover/add-vehicle")"
+[ "$widen_owner_created" = "Added vehicle - Widen Owner Truck"$'\n201' ] \
+  || fail "the owner could not add a vehicle by hand: $widen_owner_created"
+widen_owner_before="$(vehicle_links 'Widen Owner Truck')"
+expect_link "$widen_owner_before" energy Diesel 1 "fixture 12 baseline"
+expect_default_energy "$widen_owner_before" Diesel "fixture 12 baseline"
+if grep -q '\[%mode ' <<<"$widen_owner_before"; then
+  fail "fixture 12 baseline - the hand-made vehicle already has a driving mode: $widen_owner_before"
+fi
+python3 - "$FIXTURE" "$WIDEN_OWNER" <<'PY'
+import copy
+import json
+import sys
+
+source, target = sys.argv[1:3]
+with open(source, encoding="utf-8") as handle:
+    original = json.load(handle)
+vehicle = copy.deepcopy(original["vehicles"][0])
+vehicle["label"] = "Widen Owner Truck"
+vehicle["defaultEnergy"] = "Gasoline"
+for fill in vehicle["fills"]:
+    fill["vehicle"] = "Widen Owner Truck"
+    fill["sourceRecordId"] = f"owner-{fill['sourceRecordId']}"
+document = {
+    "rover-import": 1,
+    "source": copy.deepcopy(original["source"]),
+    "definitions": copy.deepcopy(original["definitions"]),
+    "places": copy.deepcopy(original["places"]),
+    "vehicles": [vehicle],
+}
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(document, handle, separators=(",", ":"), sort_keys=True)
+PY
+[ $? = 0 ] || fail "could not build the owner-vehicle document"
+widen_owner="$(widen_upload "$WIDEN_OWNER" 1)"
+widen_owner_status=$?
+[ "$widen_owner_status" = 0 ] \
+  || fail "owner-vehicle upload exited $widen_owner_status: $widen_owner"
+grep -q 'Fills: imported 3, already-imported 0, conflicts 0, failures 0' \
+  <<<"$(widen_aggregate <<<"$widen_owner")" \
+  || fail "owner-vehicle aggregate was wrong: $widen_owner"
+widen_owner_after="$(vehicle_links 'Widen Owner Truck')"
+expect_link "$widen_owner_after" energy Diesel 1 "fixture 12"
+expect_link "$widen_owner_after" energy Gasoline 1 "fixture 12"
+expect_link "$widen_owner_after" mode 'Synthetic Normal' 1 "fixture 12"
+expect_no_archived_link "$widen_owner_after" "fixture 12"
+expect_default_energy "$widen_owner_after" Diesel "fixture 12"
+run_fixture 12 "a vehicle the owner made by hand gained the links its imported fills need and kept its original default energy"
+
+widen_revive_created="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"label":"Widen Revive Car","energy":"Gasoline","additionalEnergy":["Diesel"],"drivingModes":["Normal","Sport"]}' \
+  "$URL/apps/rover/add-vehicle")"
+[ "$widen_revive_created" = "Added vehicle - Widen Revive Car"$'\n201' ] \
+  || fail "the owner could not add the revive vehicle: $widen_revive_created"
+widen_revive_narrowed="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Widen Revive Car","label":"Widen Revive Car","defaultEnergy":"Gasoline","energySources":["Gasoline"],"drivingModes":["Normal"]}' \
+  "$URL/apps/rover/edit-vehicle")"
+[ "$widen_revive_narrowed" = $'Saved vehicle settings\n201' ] \
+  || fail "the owner could not narrow the revive vehicle: $widen_revive_narrowed"
+widen_revive_before="$(vehicle_links 'Widen Revive Car')"
+expect_link "$widen_revive_before" energy Diesel 0 "fixture 13 baseline"
+expect_link "$widen_revive_before" mode Sport 0 "fixture 13 baseline"
+expect_link "$widen_revive_before" energy Gasoline 1 "fixture 13 baseline"
+expect_link "$widen_revive_before" mode Normal 1 "fixture 13 baseline"
+python3 - "$FIXTURE" "$WIDEN_REVIVE" <<'PY'
+import copy
+import json
+import sys
+
+source, target = sys.argv[1:3]
+with open(source, encoding="utf-8") as handle:
+    original = json.load(handle)
+vehicle = copy.deepcopy(original["vehicles"][1])
+vehicle["label"] = "Widen Revive Car"
+vehicle["defaultEnergy"] = "Gasoline"
+for fill in vehicle["fills"]:
+    fill["vehicle"] = "Widen Revive Car"
+    fill["drivingMode"] = "Sport"
+    fill["sourceRecordId"] = f"revive-{fill['sourceRecordId']}"
+definitions = copy.deepcopy(original["definitions"])
+definitions["driving-modes"].append({"label": "Sport"})
+document = {
+    "rover-import": 1,
+    "source": copy.deepcopy(original["source"]),
+    "definitions": definitions,
+    "places": copy.deepcopy(original["places"]),
+    "vehicles": [vehicle],
+}
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(document, handle, separators=(",", ":"), sort_keys=True)
+PY
+[ $? = 0 ] || fail "could not build the revive document"
+widen_revive="$(widen_upload "$WIDEN_REVIVE" 1)"
+widen_revive_status=$?
+[ "$widen_revive_status" = 0 ] \
+  || fail "revive upload exited $widen_revive_status: $widen_revive"
+grep -q 'Fills: imported 3, already-imported 0, conflicts 0, failures 0' \
+  <<<"$(widen_aggregate <<<"$widen_revive")" \
+  || fail "revive aggregate was wrong: $widen_revive"
+widen_revive_after="$(vehicle_links 'Widen Revive Car')"
+expect_link "$widen_revive_after" energy Diesel 1 "fixture 13"
+expect_link "$widen_revive_after" mode Sport 1 "fixture 13"
+expect_link "$widen_revive_after" energy Gasoline 1 "fixture 13"
+expect_link "$widen_revive_after" mode Normal 1 "fixture 13"
+expect_no_archived_link "$widen_revive_after" "fixture 13"
+expect_default_energy "$widen_revive_after" Gasoline "fixture 13"
+widen_revive_summary="$(vehicle_link_summary 'Widen Revive Car')"
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %hood] %kiln-suspend !>(`@tas`%rover))
+;<  ~  bind:m  (sleep ~s2)
+;<  ~  bind:m  (poke [our %hood] %kiln-revive !>(`@tas`%rover))
+;<  ~  bind:m  (sleep ~s8)
+(pure:m !>(~))' >/dev/null
+widen_revive_restarted="$(vehicle_link_summary 'Widen Revive Car')"
+[ "$widen_revive_restarted" = "$widen_revive_summary" ] \
+  || fail "suspend/revive changed the widened links from '$widen_revive_summary' to '$widen_revive_restarted'"
+run_fixture 13 "import revived the two links the owner had archived, archived none of the rest, kept the default energy, and the widened links survived a restart"
+
 restore_owner || fail "could not restore owner database"
 owner_after="$(curl -s -b "$JAR" "$URL/apps/rover/view" | sha256sum | awk '{print $1}')"
 [ "$owner_before" = "$owner_after" ] \
   || fail "owner database view changed across disposable import fixtures"
 
 executed="$(wc -w <<<"$RAN" | tr -d ' ')"
-[ "$executed" = 7 ] || fail "coverage gate saw $executed of 7 fixtures"
-note "COVERAGE - all 7 defined import fixtures executed"
+[ "$executed" = 13 ] || fail "coverage gate saw $executed of 13 fixtures"
+note "COVERAGE - all 13 defined import fixtures executed"
