@@ -886,7 +886,31 @@
     "<section data-settings-section=\"theme\"><h2>Theme</h2><p>Colors use the UA 571-C palette. Use the header toggle to switch glow on or off.</p><div class=\"theme-swatches\"><span>Background</span><span>Amber</span><span>Warning</span></div><div class=\"theme-glow-control\"><label for=\"glow-intensity\">Glow intensity<input id=\"glow-intensity\" data-glow-intensity type=\"range\" min=\"0\" max=\"100\" step=\"1\" value=\"32\"></label><output data-glow-intensity-output for=\"glow-intensity\">32%</output></div></section>"
     "<section data-settings-section=\"custom-fields\"><h2>Custom fields</h2><form id=\"custom-field-definition-form\"><label>Label<input name=\"label\" required></label><label>Content type<select name=\"contentType\"><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select></label><label class=\"check-option\"><input type=\"checkbox\" name=\"mandatory\"><span>Mandatory on Add Fill</span></label><button type=\"submit\">Create custom field</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form><ul id=\"custom-field-definitions\">"
     (custom-definition-list custom-definitions)
-    "</ul></section><section class=\"settings-placeholder\"><h2>IMPORT / EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
+    "</ul></section><section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section class=\"settings-placeholder\"><h2>EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
+  ==
+::
+::  The import screen carries no server-rendered data. The browser reads the
+::  document, checks it, splits it into batches, and posts one batch at a time,
+::  because /apps/rover/import takes one document per POST and answers 409 while
+::  a run is live. The split is the one tools/rover-import/upload.py makes.
+++  import-screen
+  ^-  tape
+  ;:  weld
+    "<section id=\"import-screen\" class=\"entry-screen app-screen\" hidden>"
+    "<button type=\"button\" class=\"back-control\" data-open-screen=\"settings-screen\">&lsaquo; SETTINGS</button>"
+    "<header><p class=\"eyebrow\">ROVER IMPORT</p><h2>Import records</h2></header>"
+    "<form id=\"import-form\">"
+    "<p class=\"field-note\">Rover checks the document in this browser and sends it in batches. A record that is already imported reports already-imported and writes nothing, so a stopped run recovers by uploading the same file again.</p>"
+    "<label>Import document<input id=\"import-file\" name=\"document\" type=\"file\" accept=\".json,application/json\" required></label>"
+    "<label>Records per batch<input id=\"import-batch-size\" name=\"batchSize\" inputmode=\"numeric\" autocomplete=\"off\" value=\"50\"></label>"
+    "<div class=\"form-actions\"><button type=\"button\" id=\"import-validate\">Validate</button><button type=\"submit\" id=\"import-submit\">Start import</button></div>"
+    "<div class=\"preview-row\"><span>Plan</span><output id=\"import-plan\">&mdash;</output><small>Validate reads the document and counts the batches. It sends nothing.</small></div>"
+    "<div class=\"preview-row\"><span>Progress</span><output id=\"import-progress\" aria-live=\"polite\">&mdash;</output></div>"
+    "<output id=\"import-outcome\" class=\"form-verdict\" data-import-outcome=\"\" aria-live=\"polite\"></output>"
+    "<fieldset id=\"import-batch-reports\"><legend>Batch reports</legend><ol id=\"import-batch-list\"></ol></fieldset>"
+    "<div class=\"preview-row\"><span>Aggregate</span><output id=\"import-aggregate\">&mdash;</output><small>The sum of every batch report in this run.</small></div>"
+    "<button type=\"button\" id=\"import-refresh\" hidden>Refresh the log</button>"
+    "</form></section>"
   ==
 ::
 ++  has-term
@@ -2995,6 +3019,7 @@
       (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods history-page)
       (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations history-page)
       (settings-screen custom-definitions)
+      import-screen
     ==
   (crip html)
 --

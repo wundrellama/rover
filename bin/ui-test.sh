@@ -289,6 +289,11 @@ CODE="$(derive_code "$PIER")"
 JAR="$(mktemp /tmp/rover-ui-cookie.XXXXXX)"
 HDRS="$(mktemp /tmp/rover-ui-headers.XXXXXX)"
 ASSET="$(mktemp /tmp/rover-ui-asset.XXXXXX)"
+IMPORT_ONE_VEHICLE="$(mktemp /tmp/rover-ui-import-one-vehicle.XXXXXX.json)"
+IMPORT_VEHICLES="$(mktemp /tmp/rover-ui-import-vehicles.XXXXXX.json)"
+IMPORT_VERSION="$(mktemp /tmp/rover-ui-import-version.XXXXXX.json)"
+IMPORT_FILLS="$(mktemp /tmp/rover-ui-import-fills.XXXXXX.json)"
+IMPORT_REFUSED="$(mktemp /tmp/rover-ui-import-refused.XXXXXX.json)"
 ROVER_TEST_BACKUP_DB="rovertestowner"
 ROVER_TEST_DB_SWAPPED=0
 
@@ -337,7 +342,8 @@ restore_test_database() {
 
 cleanup() {
   restore_test_database
-  rm -f "$JAR" "$HDRS" "$ASSET"
+  rm -f "$JAR" "$HDRS" "$ASSET" "$IMPORT_ONE_VEHICLE" "$IMPORT_VEHICLES" \
+    "$IMPORT_VERSION" "$IMPORT_FILLS" "$IMPORT_REFUSED"
 }
 trap cleanup EXIT
 
@@ -2359,8 +2365,10 @@ grep -q 'id="custom-field-definition-form"' <<<"$view" \
   || fail "Settings lacks custom-field definition management"
 grep -q 'data-settings-section="theme"' <<<"$view" \
   || fail "Settings lacks theme controls"
-grep -q 'IMPORT / EXPORT.*COMING LATER' <<<"$view" \
-  || fail "Settings lacks import/export placeholder"
+grep -q 'data-settings-section="import"' <<<"$view" \
+  || fail "Settings lacks the import entry point"
+grep -q 'EXPORT.*COMING LATER' <<<"$view" \
+  || fail "Settings lacks the export placeholder"
 grep -q 'GRANTS.*COMING LATER' <<<"$view" \
   || fail "Settings lacks grants placeholder"
 grep -q 'id="vehicle-add-form"' <<<"$view" \
@@ -3348,6 +3356,255 @@ note "fixture 91 PASS - Fuel System contains subtype, tank size, units, and refi
 grep -q '^LAYOUT=' <<<"$header_browser" ||
   fail "fixture 92 live browser did not report its 390px settings measurement: $header_browser"
 note "fixture 92 PASS - at 390px the reorganised settings has no horizontal overflow and every enabled touch target is at least 44px"
+
+# --- M1-IMPORT-GUI - the browser import surface ------------------------------
+# The endpoint takes one document per POST, so the browser splits the document
+# the way tools/rover-import/upload.py does and posts one batch at a time. These
+# fixtures drive that surface through a real browser against the real endpoint.
+IMPORT_SOURCE="$REPO/tests/fixtures/rover-import-synthetic.json"
+[ -f "$IMPORT_SOURCE" ] || fail "fixture 110 the synthetic import document is absent"
+
+import_provenance_count() {
+  rover_report "FROM acquisition-imports I WHERE I.source-app = %synthetic SELECT I.acquisition-id;" |
+    grep -o '\[%acquisition-id ' | wc -l | tr -d ' '
+}
+
+import_browser() {
+  local browser_mode="$1" document="$2" size="$3"
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/ui-browser-fixtures.cjs" \
+      "$browser_mode" "$URL" "$auth_cookie_name" "$auth_cookie" "$running_ship" \
+      '' '' "$document" "$size"
+}
+
+import_result_field() {
+  python3 -c 'import json, sys
+result = json.loads(sys.stdin.read())
+print(result[sys.argv[1]])' "$1"
+}
+
+import_line() {
+  sed -n "s/^$1=//p" <<<"$2"
+}
+
+import_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+import_screen_html="$(html_slice '<section id="import-screen"' '<section id=' <<<"$import_view")"
+import_settings_html="$(html_slice '<section id="settings-screen"' '<section id="import-screen"' <<<"$import_view")"
+[ -n "$import_screen_html" ] || fail "fixture 110 the served view has no import screen"
+grep -q 'class="entry-screen app-screen" hidden' <<<"$import_screen_html" ||
+  fail "fixture 110 the import screen is not a hidden entry screen: $import_screen_html"
+grep -q 'data-open-screen="import-screen"' <<<"$import_settings_html" ||
+  fail "fixture 110 Settings does not open the import screen: $import_settings_html"
+grep -q 'id="import-file"' <<<"$import_screen_html" ||
+  fail "fixture 110 the import screen has no file input"
+grep -q 'accept=".json,application/json"' <<<"$import_screen_html" ||
+  fail "fixture 110 the file input does not accept .json"
+grep -q 'id="import-validate"' <<<"$import_screen_html" ||
+  fail "fixture 110 the import screen has no validate control"
+grep -q 'id="import-submit"' <<<"$import_screen_html" ||
+  fail "fixture 110 the import screen has no submit control"
+grep -q 'id="import-batch-size"' <<<"$import_screen_html" ||
+  fail "fixture 110 the import screen has no batch size control"
+if grep -q 'IMPORT / EXPORT - COMING LATER' <<<"$import_view"; then
+  fail "fixture 110 Settings still shows the import placeholder"
+fi
+note "fixture 110 PASS - Settings opens a hidden import entry screen carrying a .json file input, a batch size, a validate step, and a submit control"
+
+# The parity check uses the whole two-vehicle synthetic document, so it covers
+# the cross-vehicle flatten that +batch_documents performs.
+import_prepared="$(import_browser import-prepare "$IMPORT_SOURCE" 2)" ||
+  fail "fixture 111 the browser could not prepare the document: $import_prepared"
+[ "$(import_line IMPORT_POSTS "$import_prepared")" = 0 ] ||
+  fail "fixture 111 preparing a document posted to the endpoint: $import_prepared"
+python3 -c 'import importlib.util, json, sys
+repository, document_path = sys.argv[1:3]
+spec = importlib.util.spec_from_file_location(
+    "rover_upload", f"{repository}/tools/rover-import/upload.py"
+)
+upload = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(upload)
+prepared = json.loads(sys.stdin.read())
+if not prepared["ok"]:
+    raise SystemExit("browser refused the document: " + prepared["verdict"])
+document = upload.load_document(document_path)
+expected = list(upload.batch_documents(document, 2))
+if prepared["batches"] != expected:
+    raise SystemExit("browser batches differ from upload.py batches")
+if prepared["fills"] != upload.fill_count(document):
+    raise SystemExit("browser fill count differs from upload.py fill count")' \
+  "$REPO" "$IMPORT_SOURCE" <<<"$(import_line IMPORT_PREPARED "$import_prepared")" ||
+  fail "fixture 111 browser batching does not match tools/rover-import/upload.py"
+note "fixture 111 PASS - the browser batch split equals the one tools/rover-import/upload.py builds for the same document and batch size"
+
+# One vehicle, three fills, one batch each. A document whose vehicles all appear
+# in the batch that creates them, which is the case the desk supports today.
+# QUESTIONS.md records the case it does not.
+python3 -c 'import copy, json, sys
+source, target = sys.argv[1:3]
+with open(source, encoding="utf-8") as handle:
+    original = json.load(handle)
+document = {
+    "rover-import": 1,
+    "source": copy.deepcopy(original["source"]),
+    "definitions": copy.deepcopy(original["definitions"]),
+    "places": copy.deepcopy(original["places"]),
+    "vehicles": [copy.deepcopy(original["vehicles"][0])],
+}
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(document, handle, separators=(",", ":"), sort_keys=True)' \
+  "$IMPORT_SOURCE" "$IMPORT_ONE_VEHICLE" ||
+  fail "fixture 112 could not build the single-vehicle document"
+import_before="$(import_provenance_count)"
+[ "$import_before" = 0 ] ||
+  fail "fixture 112 the disposable database already holds $import_before synthetic import records"
+import_upload="$(import_browser import-upload "$IMPORT_ONE_VEHICLE" 1)" ||
+  fail "fixture 112 the live browser import failed: $import_upload"
+import_result="$(import_line IMPORT_RESULT "$import_upload")"
+[ -n "$import_result" ] ||
+  fail "fixture 112 the browser reported no import result: $import_upload"
+[ "$(import_result_field outcome <<<"$import_result")" = success ] ||
+  fail "fixture 112 the browser import did not succeed: $import_result"
+[ "$(import_line IMPORT_POSTS "$import_upload")" = 3 ] ||
+  fail "fixture 112 the browser did not post exactly three batches: $import_upload"
+[ "$(import_line IMPORT_VALIDATED "$import_upload")" = '"3 fills in 3 batches"' ] ||
+  fail "fixture 112 the validate step did not plan three batches: $import_upload"
+[ "$(import_result_field progress <<<"$import_result")" = \
+  'Batch 3 of 3 - imported 3, already-imported 0, conflicts 0, failures 0' ] ||
+  fail "fixture 112 the running tally is wrong: $import_result"
+import_reports_sum="$(
+  python3 -c 'import json, re, sys
+result = json.loads(sys.stdin.read())
+reports = result["reports"]
+imported = already = conflicts = failures = 0
+for report in reports:
+    match = re.search(
+        r"Fills: imported (\d+), already-imported (\d+), conflicts (\d+), failures (\d+)",
+        report,
+    )
+    if match is None:
+        raise SystemExit("batch report has no fill line: " + report)
+    values = [int(value) for value in match.groups()]
+    imported += values[0]
+    already += values[1]
+    conflicts += values[2]
+    failures += values[3]
+print(len(reports), imported, already, conflicts, failures)' <<<"$import_result"
+)"
+[ "$import_reports_sum" = "3 3 0 0 0" ] ||
+  fail "fixture 112 the per-batch reports do not account for three imported fills: $import_reports_sum"
+import_after="$(import_provenance_count)"
+[ "$import_after" = 3 ] ||
+  fail "fixture 112 the database holds $import_after synthetic import records, want 3"
+note "fixture 112 PASS - a real browser split a three-fill document into three batches, posted them one at a time, and every record landed"
+
+python3 -c 'import importlib.util, json, sys
+repository = sys.argv[1]
+spec = importlib.util.spec_from_file_location(
+    "rover_upload", f"{repository}/tools/rover-import/upload.py"
+)
+upload = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(upload)
+result = json.loads(sys.stdin.read())
+rendered = result["aggregate"].strip()
+expected = upload.render_aggregate(upload.aggregate_reports(result["reports"])).strip()
+if rendered != expected:
+    raise SystemExit(
+        "browser aggregate\n" + rendered + "\ndiffers from\n" + expected
+    )' "$REPO" <<<"$import_result" ||
+  fail "fixture 113 the rendered aggregate is not the sum of the per-batch reports"
+note "fixture 113 PASS - the aggregate the browser renders equals the sum of its per-batch reports, line for line with the one upload.py prints"
+
+import_again="$(import_browser import-upload "$IMPORT_ONE_VEHICLE" 1)" ||
+  fail "fixture 114 the second live browser import failed: $import_again"
+import_again_result="$(import_line IMPORT_RESULT "$import_again")"
+[ "$(import_result_field outcome <<<"$import_again_result")" = success ] ||
+  fail "fixture 114 the re-import did not succeed: $import_again_result"
+import_again_aggregate="$(import_result_field aggregate <<<"$import_again_result")"
+grep -q 'Fills: imported 0, already-imported 3, conflicts 0, failures 0' \
+  <<<"$import_again_aggregate" ||
+  fail "fixture 114 the re-import was not an already-imported no-op: $import_again_aggregate"
+import_again_count="$(import_provenance_count)"
+[ "$import_again_count" = 3 ] ||
+  fail "fixture 114 the re-import changed the provenance row count to $import_again_count"
+note "fixture 114 PASS - re-uploading the same document reported already-imported 3 and wrote nothing"
+
+python3 -c 'import json, sys
+source, vehicles_path, version_path, fills_path = sys.argv[1:5]
+with open(source, encoding="utf-8") as handle:
+    document = json.load(handle)
+broken = json.loads(json.dumps(document))
+broken["vehicles"] = {"label": "not a list"}
+with open(vehicles_path, "w", encoding="utf-8") as handle:
+    json.dump(broken, handle, separators=(",", ":"), sort_keys=True)
+broken = json.loads(json.dumps(document))
+broken["rover-import"] = 2
+with open(version_path, "w", encoding="utf-8") as handle:
+    json.dump(broken, handle, separators=(",", ":"), sort_keys=True)
+broken = json.loads(json.dumps(document))
+del broken["vehicles"][0]["fills"]
+with open(fills_path, "w", encoding="utf-8") as handle:
+    json.dump(broken, handle, separators=(",", ":"), sort_keys=True)' \
+  "$IMPORT_SOURCE" "$IMPORT_VEHICLES" "$IMPORT_VERSION" "$IMPORT_FILLS" ||
+  fail "fixture 115 could not build the malformed documents"
+import_refused="$(import_browser import-upload "$IMPORT_VEHICLES" 2)" ||
+  fail "fixture 115 the browser refusal run failed: $import_refused"
+import_refused_result="$(import_line IMPORT_RESULT "$import_refused")"
+[ "$(import_result_field outcome <<<"$import_refused_result")" = refused ] ||
+  fail "fixture 115 the browser did not refuse a non-list vehicles key: $import_refused_result"
+[ "$(import_result_field message <<<"$import_refused_result")" = '%bad-shape: import.vehicles' ] ||
+  fail "fixture 115 the refusal verdict is not in the Rover vocabulary: $import_refused_result"
+[ "$(import_line IMPORT_POSTS "$import_refused")" = 0 ] ||
+  fail "fixture 115 the browser posted a document it had already refused: $import_refused"
+for import_case in "$IMPORT_VERSION:%bad-shape: import.rover-import" \
+                   "$IMPORT_FILLS:%bad-shape: import.vehicle.fills"; do
+  import_bad_path="${import_case%%:*}"
+  import_bad_verdict="${import_case#*:}"
+  import_bad="$(import_browser import-prepare "$import_bad_path" 2)" ||
+    fail "fixture 115 the browser could not read $import_bad_path: $import_bad"
+  [ "$(import_line IMPORT_POSTS "$import_bad")" = 0 ] ||
+    fail "fixture 115 reading a malformed document posted to the endpoint: $import_bad"
+  python3 -c 'import json, sys
+prepared = json.loads(sys.stdin.read())
+wanted = sys.argv[1]
+if prepared["ok"] or not prepared["verdict"].startswith(wanted):
+    raise SystemExit("want a refusal starting " + wanted + ", got " + repr(prepared))' \
+    "$import_bad_verdict" <<<"$(import_line IMPORT_PREPARED "$import_bad")" ||
+    fail "fixture 115 a malformed document was not refused with its Rover verdict"
+done
+import_refused_count="$(import_provenance_count)"
+[ "$import_refused_count" = 3 ] ||
+  fail "fixture 115 a refused document changed the provenance row count to $import_refused_count"
+note "fixture 115 PASS - the browser refuses a bad version, a non-list vehicles key, and a vehicle without fills, and posts nothing"
+
+# The desk validates every document again with +decode-import. A document the
+# browser shape check passes and the desk refuses proves that a refused batch
+# stops the run where it stands, instead of sending the batches behind it.
+python3 -c 'import json, sys
+source, target = sys.argv[1:3]
+with open(source, encoding="utf-8") as handle:
+    document = json.load(handle)
+del document["vehicles"][0]["distanceUnit"]
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(document, handle, separators=(",", ":"), sort_keys=True)' \
+  "$IMPORT_ONE_VEHICLE" "$IMPORT_REFUSED" ||
+  fail "fixture 116 could not build the desk-refused document"
+import_stopped="$(import_browser import-upload "$IMPORT_REFUSED" 1)" ||
+  fail "fixture 116 the live browser run failed: $import_stopped"
+import_stopped_result="$(import_line IMPORT_RESULT "$import_stopped")"
+[ "$(import_result_field outcome <<<"$import_stopped_result")" = stopped ] ||
+  fail "fixture 116 the browser did not stop on the desk refusal: $import_stopped_result"
+import_stopped_message="$(import_result_field message <<<"$import_stopped_result")"
+grep -q 'Import stopped at batch 1 of 3' <<<"$import_stopped_message" ||
+  fail "fixture 116 the browser did not name the batch it stopped at: $import_stopped_message"
+grep -q '%missing-key: import.vehicle.distanceUnit' <<<"$import_stopped_message" ||
+  fail "fixture 116 the browser did not repeat the desk verdict: $import_stopped_message"
+[ "$(import_line IMPORT_POSTS "$import_stopped")" = 1 ] ||
+  fail "fixture 116 the browser sent batches behind a refused one: $import_stopped"
+import_stopped_count="$(import_provenance_count)"
+[ "$import_stopped_count" = 3 ] ||
+  fail "fixture 116 a refused batch changed the provenance row count to $import_stopped_count"
+note "fixture 116 PASS - a batch the desk refuses stops the browser where it stands, names the batch and the desk verdict, and holds back every batch behind it"
 
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"

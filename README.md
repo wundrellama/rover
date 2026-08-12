@@ -79,7 +79,9 @@ The current schema has 68 relations. It covers vehicles, energy, observations, l
 
 ## Import tools
 
-Rover includes a versioned JSON import path for operators. The browser Settings screen does not expose import controls yet.
+Rover includes a versioned JSON import path. Settings opens an import screen that reads a Rover import JSON file, checks it in the browser, and posts it in batches. The command line tool below does the same work from a shell.
+
+The converter stays outside the desk. Both clients read the file the converter writes. Rover never learns the name of the app the records came from.
 
 The import format covers definitions, places, vehicles, and fuel fills. It does not cover charges, consumables, standalone odometers, or service history.
 
@@ -182,7 +184,8 @@ Rover itself has no published release yet. It does not publish until the Gate 7 
 
 - Cross-ship sharing and per-field grants.
 - Remote mutation.
-- Browser controls for import or export.
+- Browser controls for export.
+- Import of a document whose vehicles span more than one batch. A vehicle keeps only the energy sources and driving modes that the batch which created it named. This limit applies to the command line tool too.
 - Maintenance, service, insurance, tax, and modification records.
 - Database attachment storage.
 - Permanent charger and connector inventory.

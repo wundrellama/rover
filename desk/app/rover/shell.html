@@ -629,6 +629,41 @@
       color: var(--rv-warn);
     }
 
+    /*  A run that reports a conflict or a failure keeps the warning color. Only
+        a run that imported everything it was given turns green.
+    */
+    .form-verdict[data-import-outcome="success"] {
+      color: var(--rv-ok);
+    }
+
+    #import-batch-reports {
+      margin: 0;
+      padding: 0.8rem;
+      border: 1px solid var(--rv-olive);
+    }
+
+    #import-batch-reports legend {
+      padding: 0 0.35rem;
+      color: var(--rv-amber-bright);
+      letter-spacing: 0.08em;
+    }
+
+    #import-batch-list {
+      display: grid;
+      gap: 0.5rem;
+      margin: 0.5rem 0 0;
+      padding-left: 1.25rem;
+    }
+
+    #import-aggregate,
+    #import-batch-list li {
+      color: var(--rv-amber-bright);
+      font-size: 0.72rem;
+      letter-spacing: 0;
+      text-transform: none;
+      white-space: pre-wrap;
+    }
+
     .theme-glow-control {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -958,6 +993,213 @@
       return (numerator + denominator / 2n) / denominator;
     }
 
+    //  The import report shape is fixed. tools/rover-import/upload.py reads it
+    //  with the same seven patterns, so the browser and the CLI report the same
+    //  numbers for the same run.
+    const IMPORT_REPORT_PATTERNS = [
+      [
+        'fills',
+        'Fills',
+        /Fills: imported (\d+), already-imported (\d+), conflicts (\d+), failures (\d+)/
+      ],
+      ['definitions', 'Definitions', /Definitions: created (\d+), reused (\d+)/],
+      ['places', 'Places', /Places: created (\d+), reused (\d+)/],
+      ['vehicles', 'Vehicles', /Vehicles: created (\d+), reused (\d+)/],
+      ['stationNone', 'Station-none fills', /Station-none fills: (\d+)/],
+      [
+        'totals',
+        'Total cross-check',
+        /Total cross-check: exact (\d+), off-by-one (\d+), beyond (\d+)/
+      ],
+      ['unitMismatches', 'Unit mismatches', /Unit mismatches: (\d+)/]
+    ];
+
+    //  Decimals stay strings end to end. A floating-point token would go through
+    //  a double on the way back out and could rewrite the owner's own numbers,
+    //  so it is refused here exactly as upload.py refuses it with parse_float.
+    //  An integer that does not survive the round trip is refused for the same
+    //  reason.
+    function importNumberRefusal(text) {
+      let inString = false;
+      let escaped = false;
+      let index = 0;
+      while (index < text.length) {
+        const character = text[index];
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (character === '\\') escaped = true;
+          else if (character === '"') inString = false;
+          index += 1;
+        } else if (character === '"') {
+          inString = true;
+          index += 1;
+        } else if (character === '-' || (character >= '0' && character <= '9')) {
+          let end = index;
+          while (end < text.length && /[-+.0-9eE]/.test(text[end])) end += 1;
+          const token = text.slice(index, end);
+          if (/[.eE]/.test(token)) {
+            return `%bad-shape: import.number · floating-point token ${token} is forbidden`;
+          }
+          if (String(Number(token)) !== token) {
+            return `%bad-shape: import.number · ${token} does not survive a JSON round trip`;
+          }
+          index = end;
+        } else {
+          index += 1;
+        }
+      }
+      return null;
+    }
+
+    function importFillCount(source) {
+      return source.vehicles.reduce(
+        (total, vehicle) => total + vehicle.fills.length,
+        0
+      );
+    }
+
+    //  A port of +batch_documents in tools/rover-import/upload.py. Flatten the
+    //  (vehicle index, fill) pairs across every vehicle, copy the whole document
+    //  per batch including its definitions preamble, empty every vehicle, and
+    //  refill one slice. Each batch is a complete document on its own.
+    function importBatchDocuments(source, batchSize) {
+      const flattened = [];
+      source.vehicles.forEach((vehicle, vehicleIndex) => {
+        vehicle.fills.forEach((fill) => flattened.push([vehicleIndex, fill]));
+      });
+      const starts = [];
+      for (let start = 0; start < flattened.length; start += batchSize) {
+        starts.push(start);
+      }
+      if (!starts.length) starts.push(0);
+      return starts.map((start) => {
+        const batch = structuredClone(source);
+        batch.vehicles.forEach((vehicle) => {
+          vehicle.fills = [];
+        });
+        flattened
+          .slice(start, start + batchSize)
+          .forEach(([vehicleIndex, fill]) => {
+            batch.vehicles[vehicleIndex].fills.push(structuredClone(fill));
+          });
+        return batch;
+      });
+    }
+
+    //  Reads a document and plans its batches. Nothing reaches the endpoint
+    //  until this returns ok. The desk validates every record again with
+    //  +decode-import; this refuses only the document shapes that would make the
+    //  batch split meaningless.
+    function importPrepare(text, batchSizeText) {
+      const size = String(batchSizeText).trim();
+      if (!/^[0-9]+$/.test(size) || Number(size) === 0) {
+        return {ok: false, verdict: '%bad-shape: import.batch-size'};
+      }
+      const numberRefusal = importNumberRefusal(text);
+      if (numberRefusal) return {ok: false, verdict: numberRefusal};
+      let source;
+      try {
+        source = JSON.parse(text);
+      } catch (error) {
+        return {ok: false, verdict: `%bad-shape: import · ${error.message}`};
+      }
+      if (
+        source === null ||
+        typeof source !== 'object' ||
+        Array.isArray(source) ||
+        source['rover-import'] !== 1
+      ) {
+        return {ok: false, verdict: '%bad-shape: import.rover-import'};
+      }
+      if (!('vehicles' in source)) {
+        return {ok: false, verdict: '%missing-key: import.vehicles'};
+      }
+      if (!Array.isArray(source.vehicles)) {
+        return {ok: false, verdict: '%bad-shape: import.vehicles'};
+      }
+      const without = source.vehicles.findIndex(
+        (vehicle) =>
+          vehicle === null ||
+          typeof vehicle !== 'object' ||
+          Array.isArray(vehicle) ||
+          !Array.isArray(vehicle.fills)
+      );
+      if (without >= 0) {
+        return {
+          ok: false,
+          verdict: `%bad-shape: import.vehicle.fills · vehicle ${without}`
+        };
+      }
+      const batches = importBatchDocuments(source, Number(size));
+      const fills = importFillCount(source);
+      const batched = batches.reduce(
+        (total, batch) => total + importFillCount(batch),
+        0
+      );
+      //  upload.py makes the same assertion. A split that loses or duplicates a
+      //  fill is a defect in the split, and no batch of it may be sent.
+      if (fills !== batched) {
+        return {
+          ok: false,
+          verdict: `%unavailable: import · batching changed the fill count from ${fills} to ${batched}`
+        };
+      }
+      return {ok: true, verdict: '', fills, batches};
+    }
+
+    function importParseReport(text) {
+      const parsed = {};
+      IMPORT_REPORT_PATTERNS.forEach(([name, label, pattern]) => {
+        const match = pattern.exec(text);
+        if (!match) throw new Error(`import response omitted ${label}`);
+        const values = match.slice(1).map(Number);
+        parsed[name] = values.length > 1 ? values : values[0];
+      });
+      return parsed;
+    }
+
+    function importAggregateReports(reports) {
+      const aggregate = {
+        fills: [0, 0, 0, 0],
+        definitions: [0, 0],
+        places: [0, 0],
+        vehicles: [0, 0],
+        stationNone: 0,
+        totals: [0, 0, 0],
+        unitMismatches: 0
+      };
+      reports.forEach((report) => {
+        const parsed = importParseReport(report);
+        ['fills', 'definitions', 'places', 'vehicles', 'totals'].forEach(
+          (name) => {
+            aggregate[name] = aggregate[name].map(
+              (value, index) => value + parsed[name][index]
+            );
+          }
+        );
+        aggregate.stationNone += parsed.stationNone;
+        aggregate.unitMismatches += parsed.unitMismatches;
+      });
+      return aggregate;
+    }
+
+    function importRenderAggregate(aggregate) {
+      const [imported, already, conflicts, failures] = aggregate.fills;
+      const [definitionsCreated, definitionsReused] = aggregate.definitions;
+      const [placesCreated, placesReused] = aggregate.places;
+      const [vehiclesCreated, vehiclesReused] = aggregate.vehicles;
+      const [exact, offByOne, beyond] = aggregate.totals;
+      return [
+        `Fills: imported ${imported}, already-imported ${already}, conflicts ${conflicts}, failures ${failures}`,
+        `Definitions: created ${definitionsCreated}, reused ${definitionsReused}`,
+        `Places: created ${placesCreated}, reused ${placesReused}`,
+        `Vehicles: created ${vehiclesCreated}, reused ${vehiclesReused}`,
+        `Station-none fills: ${aggregate.stationNone}`,
+        `Total cross-check: exact ${exact}, off-by-one ${offByOne}, beyond ${beyond}`,
+        `Unit mismatches: ${aggregate.unitMismatches}`
+      ].join('\n');
+    }
+
     function bindEntryScreens() {
       app.querySelectorAll('[data-glow-intensity]').forEach((slider) => {
         slider.value = String(glowIntensity);
@@ -999,6 +1241,152 @@
           document.getElementById('main-hub')?.scrollIntoView();
         });
       });
+      const importForm = app.querySelector('#import-form');
+      if (importForm) {
+        const importFile = app.querySelector('#import-file');
+        const importBatchSize = app.querySelector('#import-batch-size');
+        const importValidateControl = app.querySelector('#import-validate');
+        const importPlan = app.querySelector('#import-plan');
+        const importProgress = app.querySelector('#import-progress');
+        const importOutcome = app.querySelector('#import-outcome');
+        const importBatchList = app.querySelector('#import-batch-list');
+        const importAggregate = app.querySelector('#import-aggregate');
+        const importRefresh = app.querySelector('#import-refresh');
+        let importRunning = false;
+
+        const settleImport = (outcome, message) => {
+          importOutcome.dataset.importOutcome = outcome;
+          importOutcome.value = message;
+        };
+
+        const readImport = async () => {
+          const file = importFile.files[0];
+          if (!file) {
+            settleImport('refused', '%missing-key: import.document');
+            return null;
+          }
+          const prepared = importPrepare(await file.text(), importBatchSize.value);
+          if (!prepared.ok) {
+            importPlan.value = '—';
+            settleImport('refused', prepared.verdict);
+            return null;
+          }
+          importPlan.value =
+            `${prepared.fills} fills in ${prepared.batches.length} batches`;
+          return prepared;
+        };
+
+        importValidateControl.addEventListener('click', async () => {
+          if (importRunning) return;
+          settleImport('', '');
+          const prepared = await readImport();
+          if (prepared) {
+            settleImport(
+              'validated',
+              `${prepared.fills} fills are ready. Rover sent nothing.`
+            );
+          }
+        });
+
+        importRefresh.addEventListener('click', async () => {
+          await loadView(0, 'import-screen');
+        });
+
+        importForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          if (importRunning) return;
+          settleImport('', '');
+          importBatchList.replaceChildren();
+          importAggregate.value = '—';
+          importProgress.value = '—';
+          importRefresh.hidden = true;
+          //  Client-side validation runs again here, so no unchecked document
+          //  reaches the endpoint even when the operator skips Validate.
+          const prepared = await readImport();
+          if (!prepared) return;
+          importRunning = true;
+          const total = prepared.batches.length;
+          const reports = [];
+          let settled = null;
+          for (let index = 0; index < total; index += 1) {
+            importProgress.value = `Batch ${index + 1} of ${total} - sending`;
+            let response;
+            let body;
+            try {
+              //  One batch at a time, never concurrent. The endpoint holds one
+              //  run and answers 409 to a second.
+              response = await fetch('/apps/rover/import', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'content-type': 'application/json'},
+                body: JSON.stringify(prepared.batches[index])
+              });
+              body = await response.text();
+            } catch (error) {
+              settled = [
+                'stopped',
+                `Import stopped at batch ${index + 1} of ${total} - %unavailable: import · ${error.message}`
+              ];
+              break;
+            }
+            //  409 means another client holds the run. Say so and stop. A retry
+            //  loop here would hammer a busy endpoint and hide the state.
+            if (response.status === 409) {
+              settled = [
+                'blocked',
+                `An import is already running. Rover stopped at batch ${index + 1} of ${total} and sent nothing more.`
+              ];
+              break;
+            }
+            if (!response.ok) {
+              settled = [
+                'stopped',
+                `Import stopped at batch ${index + 1} of ${total} - HTTP ${response.status} ${body.trim()}`
+              ];
+              break;
+            }
+            try {
+              importParseReport(body);
+            } catch (error) {
+              settled = [
+                'stopped',
+                `Import stopped at batch ${index + 1} of ${total} - %unavailable: import · ${error.message}`
+              ];
+              break;
+            }
+            reports.push(body);
+            const item = document.createElement('li');
+            item.dataset.importBatch = String(index + 1);
+            item.textContent = body.trim();
+            importBatchList.append(item);
+            const running = importAggregateReports(reports);
+            importProgress.value =
+              `Batch ${index + 1} of ${total} - imported ${running.fills[0]}, already-imported ${running.fills[1]}, conflicts ${running.fills[2]}, failures ${running.fills[3]}`;
+          }
+          importRunning = false;
+          importRefresh.hidden = false;
+          if (reports.length) {
+            const aggregate = importAggregateReports(reports);
+            importAggregate.value = importRenderAggregate(aggregate);
+            if (!settled) {
+              const [imported, already, conflicts, failures] = aggregate.fills;
+              if (conflicts || failures) {
+                settled = [
+                  'incomplete',
+                  `Import finished - conflicts ${conflicts}, failures ${failures}. Read the batch reports.`
+                ];
+              } else {
+                settled = [
+                  'success',
+                  `Import complete - imported ${imported}, already-imported ${already}.`
+                ];
+              }
+            }
+          }
+          if (settled) settleImport(settled[0], settled[1]);
+        });
+      }
+
       app.querySelectorAll('[data-open-vehicle-settings]').forEach((button) => {
         button.addEventListener('click', () => {
           screens.forEach((screen) => {

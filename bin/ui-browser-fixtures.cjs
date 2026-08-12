@@ -1,11 +1,23 @@
 #!/usr/bin/env node
 'use strict';
 
+const fs = require('fs');
 const {chromium} = require(process.env.ROVER_PLAYWRIGHT_MODULE);
 
-const [mode, url, authName, auth, ship, firstVehicle, secondVehicle] =
-  process.argv.slice(2);
+const [
+  mode,
+  url,
+  authName,
+  auth,
+  ship,
+  firstVehicle,
+  secondVehicle,
+  importPath,
+  importBatchSize
+] = process.argv.slice(2);
 const executablePath = process.env.ROVER_CHROMIUM;
+
+const IMPORT_OUTCOMES = ['success', 'incomplete', 'blocked', 'stopped', 'refused'];
 
 function fail(message) {
   console.error(`ui-browser-fixtures: FAIL - ${message}`);
@@ -207,6 +219,93 @@ async function testItemizedChargeEntry(page, vehicle) {
   console.log(`CHARGE_VERDICT=${await verdict.evaluate((node) => node.value)}`);
 }
 
+// Opens Settings, then the import screen, and drives the real file input,
+// the validate step, and the submit control. Counts every POST the page makes
+// to /apps/rover/import, so a client-side refusal can prove it sent nothing.
+async function testImportUpload(page, documentPath, batchSize) {
+  let posts = 0;
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().endsWith('/apps/rover/import')
+    ) {
+      posts += 1;
+    }
+  });
+  await page.locator('[data-open-screen="settings-screen"]').first().click();
+  await page.locator('[data-open-screen="import-screen"]').first().click();
+  const form = page.locator('#import-form');
+  await form.waitFor({state: 'visible'});
+  await page.locator('#import-file').setInputFiles(documentPath);
+  await page.locator('#import-batch-size').fill(String(batchSize));
+  await page.locator('#import-validate').click();
+  await page.waitForFunction(() => {
+    const plan = document.querySelector('#import-plan')?.value || '';
+    const outcome =
+      document.querySelector('#import-outcome')?.dataset.importOutcome || '';
+    return (plan !== '' && plan !== '—') || outcome !== '';
+  });
+  const validated = await page.locator('#import-plan').evaluate(
+    (node) => node.value
+  );
+  await form.locator('button[type="submit"]').click();
+  await page.waitForFunction(
+    (terminal) => {
+      const outcome =
+        document.querySelector('#import-outcome')?.dataset.importOutcome || '';
+      return terminal.includes(outcome);
+    },
+    IMPORT_OUTCOMES,
+    {timeout: 900_000}
+  );
+  const result = await page.evaluate(() => {
+    const outcome = document.querySelector('#import-outcome');
+    return {
+      plan: document.querySelector('#import-plan').value,
+      progress: document.querySelector('#import-progress').value,
+      outcome: outcome.dataset.importOutcome,
+      message: outcome.value,
+      reports: [...document.querySelectorAll('#import-batch-list li')].map(
+        (item) => item.textContent
+      ),
+      aggregate: document.querySelector('#import-aggregate').value
+    };
+  });
+  console.log(`IMPORT_VALIDATED=${JSON.stringify(validated)}`);
+  console.log(`IMPORT_RESULT=${JSON.stringify(result)}`);
+  console.log(`IMPORT_POSTS=${posts}`);
+}
+
+// Runs the shipped client-side validation and batch split over a document's
+// text without sending anything, so a fixture can compare the browser batches
+// against the ones tools/rover-import/upload.py builds for the same file.
+async function testImportPrepare(page, documentPath, batchSize) {
+  let posts = 0;
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().endsWith('/apps/rover/import')
+    ) {
+      posts += 1;
+    }
+  });
+  const source = fs.readFileSync(documentPath, 'utf8');
+  const prepared = await page.evaluate(
+    ({text, size}) => {
+      const result = importPrepare(text, size);
+      return {
+        ok: result.ok,
+        verdict: result.verdict,
+        fills: result.fills ?? null,
+        batches: result.batches ?? null
+      };
+    },
+    {text: source, size: String(batchSize)}
+  );
+  console.log(`IMPORT_PREPARED=${JSON.stringify(prepared)}`);
+  console.log(`IMPORT_POSTS=${posts}`);
+}
+
 (async () => {
   const browser = await chromium.launch({headless: true, executablePath});
   const context = await browser.newContext({viewport: {width: 390, height: 844}});
@@ -276,7 +375,9 @@ async function testItemizedChargeEntry(page, vehicle) {
       }
       console.log(`HEADER_SECOND=${second}`);
 
-      await page.locator('[data-open-screen="settings-screen"]').click();
+      //  The import screen carries a back control to Settings, so name the hub
+      //  button rather than every control that opens the screen.
+      await page.locator('[data-open-screen="settings-screen"]').first().click();
       const slider = page.locator(
         '[data-settings-section="theme"] input[type="range"][data-glow-intensity]'
       );
@@ -392,6 +493,10 @@ async function testItemizedChargeEntry(page, vehicle) {
       await testVehicleSettingsLayout(page, secondVehicle);
     } else if (mode === 'charge-cost') {
       await testItemizedChargeEntry(page, firstVehicle);
+    } else if (mode === 'import-upload') {
+      await testImportUpload(page, importPath, importBatchSize);
+    } else if (mode === 'import-prepare') {
+      await testImportPrepare(page, importPath, importBatchSize);
     } else if (mode === 'layout-current') {
       await testVehicleSettingsLayout(page, firstVehicle);
     } else if (mode === 'capture-current') {
