@@ -120,29 +120,25 @@ links, economy breaks, additives, charging measurements, battery and consumption
 observations, charging cost components, address/coordinate evidence, and station
 identifiers — is **in scope for the single M0 pour** per Gate 6.
 
-## Fixture fence (Gate 7, ratified 2026-08-06) — BLOCKING before publish
+## Fixture fence (Gate 7, ratified 2026-08-06) — CLOSED 2026-08-12
 
-The shipped `%rover` desk must not carry test scaffolding. Today the `$action`
-union in `sur/rover.hoon` exposes 43 actions, of which **32 are fixture seeds,
-fixture readback reports, or diagnostics**, with their urQL bodies in
-`lib/rover-act.hoon`. Nothing auto-seeds (`on-init` only binds Eyre, every seed
-is same-ship-gated and explicitly poked), so a fresh install is clean — but a
-published app must not ship the machinery at all.
+The shipped `%rover` desk must not carry test scaffolding. The gate is closed.
+The `$action` union in `sur/rover.hoon` holds five arms: `init-db`,
+`ensure-ui-schema`, `ensure-def-schema`, `verify-schema`, and `seed-starters`.
+The 32 fixture seeds, readback reports, and diagnostics are gone, along with
+`desk/gen/` and `desk/tests/`. Host-side probes under `probes/` run through
+`click`. The batteries drive the real product actions through Eyre, the way a
+user's UI does.
 
-Before publish, fixture actions move behind a boundary that does not exist in
-the published desk, and the batteries drive the **real product actions the way
-a user's UI does**, instead of reaching through privileged back doors.
+`seed-starters` and its children (`seed-energy-starters`, `seed-consumables`,
+`seed-additives`, `seed-driving-modes`) stay. They are the ratified market-aware
+starter pack a real user needs on first run. `ensure-ui-schema`,
+`ensure-def-schema`, and `verify-schema` are real product or admin surfaces.
 
-**Do not remove product seeding.** `seed-starters` and its children
-(`seed-energy-starters`, `seed-consumables`, `seed-additives`,
-`seed-driving-modes`) are the ratified market-aware starter pack a real user
-needs on first run. `ensure-ui-schema`, `ensure-def-schema`, and `verify-schema`
-are real product or admin surfaces. The fence is not "delete anything named
-`seed`".
-
-Until this gate passes, **Rover does not publish.** Do not add new fixture
-actions to the shipping union — new scaffolding goes behind the fence from the
-start.
+**The fence stays shut.** Do not add a fixture seed, a readback report, or a
+diagnostic to the shipping union. New scaffolding is a probe under `probes/` or
+a battery step through Eyre, from the start. See `PLAN-GATE7.md`,
+`RESULTS-GATE7-T1.md`, and `RESULTS-GATE7-T2.md`.
 
 ## When a design question isn't answered by the specs
 
