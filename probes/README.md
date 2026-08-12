@@ -63,21 +63,16 @@ The calculator probes (`pricing-preview*`, `pricing-total*`,
 `charging-total`) also build the lib and call the arm. They no longer keep
 a poke alive to test a function.
 
-`bin/ui-test.sh` now creates the `seed-spike`, `seed-app-structure`,
+`bin/ui-test.sh` creates the `seed-spike`, `seed-app-structure`,
 `seed-charging-cost`, `seed-demo-fuel`, `seed-demo-def`, and
-`seed-fill-edit-support` state through the product endpoints. The probe
-files for the first four remain in this directory unchanged from master.
-They are superseded, and T2 deletes them.
+`seed-fill-edit-support` state through the product endpoints. T2 deleted
+the superseded seed probe files with the seed actions.
 
-Five seeds are exempt from the re-drive per the 2026-08-11 ruling in
+Five seeds were exempt from the re-drive per the 2026-08-11 ruling in
 `PLAN-GATE7.md`: `seed-fuel-evidence`, `seed-charging-evidence`,
 `seed-consumption`, `seed-location`, `seed-pricing`. The evidence they
-write has no product entry surface, so those areas leave M0 for M1. No
-battery or probe pokes them. Their report probes
-(`fuel-evidence-report`, `charging-evidence-report`, `consumption-report`,
-`location-report`, `pricing-report`) execute but return empty result sets
-on a fence-clean pier. T2 deletes the five seeds, these five reports, and
-their fixtures.
+wrote has no product entry surface, so those areas leave M0 for M1. T2
+deleted the five seeds, their five report probes, and their fixtures.
 
 Note on the date-literal pitfall below: the generated Gate 7 probes embed
 dates in the padded `scow %da` form (`~2026.07.01..12.00.00`) inside their

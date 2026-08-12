@@ -67,3 +67,48 @@ import-test: COVERAGE - all 7 defined import fixtures executed
 $ bash bin/dev-pin-test.sh
 dev-pin-test: PASS - fixture 55 source gate - v0.9.0-beta commit and compatibility mold SHA match
 ```
+
+### Slice b - the 11 seed actions
+
+Deleted from the union, the poke handlers, and `lib/rover-act.hoon`:
+
+- The six re-driven seeds: `seed-spike`, `seed-app-structure`,
+  `seed-charging-cost`, `seed-demo-fuel`, `seed-demo-def`,
+  `seed-fill-edit-support`. The T1 battery already creates their state
+  through the 17 product endpoints.
+- The five exempt seeds, per the 2026-08-11 ruling: `seed-fuel-evidence`,
+  `seed-charging-evidence`, `seed-consumption`, `seed-location`,
+  `seed-pricing`. Their areas leave M0 for M1. The relations stay in the
+  pour.
+
+The call chains went too: the nine `+$ *-ids` blocks, the
+`demo-fuel-check`, `repair-demo-fuel`, `demo-def-check`,
+`demo-def-purchase`, `demo-fill`, and `fill-edit-support-lookup`
+helpers, and the three `on-agent` wires `%rover-demo-fuel`,
+`%rover-demo-def`, and `%rover-fill-edit-support`.
+
+Probe files deleted: the nine superseded seed probes
+(`seed-spike`, `seed-app-structure`, `seed-charging-cost`,
+`seed-charging-evidence`, `seed-consumption`, `seed-demo-fuel`,
+`seed-fuel-evidence`, `seed-location`, `seed-pricing`) and the five
+exempt-area report probes (`fuel-evidence-report`,
+`charging-evidence-report`, `consumption-report`, `location-report`,
+`pricing-report`). T1 measured those five reports as empty result sets
+on a fence-clean pier, so no assertion is lost.
+
+Union count after slice b: 11. `lib/rover-act.hoon`: 2.821 to 2.209
+lines.
+
+Verification, real output (`/tmp/t2-slice-b.log`):
+
+```text
+$ click -k -i probes/compile-rover.hoon ~/piers/rover-t2-opus-bel
+[0 %avow 0 %noun 0]
+
+ui-test: COVERAGE - all 89 defined fixtures executed
+UI_EXIT=0        (zero FAIL lines)
+schema-test: PASS - COVERAGE - all 1 defined fixtures executed
+SCHEMA_EXIT=0
+import-test: COVERAGE - all 7 defined import fixtures executed
+IMPORT_EXIT=0
+```
