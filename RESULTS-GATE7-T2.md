@@ -112,3 +112,84 @@ SCHEMA_EXIT=0
 import-test: COVERAGE - all 7 defined import fixtures executed
 IMPORT_EXIT=0
 ```
+
+### Slice c - calculator wrappers, renames, test files
+
+The four calculator poke wrappers are deleted. The grep evidence for
+each arm, run before the cut:
+
+- `derive-fill-total:act` - product callers in `lib/rover-view.hoon`
+  (1555, 2143, 2653), `lib/rover-import.hoon` (245), and the
+  consumable, edit-fill, and fill write handlers in `app/rover.hoon`.
+  **Arm kept.**
+- `derive-charging-total:act` - product callers in
+  `lib/rover-entry.hoon` (1250, the real add-charge product path),
+  `lib/rover-view.hoon` (1701), and the charge write handler in
+  `app/rover.hoon`. The plan's only-the-poke-calls-it note was stale, as
+  the task brief warned. **Arm kept.**
+- `preview-us:act`, `preview-eur:act` - after the wrappers and
+  `gen/test-pricing.hoon` went, the only callers were the two
+  `pricing-preview` probes, which are host-side scaffolding. No product
+  path uses them. **Arms deleted**, with the two probes and the
+  now-orphaned `format-mills` helper in `rover-act` (`rover-render` has
+  its own, which the product keeps using).
+
+`rename-energy-source` and `rename-consumable` are deleted per the
+2026-08-12 ruling: union entries, poke handlers, the
+`%rover-energy-rename` and `%rover-consumable-rename` wires, and the
+`energy-definition-lookup`, `consumable-definition-lookup`,
+`rename-energy-definition`, and `rename-consumable-definition` arms.
+
+Battery fixtures removed with the renames:
+
+- **Fixture 35** asserted that an owner rename of `Gasoline` survived a
+  `seed-starters` re-seed. Every assertion depends on the renamed label,
+  so the fixture came out whole, with its two rename pokes, its re-seed
+  poke, and the rename-back poke. The fixture 33 vehicle cleanup that
+  sat inside the same region stays.
+- **Fixture 54** asserted the same for a `DEF` consumable rename. Same
+  removal, plus the now-unused `read_consumable_starter_report` helper
+  and `URQL_CONSUMABLE_STARTER` block.
+
+The battery now pokes `%rover-action` three times, not the five the
+task predicted: `init-db` x1 and `seed-starters` x2. The two missing
+`seed-starters` pokes were the fixture 35 and fixture 54 re-seed pokes.
+They existed only to prove a rename survives a re-seed, so they went
+with their fixtures rather than staying as pokes with no assertion.
+
+In-desk test files deleted: `desk/gen/test-entry.hoon`,
+`test-import.hoon`, `test-pricing.hoon`, `test-render.hoon`, and
+`desk/tests/lib/rover-enums.hoon`. Neither `desk.bill` nor
+`app/rover.hoon` referenced them. Their host-side runner probes went
+too: `compile-test-*`, `run-test-*`, and `compile-rover-enums`.
+
+One dependency surfaced during the cut: `probes/rating-scale-report.hoon`
+(the ratified import Q2 ignition-mode fixture) built the deleted
+`tests/lib/rover-enums.hoon` mirror. The probe now builds
+`lib/rover-act.hoon` and maps the eight energy labels through the live
+`+rating-scale-for` product arm, so the assertion survives and reads
+the real lookup instead of a mirror:
+
+```text
+$ click -k -i probes/rating-scale-report.hoon ~/piers/rover-t2-opus-bel
+[0 %avow 0 %noun ['Gasoline' 0 %octane] ['Ethanol' 0 %octane] ['Propane' 0 %octane] ['Diesel' 0 %cetane] ['Electricity' 0] ['Hydrogen' 0] ['CNG' 0] ['LNG' 0] 0]
+```
+
+Union count after slice c: **5**. `lib/rover-act.hoon`: 2.209 to 2.138
+lines.
+
+Verification, real output (`/tmp/t2-slice-c.log`):
+
+```text
+$ click -k -i probes/compile-rover.hoon ~/piers/rover-t2-opus-bel
+[0 %avow 0 %noun 0]
+
+ui-test: COVERAGE - all 87 defined fixtures executed
+UI_EXIT=0        (zero FAIL lines; 87 = 89 minus removed fixtures 35 and 54)
+schema-test: PASS - COVERAGE - all 1 defined fixtures executed
+SCHEMA_EXIT=0
+import-test: COVERAGE - all 7 defined import fixtures executed
+IMPORT_EXIT=0
+dev-pin-test: PASS - fixture 55 source gate - v0.9.0-beta commit and compatibility mold SHA match
+PIN_EXIT=0
+```

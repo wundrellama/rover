@@ -59,9 +59,11 @@ error fact: `[0 %avow 0 %noun 1 ...]`. `integrity-zero-subtype` and
 `integrity-two-subtypes` exercise the Rover-side XOR check, so they build
 `lib/rover-act.hoon` and call `validate-acquisition-subtypes` directly.
 
-The calculator probes (`pricing-preview*`, `pricing-total*`,
-`charging-total`) also build the lib and call the arm. They no longer keep
-a poke alive to test a function.
+The calculator probes (`pricing-total*`, `charging-total`) also build
+the lib and call the arm. They no longer keep a poke alive to test a
+function. The `pricing-preview` pair died with the `preview-us` and
+`preview-eur` arms in T2. No product path called those two arms after
+the poke wrappers went.
 
 `bin/ui-test.sh` creates the `seed-spike`, `seed-app-structure`,
 `seed-charging-cost`, `seed-demo-fuel`, `seed-demo-def`, and
@@ -113,8 +115,9 @@ owner-facing state. Drop it from the dojo when finished
 
 ### `rating-scale-report.hoon`
 Import Q2. Reads the ignition-mode lookup — Rover stores **nothing** about
-ignition mode, so this builds `tests/lib/rover-enums` and reads
-`+rating-scales`.
+ignition mode, so this builds `lib/rover-act` and maps the eight energy
+labels through the live `+rating-scale-for` product arm. It read a mirror
+in `tests/lib/rover-enums` before T2 deleted that file.
 
 Expect exactly:
 
@@ -127,10 +130,11 @@ have no anti-knock rating at all, and CNG/LNG are rated on **methane number**,
 a third scale Rover deliberately does not model. A future edit that
 "helpfully" classifies CNG as `%octane` must fail this fixture.
 
-**Falsifiability verified 2026-07-30**: flipping Diesel to `` `%octane `` in
-`tests/lib/rover-enums.hoon`, committing, and re-running showed the change in
-the output — the probe reads live built state, not a cached constant. Restored
-afterward.
+**Falsifiability verified 2026-07-30** against the retired mirror: flipping
+Diesel to `` `%octane ``, committing, and re-running showed the change in
+the output — the probe reads live built state, not a cached constant. The
+probe now reads `+rating-scale-for` in `lib/rover-act.hoon`, so the same
+flip there fails it the same way.
 
 ### `import-provenance.hoon`
 Import Q5. Pours `acquisition-imports` into a **throwaway `impprobe` database** with the
@@ -176,25 +180,9 @@ two separate pokes because `CREATE DATABASE` and a query against it cannot
 share one request. It writes only to `addrq9probe`, never `%rover`, and is
 one-shot unless that throwaway database is dropped from the dojo.
 
-### `run-test-import.hoon`
-
-Compiles and executes `desk/gen/test-import.hoon` from the live `%rover` desk.
-It checks the import decoder, mandatory `defaultEnergy`, Q14 unit validation,
-source-total classification, the atomic fill-plus-provenance mutation script,
-and the split provenance/support lookup shapes. Expect:
-
-    [0 %avow 0 %noun %import-tests-pass]
-
-For the real-substrate import battery, run:
-
-    bin/import-test.sh ~/piers/rover-binbel
-
-That script swaps the owner database out, pours a disposable current schema,
-imports only synthetic data, proves happy path, a 51-place/2-vehicle
-same-import ID stress case, apostrophe escaping, lossless multiline notes,
-re-import, conflict, per-record atomicity, provenance boundary, and restart
-persistence, then restores the owner database and compares the rendered view
-hash. A green run ends with:
+The in-desk `gen/test-*` generators and `desk/tests/` are gone with T2.
+For the real-substrate import battery, run `bin/import-test.sh <pier>`.
+A green run ends with:
 
     import-test: COVERAGE - all 7 defined import fixtures executed
 

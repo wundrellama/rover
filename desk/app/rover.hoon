@@ -1005,20 +1005,6 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
-      %rename-energy-source
-        =/  wir=path  /rover-energy-rename/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (energy-definition-lookup:act old-label.a)])
-        :_  this(pending (~(put by pending) wir new-label.a))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %rename-consumable
-        =/  wir=path  /rover-consumable-rename/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (consumable-definition-lookup:act old-label.a)])
-        :_  this(pending (~(put by pending) wir new-label.a))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
       %verify-schema
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%script %rover %vector verify-schema:act])
@@ -1026,14 +1012,6 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
-      %preview-us
-        `this(preview `(preview-us:act entered-cents.a))
-      %preview-eur
-        `this(preview `(preview-eur:act entered-mills.a))
-      %derive-fill-total
-        `this(total `(derive-fill-total:act input.a))
-      %derive-charging-total
-        `this(charging-total `(derive-charging-total:act components.a))
     ==
   ==
 ::
@@ -1171,64 +1149,6 @@
       =/  jon  !>([%script %rover %vector script])
       =/  next-pending
         (~(put by (~(del by pending) wire)) write-wire 'seed-starters-write')
-      :_  this(pending next-pending)
-      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
-          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-      ==
-    ::
-        %kick
-      `this(pending (~(del by pending) wire))
-    ::
-        %watch-ack
-      `this
-    ==
-  ::
-      [%rover-energy-rename *]
-    ?+  -.sign  (on-agent:def wire sign)
-        %fact
-      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
-      =/  new-label  (~(get by pending) wire)
-      ?:  ?|  ?=(%.n -.res)
-              ?=(~ new-label)
-          ==
-        `this(last `res)
-      =/  definitions  (rows-at:view p.res 0)
-      ?.  =(1 (lent definitions))
-        `this(last `res)
-      =/  write-wire=path  /rover/energy-rename/(scot %da now.bowl)
-      =/  jon
-        !>([%script %rover %vector (rename-energy-definition:act `@ux`(cell-atom:view %energy-definition-id (snag 0 definitions)) u.new-label)])
-      =/  next-pending
-        (~(put by (~(del by pending) wire)) write-wire 'rename-energy-source')
-      :_  this(pending next-pending)
-      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
-          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-      ==
-    ::
-        %kick
-      `this(pending (~(del by pending) wire))
-    ::
-        %watch-ack
-      `this
-    ==
-  ::
-      [%rover-consumable-rename *]
-    ?+  -.sign  (on-agent:def wire sign)
-        %fact
-      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
-      =/  new-label  (~(get by pending) wire)
-      ?:  ?|  ?=(%.n -.res)
-              ?=(~ new-label)
-          ==
-        `this(last `res)
-      =/  definitions  (rows-at:view p.res 0)
-      ?.  =(1 (lent definitions))
-        `this(last `res)
-      =/  write-wire=path  /rover/consumable-rename/(scot %da now.bowl)
-      =/  jon
-        !>([%script %rover %vector (rename-consumable-definition:act `@ux`(cell-atom:view %consumable-id (snag 0 definitions)) u.new-label)])
-      =/  next-pending
-        (~(put by (~(del by pending) wire)) write-wire 'rename-consumable')
       :_  this(pending next-pending)
       :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]

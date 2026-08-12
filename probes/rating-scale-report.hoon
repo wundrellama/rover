@@ -2,7 +2,6 @@
 ;<  our=@p  bind:m  get-our
 ;<  now=@da  bind:m  get-time
 ;<  res=(unit vase)  bind:m
-  (build-file [our %rover da+now] /tests/lib/rover-enums/hoon)
+  (build-file [our %rover da+now] /lib/rover-act/hoon)
 ?~  res  (pure:m !>(%build-failed))
-=+  !<(scales=(list [@t (unit ?(%octane %cetane))]) (slap u.res limb+%rating-scales))
-(pure:m !>(scales))
+(pure:m (slap u.res (ream (crip "(turn ~['Gasoline' 'Ethanol' 'Propane' 'Diesel' 'Electricity' 'Hydrogen' 'CNG' 'LNG'] |=(l=@t [l (rating-scale-for l)]))"))))

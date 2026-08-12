@@ -329,14 +329,8 @@
   $%  [%init-db ~]
       [%ensure-ui-schema ~]
       [%ensure-def-schema ~]
-      [%rename-energy-source old-label=@t new-label=@t]
-      [%rename-consumable old-label=@t new-label=@t]
-      [%seed-starters ~]
       [%verify-schema ~]
-      [%derive-charging-total components=(list charging-component-amount)]
-      [%preview-us entered-cents=@ud]
-      [%preview-eur entered-mills=@ud]
-      [%derive-fill-total input=fill-total-input]
+      [%seed-starters ~]
   ==
 +$  result
   $%  [%ok msg=@t]

@@ -409,37 +409,6 @@
   ?>  (gth denominator 0)
   (div (add numerator (div denominator 2)) denominator)
 ::
-++  format-mills
-  |=  [prefix=@t mills=@ud]
-  ^-  @t
-  =/  major  (div mills 1.000)
-  =/  fraction  (mod mills 1.000)
-  =/  fraction-text=tape  (scow %ud fraction)
-  =/  padded=tape
-    ?:  (lth fraction 10)
-      (weld "00" fraction-text)
-    ?:  (lth fraction 100)
-      (weld "0" fraction-text)
-    fraction-text
-  (crip (weld (trip prefix) (weld (scow %ud major) (weld "." padded))))
-::
-++  preview-us
-  |=  entered-cents=@ud
-  ^-  price-preview:rover
-  =/  mills  (add (mul entered-cents 10) 9)
-  [%usd %us-usd-gal entered-cents 2 mills (format-mills '$' mills)]
-::
-++  preview-eur
-  |=  entered-mills=@ud
-  ^-  price-preview:rover
-  :*  %eur
-      %eu-eur-litre
-      entered-mills
-      3
-      entered-mills
-      (format-mills 'EUR ' entered-mills)
-  ==
-::
 ++  derive-fill-total
   |=  input=fill-total-input:rover
   ^-  total-proof:rover
@@ -1017,41 +986,12 @@
     ";"
   ==
 ::
-++  energy-definition-lookup
-  |=  label=@t
-  ^-  tape
-  ;:  weld
-    "FROM energy-definitions E WHERE E.label = '"
-    (sql-quote label)
-    "' AND E.archived = N SELECT E.energy-definition-id, E.label, E.archived;"
-  ==
-::
-++  consumable-definition-lookup
-  |=  label=@t
-  ^-  tape
-  ;:  weld
-    "FROM consumable-definitions C WHERE C.label = '"
-    (sql-quote label)
-    "' AND C.archived = N SELECT C.consumable-id, C.label, C.archived;"
-  ==
-::
 ++  new-vehicle-lookup
   ^-  tape
   ;:  weld
     "FROM energy-definitions E WHERE E.archived = N SELECT E.energy-definition-id, E.label, E.physical-kind; "
     "FROM driving-mode-definitions D WHERE D.archived = N SELECT D.mode-id, D.label; "
     "FROM consumable-definitions C WHERE C.label = 'DEF' AND C.archived = N SELECT C.consumable-id, C.label, C.quantity-unit;"
-  ==
-::
-++  rename-energy-definition
-  |=  [definition-id=@ux new-label=@t]
-  ^-  tape
-  ;:  weld
-    "UPDATE energy-definitions SET label = '"
-    (sql-quote new-label)
-    "' WHERE energy-definition-id = "
-    (scow %ux definition-id)
-    ";"
   ==
 ::
 ++  insert-energy-source-type
@@ -1082,17 +1022,6 @@
     "', N, "
     (scow %da now)
     ");"
-  ==
-::
-++  rename-consumable-definition
-  |=  [consumable-id=@ux new-label=@t]
-  ^-  tape
-  ;:  weld
-    "UPDATE consumable-definitions SET label = '"
-    (sql-quote new-label)
-    "' WHERE consumable-id = "
-    (scow %ux consumable-id)
-    ";"
   ==
 ::
 ++  vehicle-edit-lookup
