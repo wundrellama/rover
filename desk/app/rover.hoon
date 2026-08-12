@@ -401,6 +401,16 @@
       [%give %kick ~[pax] ~]
   ==
 ::
+++  restart-http
+  |=  eyre-id=@ta
+  ^-  (list card)
+  %:  http-give
+      eyre-id
+      503
+      ['content-type' 'text/plain']~
+      `(text-octs 'Rover restarted while saving. Please submit again.')
+  ==
+::
 ++  shell-page
   ^-  octs
   (as-octs:mimes:html shell-html)
@@ -1029,12 +1039,7 @@
         `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
       ?~  body
         :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: consumable'))
@@ -1088,12 +1093,7 @@
         `this
       ?~  body
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       =/  decoded  (decode-consumable:entry u.body)
       =/  next
         this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
@@ -1185,12 +1185,7 @@
         `this
       ?~  body
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       =/  decoded  (decode-vehicle-edit:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1377,12 +1372,7 @@
         `this
       ?~  body
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
@@ -1466,12 +1456,7 @@
         `this
       ?~  body
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       =/  decoded  (decode-fill:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1591,12 +1576,7 @@
         `this
       ?~  body
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       =/  decoded  (decode-fill:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1765,12 +1745,7 @@
         `this
       ?~  body
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       =/  decoded  (decode-new-vehicle:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1852,12 +1827,7 @@
         `this
       ?~  label
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: add-vehicle'))
@@ -1881,12 +1851,7 @@
         `this
       ?~  input
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-preference-lookup-refused p.res]
         :_  this
@@ -1947,12 +1912,7 @@
         `this
       ?~  input
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-preference-write-refused p.res]
         :_  this
@@ -1992,12 +1952,7 @@
         `this
       ?~  input
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-odometer-lookup-refused p.res]
         :_  this
@@ -2057,12 +2012,7 @@
         `this
       ?~  input
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-odometer-write-refused p.res]
         :_  this
@@ -2100,12 +2050,7 @@
         `this
       ?~  input
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-charge-lookup-refused p.res]
         :_  this
@@ -2201,12 +2146,7 @@
         `this
       ?~  input
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-charge-write-refused p.res]
         :_  this
@@ -2815,12 +2755,7 @@
               fill-pending  (~(del by fill-pending) wire)
               fill-body-pending  (~(del by fill-body-pending) wire)
             ==
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-fill-lookup-refused p.res]
         :_  this
@@ -3092,12 +3027,7 @@
         `this
       ?~  input
         :_  this(http-pending (~(del by http-pending) wire))
-        %:  http-give
-            u.eyre-id
-            503
-            ['content-type' 'text/plain']~
-            `(text-octs 'Rover restarted while saving. Please submit again.')
-        ==
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-fill-write-refused p.res]
         :_  this
