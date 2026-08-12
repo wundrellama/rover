@@ -12,8 +12,10 @@ M1 and T2 deletes all five. Six seeds re-drive, not eleven. An earlier amendment
 today exempted only `seed-consumption` on an incomplete scoping; this supersedes
 it. See "RE-DRIVE THROUGH EYRE".
 
-Open finding, not yet ruled: no endpoint archives or renames a definition, so a
-mistyped owner-created definition is permanent. Needs a ruling before publish.
+Open finding, RULED 2026-08-12: `rename-energy-source` and `rename-consumable`
+are deleted, not endpointed. Full definition lifecycle (rename + archive for
+energy sources, driving modes, consumables) becomes one M1 task. The union lands
+at 5, not 7. See "KEEP".
 
 ## Why
 
@@ -34,16 +36,24 @@ fence removes code; it does not gate it.
 
 ## Triage
 
-### KEEP — 7
+### KEEP — 5
 
 `init-db` · `ensure-ui-schema` · `ensure-def-schema` · `verify-schema` ·
-`seed-starters` · `rename-energy-source` · `rename-consumable`
+`seed-starters`
 
 The four ratified schema/admin surfaces plus the market-aware starter pack.
 
-The two renames are **conditional**: they are real user actions with no Eyre
-endpoint, so today they ship unreachable. Either add endpoints in this task or
-drop them. Do not ship a user action a user cannot invoke. Decide explicitly.
+**`rename-energy-source` and `rename-consumable` are DELETED — ruled
+2026-08-12.** They were real user actions with no Eyre endpoint, so they shipped
+unreachable. Both are one-line urQL `UPDATE ... SET label` statements, so
+rebuilding them later costs nothing. Custom fields already have a full lifecycle
+(`add-custom-field`, `change-custom-field-type`, `archive-custom-field`) while
+energy sources, driving modes, and consumables have create-only endpoints — the
+gap is uneven implementation, not a design stance. Shipping rename without
+archive would be a half-fix, because the real need is "I mistyped a definition,
+make it go away." **M1 gains one task: rename and archive for all three
+definition types, copying the `archive-custom-field` pattern.** The union lands
+at 5.
 
 ### DROP THE POKE, KEEP THE ARM — 4
 
@@ -206,7 +216,7 @@ analysis clean.
 
 ## Result
 
-`sur/rover.hoon`: 43 actions → 7 (or 5 if the renames are dropped).
+`sur/rover.hoon`: 43 actions → 5.
 `lib/rover-act.hoon`: sheds most of 3,237 lines.
 `desk/gen/`, `desk/tests/`: empty or gone.
 
