@@ -73,13 +73,6 @@
       public-place=@ux
       mixed-station=@ux
   ==
-+$  integrity-ids
-  $:  definition=@ux
-      vehicle=@ux
-      acquisition=@ux
-      place=@ux
-      station=@ux
-  ==
 +$  entry-ids
   $:  acquisition=@ux
       odometer=@ux
@@ -547,13 +540,6 @@
     "FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id WHERE V.label = 'Rover Demo Diesel' SELECT A.consumable-acquisition-id;"
   ==
 ::
-++  demo-starter-report
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Rover Demo Gasoline' OR V.label = 'Rover Demo Diesel' SELECT V.label AS vehicle, A.energy-definition-id AS demo-energy-definition-id, E.energy-definition-id AS starter-energy-definition-id, E.label AS starter-energy; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = 'Rover Demo Gasoline' OR V.label = 'Rover Demo Diesel' SELECT V.label AS vehicle, A.energy-definition-id AS demo-energy-definition-id, S.energy-definition-id AS subtype-parent-definition-id, L.subtype-id AS demo-subtype-id, S.subtype-id AS starter-subtype-id, S.label AS starter-subtype;"
-  ==
-::
 ++  demo-def-purchase
   |=  $:  base=@ux
           ordinal=@ud
@@ -602,19 +588,6 @@
     "FROM additive-definitions A SELECT A.additive-id, A.label, A.archived; "
     "FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived;"
   ==
-::
-++  starter-report
-  ^-  tape
-  ;:  weld
-    "FROM energy-definitions E WHERE E.archived = N SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived; "
-    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id SELECT E.label AS energy, S.label AS subtype, S.archived; "
-    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; "
-    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals;"
-  ==
-::
-++  consumable-starter-report
-  ^-  tape
-  "FROM consumable-definitions C WHERE C.archived = N SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;"
 ::
 ++  consumable-lookup
   |=  [vehicle-label=@t consumable-label=@t]
@@ -704,33 +677,6 @@
     odometer-script
   ==
 ::
-++  consumable-report
-  |=  [vehicle-label=@t consumable-label=@t observed-start=@da]
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN consumable-definitions D ON A.consumable-id = D.consumable-id JOIN consumable-purchases P ON A.consumable-acquisition-id = P.consumable-acquisition-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND D.label = '"
-    (sql-quote consumable-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT V.label AS vehicle, D.label AS consumable, P.quantity-milli, P.quantity-unit, P.unit-price-mills, P.currency, P.settlement-mode, P.price-profile, P.minor-unit-decimals, P.cash-increment-mills; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' SELECT A.acquisition-id AS fuel-acquisition;"
-  ==
-::
-++  charge-subtype-report
-  |=  [vehicle-label=@t observed-start=@da]
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN charging-session-subtype L ON C.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT V.label AS vehicle, S.label AS charging-subtype;"
-  ==
-::
 ++  fill-edit-support-lookup
   |=  label=@t
   ^-  tape
@@ -775,94 +721,6 @@
     ", 'Road Trip', N, "
     (scow %da now)
     ");"
-  ==
-::
-++  fill-edit-report
-  |=  [vehicle-label=@t observed-start=@da]
-  ^-  tape
-  =/  prefix=tape
-    ;:  weld
-      "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id "
-      "WHERE V.label = '"
-      (sql-quote vehicle-label)
-      "' AND A.observed-start = "
-      (scow %da observed-start)
-    ==
-  ;:  weld
-    prefix
-    " SELECT V.label AS vehicle, A.acquisition-id, A.observed-start, A.source-zone, F.quantity-milli, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT S.label AS subtype; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT S.label AS station; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT D.label AS driving-mode; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT S.digits, S.decimals, S.speed-unit; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT B.highway-percent; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fill-notes X ON A.acquisition-id = X.acquisition-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT X.note; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-payment-method L ON A.acquisition-id = L.acquisition-id JOIN payment-method-definitions P ON L.method-id = P.method-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT P.label AS payment-method; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT D.label AS additive; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT T.label AS tag; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = '"
-    (sql-quote vehicle-label)
-    "' AND A.observed-start = "
-    (scow %da observed-start)
-    " SELECT O.odometer-id, O.value-digits, O.decimal-places, O.unit;"
-  ==
-::
-++  station-report
-  |=  station-label=@t
-  ^-  tape
-  =/  quoted  (sql-quote station-label)
-  ;:  weld
-    "FROM stations S JOIN places P ON S.place-id = P.place-id WHERE S.label = '"
-    quoted
-    "' SELECT S.label AS station, P.label AS place, S.station-kind; "
-    "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-addresses A ON P.place-id = A.place-id WHERE S.label = '"
-    quoted
-    "' SELECT A.source; "
-    "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-address-formatted F ON P.place-id = F.place-id WHERE S.label = '"
-    quoted
-    "' SELECT F.formatted; "
-    "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-address-parts A ON P.place-id = A.place-id WHERE S.label = '"
-    quoted
-    "' SELECT A.part, A.value; "
-    "FROM stations S JOIN places P ON S.place-id = P.place-id JOIN place-coordinates C ON P.place-id = C.place-id WHERE S.label = '"
-    quoted
-    "' SELECT C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source;"
   ==
 ::
 ++  pow-ten
@@ -956,105 +814,6 @@
   ?:  =(fuel charge)
     [%err 'exactly one acquisition subtype is required']
   [%ok 'exactly one acquisition subtype selected']
-::
-++  integrity-op
-  |=  scenario=integrity-kind:rover
-  ^-  @t
-  ?-  scenario
-    %missing-pair       'integrity-missing-pair'
-    %bad-default        'integrity-bad-default'
-    %delete-vehicle     'integrity-delete-vehicle'
-    %delete-definition  'integrity-delete-definition'
-    %delete-place       'integrity-delete-place'
-    %delete-station     'integrity-delete-station'
-    %zero-subtype       'integrity-zero-subtype'
-    %two-subtypes       'integrity-two-subtypes'
-  ==
-::
-++  integrity-scenario
-  |=  op=@t
-  ^-  (unit integrity-kind:rover)
-  ?:  =('integrity-missing-pair' op)       `%missing-pair
-  ?:  =('integrity-bad-default' op)        `%bad-default
-  ?:  =('integrity-delete-vehicle' op)     `%delete-vehicle
-  ?:  =('integrity-delete-definition' op)  `%delete-definition
-  ?:  =('integrity-delete-place' op)       `%delete-place
-  ?:  =('integrity-delete-station' op)     `%delete-station
-  ?:  =('integrity-zero-subtype' op)       `%zero-subtype
-  ?:  =('integrity-two-subtypes' op)       `%two-subtypes
-  ~
-::
-++  integrity-message
-  |=  scenario=integrity-kind:rover
-  ^-  @t
-  ?-  scenario
-    %missing-pair       'rejected acquisition: vehicle and energy definition are not allowed'
-    %bad-default        'rejected default: energy definition is not an allowed vehicle link'
-    %delete-vehicle     'rejected deletion: vehicle is referenced'
-    %delete-definition  'rejected deletion: energy definition is referenced'
-    %delete-place       'rejected deletion: place is referenced'
-    %delete-station     'rejected deletion: station is referenced'
-    %zero-subtype       'rejected acquisition before mutation: zero subtypes'
-    %two-subtypes       'rejected acquisition before mutation: two subtypes'
-  ==
-::
-++  integrity-script
-  |=  [scenario=integrity-kind:rover ids=integrity-ids now=@da]
-  ^-  tape
-  =/  def-id  (scow %ux definition.ids)
-  =/  veh-id  (scow %ux vehicle.ids)
-  =/  acq-id  (scow %ux acquisition.ids)
-  =/  plc-id  (scow %ux place.ids)
-  =/  sta-id  (scow %ux station.ids)
-  =/  rec     (scow %da now)
-  ?-  scenario
-    %missing-pair
-      ;:  weld
-        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Missing Pair Energy', %reservoir, %gal, N, {rec}); "
-        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Missing Pair Vehicle', N, {rec}); "
-        "INSERT INTO energy-acquisitions VALUES ({acq-id}, {veh-id}, {def-id}, ~2026.7.28..19.00.00, ~2026.7.28..19.00.01, %second, 'America/Chicago', {rec});"
-      ==
-    %bad-default
-      ;:  weld
-        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Bad Default Energy', %reservoir, %gal, N, {rec}); "
-        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Bad Default Vehicle', N, {rec}); "
-        "INSERT INTO vehicle-default-energy-definitions VALUES ({veh-id}, {def-id});"
-      ==
-    %delete-vehicle
-      ;:  weld
-        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Vehicle Energy', %reservoir, %gal, N, {rec}); "
-        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Referenced Vehicle', N, {rec}); "
-        "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
-        "DELETE FROM vehicles WHERE vehicle-id = {veh-id};"
-      ==
-    %delete-definition
-      ;:  weld
-        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Referenced Energy', %reservoir, %gal, N, {rec}); "
-        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Definition Vehicle', N, {rec}); "
-        "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
-        "DELETE FROM energy-definitions WHERE energy-definition-id = {def-id};"
-      ==
-    %delete-place
-      ;:  weld
-        "INSERT INTO places VALUES ({plc-id}, 'Integrity Referenced Place', N, {rec}); "
-        "INSERT INTO stations VALUES ({sta-id}, {plc-id}, 'Integrity Place Station', %mixed, N, {rec}); "
-        "DELETE FROM places WHERE place-id = {plc-id};"
-      ==
-    %delete-station
-      ;:  weld
-        "INSERT INTO energy-definitions VALUES ({def-id}, 'Integrity Station Energy', %reservoir, %gal, N, {rec}); "
-        "INSERT INTO vehicles VALUES ({veh-id}, 'Integrity Station Vehicle', N, {rec}); "
-        "INSERT INTO vehicle-energy-definitions VALUES ({veh-id}, {def-id}, N); "
-        "INSERT INTO energy-acquisitions VALUES ({acq-id}, {veh-id}, {def-id}, ~2026.7.28..19.01.00, ~2026.7.28..19.01.01, %second, 'America/Chicago', {rec}); "
-        "INSERT INTO fuel-fills VALUES ({acq-id}, 1000, %gal, %full, 3499, %usd, %standard, %us-usd-gal, 2, 50); "
-        "INSERT INTO places VALUES ({plc-id}, 'Integrity Station Place', N, {rec}); "
-        "INSERT INTO stations VALUES ({sta-id}, {plc-id}, 'Integrity Referenced Station', %mixed, N, {rec}); "
-        "INSERT INTO energy-acquisition-stations VALUES ({acq-id}, {sta-id}); "
-        "DELETE FROM stations WHERE station-id = {sta-id};"
-      ==
-    %zero-subtype  !!
-    %two-subtypes   !!
-  ==
 ::
 ++  schema-m0
   ^-  tape
@@ -1153,13 +912,6 @@
     "CREATE TABLE rover..vehicle-consumable-tank-size (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id, consumable-id) REFERENCES vehicle-consumables (vehicle-id, consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
   ==
 ::
-++  display-preference-report
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit;"
-    " FROM vehicles V JOIN vehicle-display-preferences P ON V.vehicle-id = P.vehicle-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, P.distance-unit, P.currency;"
-  ==
-::
 ++  seed-spike
   |=  [ids=seed-ids now=@da]
   ^-  tape
@@ -1214,13 +966,6 @@
     "INSERT INTO fuel-fills VALUES ({eur-acq}, 1000, %litre, %full, 1749, %eur, %standard, %eu-eur-litre, 2, 0);"
   ==
 ::
-++  pricing-report
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Pricing Fixture Vehicle' SELECT V.label AS vehicle, E.label AS energy, F.quantity-milli, F.quantity-unit, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start; "
-    "FROM sys.columns WHERE namespace = %dbo AND name = %fuel-fills SELECT col-name;"
-  ==
-::
 ++  seed-fuel-evidence
   |=  [ids=fuel-evidence-ids now=@da]
   ^-  tape
@@ -1262,20 +1007,6 @@
     "INSERT INTO economy-breaks VALUES ({many-id}, %missed-fill, {rec});"
   ==
 ::
-++  fuel-evidence-report
-  ^-  tape
-  ;:  weld
-    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id WHERE S.label = 'Regular 87 E10' SELECT E.label AS energy, S.label AS subtype, O.rating, O.method; "
-    "FROM energy-definitions E JOIN energy-definition-subtypes S ON E.energy-definition-id = S.energy-definition-id JOIN energy-subtype-blend B ON S.subtype-id = B.subtype-id WHERE S.label = 'Regular 87 E10' SELECT E.label AS energy, S.label AS subtype, B.blend-kind, B.percent-digits, B.percent-decimals; "
-    "FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, S.label AS default-subtype; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, S.label AS subtype; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, F.quantity-milli, F.quantity-unit, F.unit-price-mills, F.currency, F.settlement-mode; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, D.label AS additive; "
-    "FROM additive-definitions D WHERE D.label = 'Injector cleaner' OR D.label = 'Fuel stabilizer' SELECT D.label AS additive, D.archived; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, O.value-digits, O.decimal-places, O.unit; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Fuel Evidence Vehicle' SELECT V.label AS vehicle, A.observed-start, B.reason;"
-  ==
-::
 ++  seed-app-structure
   |=  [ids=app-structure-ids now=@da]
   ^-  tape
@@ -1310,30 +1041,6 @@
     "INSERT INTO tag-definitions VALUES ({tag-b}, 'Winter', N, {rec});"
   ==
 ::
-++  app-structure-report
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.label AS subtype, O.rating, O.method; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.reason; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, D.label AS driving-mode; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.digits, S.decimals, S.speed-unit; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.highway-percent; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, T.label AS tag;"
-    " FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id SELECT A.scope, V.label AS default-vehicle;"
-    " FROM custom-field-definitions C JOIN custom-field-values-number V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.digits, V.decimals, V.value-unit;"
-    " FROM custom-field-definitions C JOIN custom-field-values-text V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.value;"
-    " FROM custom-field-definitions C JOIN custom-field-values-boolean V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.value;"
-  ==
-::
-++  second-app-default
-  |=  now=@da
-  ^-  tape
-  ;:  weld
-    "INSERT INTO app-default-vehicle VALUES (%app, 0x1, "
-    (scow %da now)
-    ");"
-  ==
-::
 ++  seed-charging-evidence
   |=  [ids=charging-evidence-ids now=@da]
   ^-  tape
@@ -1366,17 +1073,6 @@
     "INSERT INTO charging-session-batteries VALUES ({acq-id}, %start, {pct-id}); "
     "INSERT INTO charging-session-batteries VALUES ({acq-id}, %end, {seg-id}); "
     "INSERT INTO charging-efficiency-breaks VALUES ({acq-id}, %owner-marked, {rec});"
-  ==
-::
-++  charging-evidence-report
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-energy-measurements M ON A.acquisition-id = M.acquisition-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, M.quantity, M.decimals, M.measure-unit, M.point, M.evidence; "
-    "FROM vehicles V JOIN battery-observations B ON V.vehicle-id = B.vehicle-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.measure, B.observed-start; "
-    "FROM vehicles V JOIN battery-observations B ON V.vehicle-id = B.vehicle-id JOIN battery-observation-percent P ON B.battery-observation-id = P.battery-observation-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.measure, P.value-digits, P.value-decimals; "
-    "FROM vehicles V JOIN battery-observations B ON V.vehicle-id = B.vehicle-id JOIN battery-observation-segments S ON B.battery-observation-id = S.battery-observation-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.measure, S.filled, S.total; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-session-batteries L ON A.acquisition-id = L.acquisition-id JOIN battery-observations B ON L.battery-observation-id = B.battery-observation-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, L.endpoint, B.measure, B.observed-start; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-efficiency-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Charging Evidence Vehicle' SELECT V.label AS vehicle, B.reason;"
   ==
 ::
 ++  seed-charging-cost
@@ -1421,14 +1117,6 @@
     "INSERT INTO charging-cost-source-totals VALUES ({rcp-id}, 22340);"
   ==
 ::
-++  charging-cost-report
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-costs C ON A.acquisition-id = C.acquisition-id WHERE V.label = 'Charging Cost Vehicle' SELECT V.label AS vehicle, A.observed-start, C.cost-state, C.currency; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-cost-components C ON A.acquisition-id = C.acquisition-id WHERE V.label = 'Charging Cost Vehicle' SELECT V.label AS vehicle, C.component, C.quantity, C.quantity-decimals, C.quantity-unit, C.rate-mills, C.amount-mills; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-cost-source-totals T ON A.acquisition-id = T.acquisition-id WHERE V.label = 'Charging Cost Vehicle' SELECT V.label AS vehicle, A.observed-start, T.total-mills;"
-  ==
-::
 ++  seed-consumption
   |=  [ids=consumption-ids now=@da]
   ^-  tape
@@ -1446,54 +1134,6 @@
     "INSERT INTO consumption-observations VALUES ({wh-id}, {veh-id}, 275, 0, %wh-mi, %instant, %dashboard, ~2026.7.28..17.00.00, ~2026.7.28..17.00.01, %second, 'America/Chicago', {rec}); "
     "INSERT INTO consumption-observations VALUES ({eu-id}, {veh-id}, 182, 1, %kwh-100km, %trip, %telematics, ~2026.7.28..17.01.00, ~2026.7.28..17.01.01, %second, 'Europe/Paris', {rec}); "
     "INSERT INTO consumption-observations VALUES ({mpk-id}, {veh-id}, 37, 1, %mi-kwh, %since-charge, %dashboard, ~2026.7.28..17.02.00, ~2026.7.28..17.02.01, %second, 'America/Chicago', {rec});"
-  ==
-::
-++  consumption-report
-  ^-  tape
-  "FROM vehicles V JOIN consumption-observations C ON V.vehicle-id = C.vehicle-id WHERE V.label = 'Consumption Evidence Vehicle' SELECT V.label AS vehicle, C.value-digits, C.value-decimals, C.consumption-unit, C.scope, C.source, C.observed-start, C.observed-end, C.observed-precision, C.source-zone;"
-::
-++  content-report
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V SELECT V.label, V.archived; "
-    "FROM odometer-observations O SELECT O.value-digits, O.decimal-places, O.unit; "
-    "FROM energy-definitions E SELECT E.label, E.physical-kind, E.quantity-unit, E.archived; "
-    "FROM vehicle-energy-definitions L SELECT L.archived; "
-    "FROM vehicle-default-energy-definitions D JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id SELECT E.label AS default-energy; "
-    "FROM energy-acquisitions A SELECT A.observed-start, A.observed-end, A.observed-precision, A.source-zone; "
-    "FROM fuel-fills F SELECT F.quantity-milli, F.quantity-unit, F.unit-price-mills, F.currency, F.settlement-mode; "
-    "FROM charging-sessions C JOIN energy-acquisitions A ON C.acquisition-id = A.acquisition-id SELECT A.observed-start AS charging-start; "
-    "FROM places P SELECT P.label, P.archived; "
-    "FROM stations S SELECT S.label, S.station-kind, S.archived; "
-    "FROM energy-acquisition-stations L JOIN stations S ON L.station-id = S.station-id SELECT S.label AS linked-station; "
-    "FROM energy-definition-subtypes S SELECT S.label, S.archived; "
-    "FROM energy-subtype-octane O SELECT O.rating, O.method; "
-    "FROM energy-subtype-blend B SELECT B.blend-kind, B.percent-digits, B.percent-decimals; "
-    "FROM energy-subtype-grade-code G SELECT G.code; "
-    "FROM vehicle-default-energy-subtype D SELECT D.recorded-at; "
-    "FROM fuel-fill-subtype L SELECT L.acquisition-id; "
-    "FROM fuel-fill-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT O.value-digits AS linked-odometer; "
-    "FROM additive-definitions D SELECT D.label, D.archived; "
-    "FROM fuel-fill-additives L JOIN additive-definitions D ON L.additive-id = D.additive-id SELECT D.label AS linked-additive; "
-    "FROM economy-breaks B SELECT B.reason; "
-    "FROM charging-energy-measurements M SELECT M.quantity, M.decimals, M.measure-unit, M.point, M.evidence; "
-    "FROM battery-observations B SELECT B.measure, B.observed-start, B.observed-end, B.observed-precision, B.source-zone; "
-    "FROM battery-observation-percent P SELECT P.value-digits, P.value-decimals; "
-    "FROM battery-observation-segments S SELECT S.filled, S.total; "
-    "FROM charging-session-batteries B SELECT B.endpoint; "
-    "FROM charging-efficiency-breaks B SELECT B.reason; "
-    "FROM charging-costs C SELECT C.cost-state, C.currency; "
-    "FROM charging-cost-components C SELECT C.component, C.amount-mills; "
-    "FROM charging-cost-source-totals T SELECT T.total-mills; "
-    "FROM consumption-observations C SELECT C.value-digits, C.value-decimals, C.consumption-unit, C.scope, C.source; "
-    "FROM place-addresses A SELECT A.source; "
-    "FROM place-address-formatted F SELECT F.formatted; "
-    "FROM place-address-parts A SELECT A.part, A.value; "
-    "FROM place-coordinates C SELECT C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source; "
-    "FROM place-coordinate-accuracy A SELECT A.radius-digits, A.radius-decimals, A.radius-unit; "
-    "FROM station-brand-operator B SELECT B.role, B.label; "
-    "FROM station-identifiers I SELECT I.provider; "
-    "FROM acquisition-station-equipment E SELECT E.equipment-label, E.receipt-text;"
   ==
 ::
 ++  seed-location
@@ -1557,29 +1197,6 @@
     "INSERT INTO energy-acquisition-stations VALUES ({chg-id}, {mix-sta});"
   ==
 ::
-++  location-report
-  ^-  tape
-  ;:  weld
-    "FROM places P JOIN stations S ON P.place-id = S.place-id WHERE P.label = 'Private Home' OR P.label = 'Public Market' SELECT P.label AS place, P.archived AS place-archived, S.label AS station, S.station-kind, S.archived AS station-archived; "
-    "FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.source; "
-    "FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, F.formatted; "
-    ::  Q9 coverage: a place whose address is PARTS ONLY, no formatted text -
-    ::  the 105-record aCar case. It must have an address row and a locality
-    ::  part, and must NOT appear in the formatted query above.
-    "FROM places P JOIN place-address-formatted F ON P.place-id = F.place-id WHERE P.label = 'Parts Only Depot' SELECT P.label AS parts-only-with-formatted; "
-    "FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Parts Only Depot' SELECT P.label AS place, A.part, A.value; "
-    "FROM places P JOIN place-addresses A ON P.place-id = A.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-address; "
-    "FROM places P JOIN place-address-parts A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.part, A.value; "
-    "FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, C.latitude-scaled, C.longitude-scaled, C.coord-scale, C.source; "
-    "FROM places P JOIN place-coordinates C ON P.place-id = C.place-id WHERE P.label = 'Private Home' SELECT P.label AS private-place-with-coordinates; "
-    "FROM places P JOIN place-coordinate-accuracy A ON P.place-id = A.place-id WHERE P.label = 'Public Market' SELECT P.label AS place, A.radius-digits, A.radius-decimals, A.radius-unit; "
-    "FROM stations S JOIN station-brand-operator B ON S.station-id = B.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, B.role, B.label; "
-    "FROM stations S JOIN station-identifiers I ON S.station-id = I.station-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, I.provider; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE V.label = 'Location Evidence Vehicle' SELECT V.label AS vehicle, E.physical-kind, S.label AS station, S.station-kind, A.observed-start; "
-    "FROM stations S JOIN energy-acquisition-stations L ON S.station-id = L.station-id JOIN acquisition-station-equipment E ON L.acquisition-id = E.acquisition-id WHERE S.label = 'Market Mixed Station' SELECT S.label AS station, E.equipment-label, E.receipt-text; "
-    "FROM energy-definitions D JOIN energy-definition-subtypes S ON D.energy-definition-id = S.energy-definition-id JOIN energy-subtype-grade-code G ON S.subtype-id = G.subtype-id WHERE D.label = 'Location Fixture Fuel' SELECT D.label AS energy, S.label AS subtype, G.code;"
-  ==
-::
 ++  verify-schema
   ^-  tape
   ;:  weld
@@ -1587,19 +1204,6 @@
     "FROM sys.columns WHERE namespace = %dbo SELECT name, col-name, col-type; "
     "FROM sys.foreign-keys SELECT parent-table, child-table, ordinal, parent-column, child-column, on-delete, on-update;"
   ==
-::
-++  vehicle-history
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, V.archived AS vehicle-archived, E.label AS energy, E.physical-kind, E.archived AS energy-archived, L.archived AS link-archived; "
-    "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN vehicle-energy-definitions L ON D.vehicle-id = L.vehicle-id AND D.energy-definition-id = L.energy-definition-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS default-energy, L.archived AS link-archived; "
-    "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.recorded-at; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, E.label AS energy, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills, A.observed-start, A.observed-end;"
-  ==
-::
-++  current-odometer
-  ^-  tape
-  "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = 'Phase A Vehicle' SELECT V.label AS vehicle, O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.recorded-at;"
 ::
 ++  ui-view
   ^-  tape
@@ -2382,39 +1986,6 @@
     mode-script
     def-membership
     def-tank-insert
-  ==
-::
-++  vehicle-settings-report
-  |=  label=@t
-  ^-  tape
-  ;:  weld
-    "FROM vehicles V WHERE V.label = '"
-    (sql-quote label)
-    "' SELECT V.label AS vehicle, V.archived; "
-    "FROM vehicles V JOIN vehicle-tank-size T ON V.vehicle-id = T.vehicle-id WHERE V.label = '"
-    (sql-quote label)
-    "' SELECT V.label AS vehicle, T.digits, T.decimals, T.size-unit; "
-    "FROM vehicles V JOIN vehicle-refill-reserve R ON V.vehicle-id = R.vehicle-id WHERE V.label = '"
-    (sql-quote label)
-    "' SELECT V.label AS vehicle, R.reserve-percent; "
-    "FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id JOIN energy-definition-subtypes S ON D.subtype-id = S.subtype-id WHERE V.label = '"
-    (sql-quote label)
-    "' SELECT V.label AS vehicle, S.label AS default-subtype; "
-    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id JOIN energy-definitions E ON L.energy-definition-id = E.energy-definition-id WHERE V.label = '"
-    (sql-quote label)
-    "' SELECT E.label AS energy, L.archived AS link-archived; "
-    "FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
-    (sql-quote label)
-    "' SELECT D.label AS driving-mode, L.archived AS link-archived; "
-    "FROM vehicles V JOIN vehicle-consumables L ON V.vehicle-id = L.vehicle-id JOIN consumable-definitions C ON L.consumable-id = C.consumable-id WHERE V.label = '"
-    (sql-quote label)
-    "' AND C.label = 'DEF' SELECT C.label AS consumable, L.archived AS link-archived; "
-    "FROM vehicles V JOIN vehicle-consumable-tank-size T ON V.vehicle-id = T.vehicle-id JOIN consumable-definitions C ON T.consumable-id = C.consumable-id WHERE V.label = '"
-    (sql-quote label)
-    "' AND C.label = 'DEF' SELECT T.digits, T.decimals, T.unit; "
-    "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id JOIN energy-definitions E ON D.energy-definition-id = E.energy-definition-id WHERE V.label = '"
-    (sql-quote label)
-    "' SELECT E.label AS default-energy;"
   ==
 ::
 ++  insert-energy-links
@@ -3247,58 +2818,4 @@
   ?:  descending
     (gth u.a-key u.b-key)
   (lth u.a-key u.b-key)
-::
-++  order-results
-  |=  [key=@tas descending=? results=(list result:ast)]
-  ^-  (list result:ast)
-  %+  turn  results
-  |=  item=result:ast
-  ?-  -.item
-    %result-set  [%result-set (order-vectors key descending +.item)]
-    %action      item
-    %relation-name  item
-    %message     item
-    %vector-count  item
-    %server-time  item
-    %security-time  item
-    %schema-time  item
-    %data-time   item
-    %relations   item
-    %select-relation  item
-  ==
-::
-++  order-command-results
-  |=  [key=@tas descending=? commands=(list cmd-result:ast)]
-  ^-  (list cmd-result:ast)
-  %+  turn  commands
-  |=  command=cmd-result:ast
-  [%results (order-results key descending +.command)]
-::
-++  latest-results
-  |=  results=(list result:ast)
-  ^-  (list result:ast)
-  %+  turn  results
-  |=  item=result:ast
-  ?-  -.item
-    %result-set
-      =/  ordered  (order-vectors %observed-start %.y +.item)
-      [%result-set ?~(ordered ~ ~[i.ordered])]
-    %vector-count  [%vector-count 1]
-    %action      item
-    %relation-name  item
-    %message     item
-    %server-time  item
-    %security-time  item
-    %schema-time  item
-    %data-time   item
-    %relations   item
-    %select-relation  item
-  ==
-::
-++  latest-command-results
-  |=  commands=(list cmd-result:ast)
-  ^-  (list cmd-result:ast)
-  %+  turn  commands
-  |=  command=cmd-result:ast
-  [%results (latest-results +.command)]
 --
