@@ -1025,11 +1025,19 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by fill-body-pending) wire)
-      ?:  ?|  ?=(%.n -.res)
-              ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
+      ?:  ?=(%.n -.res)
+        :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: consumable'))
       =/  decoded  (decode-consumable:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
@@ -1076,10 +1084,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by fill-body-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       =/  decoded  (decode-consumable:entry u.body)
       =/  next
         this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
@@ -1167,10 +1181,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       =/  decoded  (decode-vehicle-edit:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1353,10 +1373,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
@@ -1436,10 +1462,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       =/  decoded  (decode-fill:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1555,10 +1587,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       =/  decoded  (decode-fill:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1723,10 +1761,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       =/  decoded  (decode-new-vehicle:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1804,10 +1848,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  label  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ label)
-          ==
+      ?~  eyre-id
         `this
+      ?~  label
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: add-vehicle'))
@@ -1827,10 +1877,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by preference-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         ~&  [%rover-preference-lookup-refused p.res]
         :_  this
@@ -1887,10 +1943,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by preference-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         ~&  [%rover-preference-write-refused p.res]
         :_  this
@@ -1926,10 +1988,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by odometer-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         ~&  [%rover-odometer-lookup-refused p.res]
         :_  this
@@ -1985,10 +2053,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by odometer-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         ~&  [%rover-odometer-write-refused p.res]
         :_  this
@@ -2022,10 +2096,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by charge-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         ~&  [%rover-charge-lookup-refused p.res]
         :_  this
@@ -2117,10 +2197,16 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by charge-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         ~&  [%rover-charge-write-refused p.res]
         :_  this
@@ -2719,11 +2805,22 @@
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by fill-pending) wire)
       =/  body  (~(get by fill-body-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
+      ?~  eyre-id
+        `this
+      ?:  ?|  ?=(~ input)
               ?=(~ body)
           ==
-        `this
+        :_  %_  this
+              http-pending  (~(del by http-pending) wire)
+              fill-pending  (~(del by fill-pending) wire)
+              fill-body-pending  (~(del by fill-body-pending) wire)
+            ==
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         ~&  [%rover-fill-lookup-refused p.res]
         :_  this
@@ -2991,10 +3088,16 @@
         ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by fill-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Rover restarted while saving. Please submit again.')
+        ==
       ?:  ?=(%.n -.res)
         ~&  [%rover-fill-write-refused p.res]
         :_  this

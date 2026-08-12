@@ -193,3 +193,85 @@ IMPORT_EXIT=0
 dev-pin-test: PASS - fixture 55 source gate - v0.9.0-beta commit and compatibility mold SHA match
 PIN_EXIT=0
 ```
+
+### Slice d - the silent-drop bail-out
+
+Sixteen `on-agent` fact handlers read `http-pending` plus an input map
+and returned bare `this` when either lookup missed. Each now splits the
+bail: when `eyre-id` is absent, nobody is listening and bare `this`
+stays. When `eyre-id` is present and the input is missing, the handler
+answers `503` with `Rover restarted while saving. Please submit again.`
+and deletes the orphaned pending keys.
+
+The sixteen: `consumable-lookup`, `consumable-write`,
+`edit-vehicle-lookup`, `custom-lookup`, `edit-fill-lookup`,
+`edit-fill-write`, `add-vehicle-lookup`, `add-vehicle-write`,
+`preference-lookup`, `preference-write`, `odometer-lookup`,
+`odometer-write`, `charge-lookup`, `charge-write`, `fill-lookup`
+(three maps), `fill-write`. The other nine readers of `http-pending`
+hold only an `eyre-id` with no input map, so their `?~ eyre-id` bail is
+already the correct shape. `%rover-http` treats a missing page number
+as page zero and always answers.
+
+One extra repair rode along in `consumable-lookup`: its old compound
+bail also swallowed a database refusal (`%.n` result with a live
+`eyre-id`) without answering. It now answers 422
+`%database-refused: consumable`, matching its sibling handlers.
+
+### Slice e - the 15->16 migration fixture
+
+`bin/migration-test.sh <pier>`. All real, no back doors, no mocks:
+
+1. Installs the last v15 desk (`ec31814`, `on-save %15`) on a freshly
+   nuked `%rover` through kiln pokes over `conn.sock`.
+2. Establishes the owner baseline and writes durable v15 data through
+   Eyre: a vehicle and a completed 40.0 kWh charge.
+3. Suspends the `%obelisk` desk and POSTs `add-charge`. The handler
+   stores `http-pending` and `charge-pending`, and Gall queues the
+   blocked watch and poke. The request stays pending. (Verified
+   separately: with no upgrade, revive delivers the queued moves and
+   the caller gets its 201.)
+4. Commits the current desk. `on-load` 15->16 keeps `http-pending` and
+   drops `charge-pending`, which orphans the eyre-id.
+5. Revives `%obelisk`. The queued fact lands on the orphaned wire.
+6. Asserts the caller got the 503 with the human reason, that the v15
+   charge row still exists in Obelisk and the vehicle still renders,
+   and that a resubmitted charge saves with 201.
+
+RED first, on the unfixed desk - the fixture catches the defect:
+
+```text
+migration-test: step 5 - revive %obelisk
+000
+ELAPSED=300.001229migration-test: FAIL - in-flight charge hung until curl gave up - the boundary did not speak
+EXIT=1
+```
+
+GREEN after the slice d fix:
+
+```text
+migration-test: step 1 - install v15 desk (ec31814) on a fresh %rover
+migration-test: step 2 PASS - v15 serves the baseline and saved a real charge
+migration-test: step 3 PASS - the charge request is pending against a suspended substrate
+migration-test: step 4 - commit the current desk, on-load 15->16 runs
+migration-test: step 5 PASS - orphaned request answered 503 with a human reason (ELAPSED=25.772695)
+migration-test: step 6 PASS - durable v15 data survived and the resubmitted charge saved
+migration-test: PASS - the 15->16 migration keeps durable data and the boundary speaks
+EXIT=0
+```
+
+The 25.7 second elapsed time against curl's 300 second cap is the
+hang-versus-answer proof. The caller waited only for the revive, not
+for an Eyre timeout.
+
+Full batteries after the fix (`/tmp/t2-slice-d.log`):
+
+```text
+ui-test: COVERAGE - all 87 defined fixtures executed
+UI_EXIT=0
+schema-test: PASS - COVERAGE - all 1 defined fixtures executed
+SCHEMA_EXIT=0
+import-test: COVERAGE - all 7 defined import fixtures executed
+IMPORT_EXIT=0
+PIN_EXIT=0
+```

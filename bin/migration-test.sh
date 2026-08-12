@@ -176,8 +176,16 @@ note "step 5 PASS - orphaned request answered 503 with a human reason ($elapsed)
 view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 grep -qF "$VEHICLE" <<<"$view" \
   || fail "v15 vehicle absent from the v16 view after migration"
-grep -qF 'data-history-column' <<<"$view" \
-  || fail "v16 view lost its history surface after migration"
+charge_rows="$(click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+=/  wire  /rover-migration-check
+;<  ~  bind:m  (watch wire [our %obelisk] /server)
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %rover %vector \"FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id WHERE V.label = '$VEHICLE' SELECT V.label AS vehicle, A.observed-start;\"]))
+;<  [mark =vase]  bind:m  (take-fact wire)
+;<  ~  bind:m  (take-kick wire)
+(pure:m vase)")"
+grep -qF "[%vehicle 116 '$VEHICLE']" <<<"$charge_rows" \
+  || fail "v15 charge row absent from Obelisk after migration: $charge_rows"
 
 resubmit="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
