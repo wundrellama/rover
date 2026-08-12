@@ -54,7 +54,7 @@ click_file() {
 }
 
 # Gate 7 T1: readback reports poke %obelisk directly with the same urQL the
-# retired %rover-action wrappers carried. The urQL text below is lifted
+# retired action wrappers carried. The urQL text below is lifted
 # verbatim from lib/rover-act.hoon.
 URQL_APP_STRUCTURE="$(cat <<'URQL_EOF'
 FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id JOIN energy-subtype-octane O ON S.subtype-id = O.subtype-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.label AS subtype, O.rating, O.method; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.reason; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, D.label AS driving-mode; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, S.digits, S.decimals, S.speed-unit; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, B.highway-percent; FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE V.label = 'Structure Vehicle' SELECT A.observed-start, T.label AS tag; FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id SELECT A.scope, V.label AS default-vehicle; FROM custom-field-definitions C JOIN custom-field-values-number V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.digits, V.decimals, V.value-unit; FROM custom-field-definitions C JOIN custom-field-values-text V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.value; FROM custom-field-definitions C JOIN custom-field-values-boolean V ON C.field-id = V.field-id SELECT C.label AS custom-field, V.value;
@@ -1630,35 +1630,10 @@ if grep -Eq '<option[^>]*>[^<]*(AKI|RON)[^<]*</option>' <<<"$starter_view"; then
 fi
 note "fixture 34 PASS - labels are human 87/95 while Obelisk retains AKI/RON metadata"
 
-rename_result="$(click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%rename-energy-source (crip "Gasoline") (crip "Owner Gasoline Custom")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))')"
-grep -q '%noun 0' <<<"$rename_result" \
-  || fail "fixture 35 owner rename failed: $rename_result"
 click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
 ;<  ~  bind:m  (sleep ~s3)
-(pure:m !>(~))' >/dev/null
-renamed_report="$(read_starter_report)"
-[ "$(grep -o '\[%physical-kind ' <<<"$renamed_report" | wc -l)" -eq 8 ] \
-  || fail "fixture 35 re-seed changed owner source count; actual: $renamed_report"
-grep -q "\\[%label 116 'Owner Gasoline Custom'\\]" <<<"$renamed_report" \
-  || fail "fixture 35 re-seed overwrote owner rename; actual: $renamed_report"
-if grep -q "\\[%label 116 'Gasoline'\\]" <<<"$renamed_report"; then
-  fail "fixture 35 re-seed inserted a duplicate Gasoline owner row"
-fi
-note "fixture 35 PASS - owner rename survived re-seeding with eight rows and no duplicate/overwrite"
-
-click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%rename-energy-source (crip "Owner Gasoline Custom") (crip "Gasoline")]))
-;<  ~  bind:m  (sleep ~s2)
 (pure:m !>(~))' >/dev/null
 for vehicle in "$gas_vehicle" "$diesel_vehicle"; do
   removed="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
@@ -1668,9 +1643,6 @@ for vehicle in "$gas_vehicle" "$diesel_vehicle"; do
   [ "$removed" = $'Archived vehicle\n201' ] \
     || fail "fixture 33 cleanup failed for $vehicle: $removed"
 done
-if [ "${ROVER_FIXTURE_STOP:-}" = 35 ]; then
-  exit 0
-fi
 
 edit_vehicle="Edit Vehicle $(date +%s%N)"
 edited_vehicle="$edit_vehicle Renamed"
@@ -2352,40 +2324,11 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 53 ]; then
   exit 0
 fi
 
-consumable_rename="$(click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%rename-consumable (crip "DEF") (crip "Owner DEF Custom")]))
-;<  ~  bind:m  (sleep ~s2)
-;<  now=@da  bind:m  get-time
-=/  result
-  (mule |.(.^(noun %gx /(scot %p our)/rover/(scot %da now)/last/noun)))
-(pure:m !>(result))')"
-grep -q '%noun 0' <<<"$consumable_rename" \
-  || fail "fixture 54 owner consumable rename failed: $consumable_rename"
 click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 ;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
 ;<  ~  bind:m  (sleep ~s3)
 (pure:m !>(~))' >/dev/null
-consumable_starters="$(read_consumable_starter_report)"
-[ "$(grep -o '\[%consumable-id ' <<<"$consumable_starters" | wc -l)" -eq 4 ] \
-  || fail "fixture 54 re-seed changed consumable starter count: $consumable_starters"
-for starter in 'Owner DEF Custom' 'Washer Fluid' 'Motor Oil' 'Coolant'; do
-  grep -q "\\[%label 116 '$starter'\\]" <<<"$consumable_starters" \
-    || fail "fixture 54 starter missing after re-seed ($starter): $consumable_starters"
-done
-if grep -q "\\[%label 116 'DEF'\\]" <<<"$consumable_starters"; then
-  fail "fixture 54 re-seed inserted a duplicate DEF row"
-fi
-click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%rename-consumable (crip "Owner DEF Custom") (crip "DEF")]))
-;<  ~  bind:m  (sleep ~s2)
-(pure:m !>(~))' >/dev/null
-note "fixture 54 PASS - DEF, washer fluid, motor oil, and coolant seed once; an owner rename survives re-seeding"
-if [ "${ROVER_FIXTURE_STOP:-}" = 54 ]; then
-  exit 0
-fi
 fi
 
 if ! grep -q 'Phase A Vehicle' <<<"$view"; then

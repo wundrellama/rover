@@ -401,6 +401,16 @@
       [%give %kick ~[pax] ~]
   ==
 ::
+++  restart-http
+  |=  eyre-id=@ta
+  ^-  (list card)
+  %:  http-give
+      eyre-id
+      503
+      ['content-type' 'text/plain']~
+      `(text-octs 'Rover restarted while saving. Please submit again.')
+  ==
+::
 ++  shell-page
   ^-  octs
   (as-octs:mimes:html shell-html)
@@ -984,13 +994,6 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
-      %app-structure-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector app-structure-report:act])
-        :_  this(pending (~(put by pending) wir 'app-structure-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
       %ensure-ui-schema
         =/  wir=path  /rover/(scot %da now.bowl)
         =/  jon  !>([%script %rover %vector display-preference-schema:act])
@@ -1005,350 +1008,10 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
-      %display-preference-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector display-preference-report:act])
-        :_  this(pending (~(put by pending) wir 'display-preference-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %charging-cost-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector charging-cost-report:act])
-        :_  this(pending (~(put by pending) wir 'charging-cost-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %charging-evidence-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector charging-evidence-report:act])
-        :_  this(pending (~(put by pending) wir 'charging-evidence-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %content-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector content-report:act])
-        :_  this(pending (~(put by pending) wir 'content-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %consumption-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector consumption-report:act])
-        :_  this(pending (~(put by pending) wir 'consumption-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %fuel-evidence-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector fuel-evidence-report:act])
-        :_  this(pending (~(put by pending) wir 'fuel-evidence-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %location-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector location-report:act])
-        :_  this(pending (~(put by pending) wir 'location-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %pricing-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector pricing-report:act])
-        :_  this(pending (~(put by pending) wir 'pricing-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %run-integrity
-        ?:  ?|  =(%zero-subtype scenario.a)
-                =(%two-subtypes scenario.a)
-            ==
-          =/  check=result:rover
-            ?:  =(%zero-subtype scenario.a)
-              (validate-acquisition-subtypes:act %.n %.n)
-            (validate-acquisition-subtypes:act %.y %.y)
-          ?>  ?=(%err -.check)
-          `this(integrity `[scenario.a %.y (integrity-message:act scenario.a)])
-        =/  base=@ux  (cut 7 [0 1] eny.bowl)
-        =/  ids=integrity-ids:act
-          :*  (fixture-id:act base 91)
-              (fixture-id:act base 92)
-              (fixture-id:act base 93)
-              (fixture-id:act base 94)
-              (fixture-id:act base 95)
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon
-          !>([%script %rover %vector (integrity-script:act scenario.a ids now.bowl)])
-        :_  this(pending (~(put by pending) wir (integrity-op:act scenario.a)))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
       %seed-starters
         =/  wir=path  /rover-starter-check/(scot %da now.bowl)
         =/  jon  !>([%script %rover %vector starter-check:act])
         :_  this(pending (~(put by pending) wir 'seed-starters-check'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-demo-fuel
-        =/  wir=path  /rover-demo-fuel/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector demo-fuel-check:act])
-        :_  this(pending (~(put by pending) wir 'seed-demo-fuel-check'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-demo-def
-        =/  wir=path  /rover-demo-def/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector demo-def-check:act])
-        :_  this(pending (~(put by pending) wir 'seed-demo-def-check'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %demo-starter-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector demo-starter-report:act])
-        :_  this(pending (~(put by pending) wir 'demo-starter-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %rename-energy-source
-        =/  wir=path  /rover-energy-rename/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (energy-definition-lookup:act old-label.a)])
-        :_  this(pending (~(put by pending) wir new-label.a))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %rename-consumable
-        =/  wir=path  /rover-consumable-rename/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (consumable-definition-lookup:act old-label.a)])
-        :_  this(pending (~(put by pending) wir new-label.a))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-fill-edit-support
-        =/  wir=path  /rover-fill-edit-support/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (fill-edit-support-lookup:act vehicle-label.a)])
-        :_  this(pending (~(put by pending) wir 'seed-fill-edit-support'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %fill-edit-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (fill-edit-report:act vehicle-label.a observed-start.a)])
-        :_  this(pending (~(put by pending) wir 'fill-edit-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %station-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (station-report:act station-label.a)])
-        :_  this(pending (~(put by pending) wir 'station-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %consumable-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon
-          !>([%script %rover %vector (consumable-report:act vehicle-label.a consumable-label.a observed-start.a)])
-        :_  this(pending (~(put by pending) wir 'consumable-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %charge-subtype-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon
-          !>([%script %rover %vector (charge-subtype-report:act vehicle-label.a observed-start.a)])
-        :_  this(pending (~(put by pending) wir 'charge-subtype-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %vehicle-settings-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (vehicle-settings-report:act vehicle-label.a)])
-        :_  this(pending (~(put by pending) wir 'vehicle-settings-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %starter-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector starter-report:act])
-        :_  this(pending (~(put by pending) wir 'starter-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %consumable-starter-report
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector consumable-starter-report:act])
-        :_  this(pending (~(put by pending) wir 'consumable-starter-report'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-pricing
-        =/  base=@ux  (cut 7 [0 1] eny.bowl)
-        =/  ids=pricing-ids:act
-          :*  (fixture-id:act base 21)
-              (fixture-id:act base 22)
-              (fixture-id:act base 23)
-              (fixture-id:act base 24)
-              (fixture-id:act base 25)
-              (fixture-id:act base 26)
-              (fixture-id:act base 27)
-              (fixture-id:act base 28)
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (seed-pricing:act ids now.bowl)])
-        :_  this(pending (~(put by pending) wir 'seed-pricing'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-fuel-evidence
-        =/  base=@ux  (cut 7 [0 1] eny.bowl)
-        =/  ids=fuel-evidence-ids:act
-          :*  (fixture-id:act base 31)
-              (fixture-id:act base 32)
-              (fixture-id:act base 33)
-              (fixture-id:act base 34)
-              (fixture-id:act base 35)
-              (fixture-id:act base 36)
-              (fixture-id:act base 37)
-              (fixture-id:act base 38)
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (seed-fuel-evidence:act ids now.bowl)])
-        :_  this(pending (~(put by pending) wir 'seed-fuel-evidence'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-app-structure
-        =/  base=@ux  (cut 7 [0 1] eny.bowl)
-        =/  ids=app-structure-ids:act
-          :*  (fixture-id:act base 201)
-              (fixture-id:act base 202)
-              (fixture-id:act base 203)
-              (fixture-id:act base 204)
-              (fixture-id:act base 205)
-              (fixture-id:act base 206)
-              (fixture-id:act base 207)
-              (fixture-id:act base 208)
-              (fixture-id:act base 209)
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (seed-app-structure:act ids now.bowl)])
-        :_  this(pending (~(put by pending) wir 'seed-app-structure'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-charging-evidence
-        =/  base=@ux  (cut 7 [0 1] eny.bowl)
-        =/  ids=charging-evidence-ids:act
-          :*  (fixture-id:act base 41)
-              (fixture-id:act base 42)
-              (fixture-id:act base 43)
-              (fixture-id:act base 44)
-              (fixture-id:act base 45)
-              (fixture-id:act base 46)
-              (fixture-id:act base 47)
-              (fixture-id:act base 48)
-              (fixture-id:act base 49)
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (seed-charging-evidence:act ids now.bowl)])
-        :_  this(pending (~(put by pending) wir 'seed-charging-evidence'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-charging-cost
-        =/  base=@ux  (cut 7 [0 1] eny.bowl)
-        =/  ids=charging-cost-ids:act
-          :*  (fixture-id:act base 51)
-              (fixture-id:act base 52)
-              (fixture-id:act base 53)
-              (fixture-id:act base 54)
-              (fixture-id:act base 55)
-              (fixture-id:act base 56)
-              (fixture-id:act base 57)
-              (fixture-id:act base 58)
-              (fixture-id:act base 59)
-              (fixture-id:act base 60)
-              (fixture-id:act base 61)
-              (fixture-id:act base 62)
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (seed-charging-cost:act ids now.bowl)])
-        :_  this(pending (~(put by pending) wir 'seed-charging-cost'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-consumption
-        =/  base=@ux  (cut 7 [0 1] eny.bowl)
-        =/  ids=consumption-ids:act
-          :*  (fixture-id:act base 71)
-              (fixture-id:act base 72)
-              (fixture-id:act base 73)
-              (fixture-id:act base 74)
-              (fixture-id:act base 75)
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (seed-consumption:act ids now.bowl)])
-        :_  this(pending (~(put by pending) wir 'seed-consumption'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-location
-        =/  base=@ux  (cut 7 [0 1] eny.bowl)
-        =/  ids=location-ids:act
-          :*  (fixture-id:act base 81)
-              (fixture-id:act base 82)
-              (fixture-id:act base 83)
-              (fixture-id:act base 84)
-              (fixture-id:act base 85)
-              (fixture-id:act base 86)
-              (fixture-id:act base 87)
-              (fixture-id:act base 88)
-              (fixture-id:act base 89)
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (seed-location:act ids now.bowl)])
-        :_  this(pending (~(put by pending) wir 'seed-location'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %seed-spike
-        =/  seed  eny.bowl
-        =/  base=@ux  (cut 7 [0 1] seed)
-        =/  id-1=@ux  (mix base 1)
-        =/  id-2=@ux  (mix base 2)
-        =/  id-3=@ux  (mix base 3)
-        =/  id-4=@ux  (mix base 4)
-        =/  id-5=@ux  (mix base 5)
-        =/  id-6=@ux  (mix base 6)
-        =.  id-1  ?:  =(0 id-1)  `@ux`1  id-1
-        =.  id-2  ?:  =(0 id-2)  `@ux`2  id-2
-        =.  id-3  ?:  =(0 id-3)  `@ux`3  id-3
-        =.  id-4  ?:  =(0 id-4)  `@ux`4  id-4
-        =.  id-5  ?:  =(0 id-5)  `@ux`5  id-5
-        =.  id-6  ?:  =(0 id-6)  `@ux`6  id-6
-        =/  ids=seed-ids:act
-          :*  id-1
-              id-2
-              id-3
-              id-4
-              id-5
-              id-6
-          ==
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (seed-spike:act ids now.bowl)])
-        :_  this(pending (~(put by pending) wir 'seed-spike'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %try-second-app-default
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector (second-app-default:act now.bowl)])
-        :_  this(pending (~(put by pending) wir 'try-second-app-default'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
@@ -1359,28 +1022,6 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
-      %vehicle-history
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector vehicle-history:act])
-        :_  this(pending (~(put by pending) wir 'vehicle-history'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %current-odometer
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector current-odometer:act])
-        :_  this(pending (~(put by pending) wir 'current-odometer'))
-        :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
-            [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-        ==
-      %preview-us
-        `this(preview `(preview-us:act entered-cents.a))
-      %preview-eur
-        `this(preview `(preview-eur:act entered-mills.a))
-      %derive-fill-total
-        `this(total `(derive-fill-total:act input.a))
-      %derive-charging-total
-        `this(charging-total `(derive-charging-total:act components.a))
     ==
   ==
 ::
@@ -1388,150 +1029,20 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
-      [%rover-demo-fuel *]
-    ?+  -.sign  (on-agent:def wire sign)
-        %fact
-      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
-      ?:  ?=(%.n -.res)
-        `this(last `res, pending (~(del by pending) wire))
-      =/  existing  (rows-at:view p.res 0)
-      =/  gas-definition  (rows-at:view p.res 1)
-      =/  diesel-definition  (rows-at:view p.res 2)
-      =/  gas-87  (rows-at:view p.res 3)
-      =/  gas-93  (rows-at:view p.res 4)
-      =/  diesel-2  (rows-at:view p.res 5)
-      =/  diesel-b20  (rows-at:view p.res 6)
-      ?:  ?|  !=(1 (lent gas-definition))
-              !=(1 (lent diesel-definition))
-              !=(1 (lent gas-87))
-              !=(1 (lent gas-93))
-              !=(1 (lent diesel-2))
-              !=(1 (lent diesel-b20))
-          ==
-        `this(last `res, pending (~(del by pending) wire))
-      ?^  existing
-        =/  gas-vehicle  (rows-at:view p.res 7)
-        =/  diesel-vehicle  (rows-at:view p.res 8)
-        =/  old-gas-definition  (rows-at:view p.res 9)
-        =/  old-diesel-definition  (rows-at:view p.res 10)
-        =/  old-gas-87  (rows-at:view p.res 11)
-        =/  old-gas-93  (rows-at:view p.res 12)
-        =/  old-diesel-2  (rows-at:view p.res 13)
-        =/  old-diesel-b20  (rows-at:view p.res 14)
-        ?:  ?|  !=(1 (lent gas-vehicle))
-                !=(1 (lent diesel-vehicle))
-                !=(1 (lent old-gas-definition))
-                !=(1 (lent old-diesel-definition))
-                !=(1 (lent old-gas-87))
-                !=(1 (lent old-gas-93))
-                !=(1 (lent old-diesel-2))
-                !=(1 (lent old-diesel-b20))
-            ==
-          `this(last `res, pending (~(del by pending) wire))
-        =/  repair=tape
-          %:  repair-demo-fuel:act
-              `@ux`(cell-atom:view %vehicle-id (snag 0 gas-vehicle))
-              `@ux`(cell-atom:view %vehicle-id (snag 0 diesel-vehicle))
-              `@ux`(cell-atom:view %energy-definition-id (snag 0 gas-definition))
-              `@ux`(cell-atom:view %energy-definition-id (snag 0 diesel-definition))
-              `@ux`(cell-atom:view %subtype-id (snag 0 gas-87))
-              `@ux`(cell-atom:view %subtype-id (snag 0 gas-93))
-              `@ux`(cell-atom:view %subtype-id (snag 0 diesel-2))
-              `@ux`(cell-atom:view %subtype-id (snag 0 diesel-b20))
-              `@ux`(cell-atom:view %energy-definition-id (snag 0 old-gas-definition))
-              `@ux`(cell-atom:view %energy-definition-id (snag 0 old-diesel-definition))
-              `@ux`(cell-atom:view %subtype-id (snag 0 old-gas-87))
-              `@ux`(cell-atom:view %subtype-id (snag 0 old-gas-93))
-              `@ux`(cell-atom:view %subtype-id (snag 0 old-diesel-2))
-              `@ux`(cell-atom:view %subtype-id (snag 0 old-diesel-b20))
-          ==
-        =/  repair-wire=path
-          /rover/demo-fuel-repair/(scot %da now.bowl)
-        =/  repair-json  !>([%script %rover %vector repair])
-        =/  repair-pending
-          (~(put by (~(del by pending) wire)) repair-wire 'repair-demo-fuel-write')
-        :_  this(pending repair-pending)
-        :~  [%pass repair-wire %agent [our.bowl %obelisk] %watch /server]
-            [%pass repair-wire %agent [our.bowl %obelisk] %poke %obelisk-action repair-json]
-        ==
-      =/  base=@ux  (cut 7 [0 1] eny.bowl)
-      =/  write-wire=path  /rover/demo-fuel-write/(scot %da now.bowl)
-      =/  script=tape
-        %:  seed-demo-fuel:act
-            base
-            now.bowl
-            `@ux`(cell-atom:view %energy-definition-id (snag 0 gas-definition))
-            `@ux`(cell-atom:view %energy-definition-id (snag 0 diesel-definition))
-            `@ux`(cell-atom:view %subtype-id (snag 0 gas-87))
-            `@ux`(cell-atom:view %subtype-id (snag 0 gas-93))
-            `@ux`(cell-atom:view %subtype-id (snag 0 diesel-2))
-            `@ux`(cell-atom:view %subtype-id (snag 0 diesel-b20))
-        ==
-      =/  jon  !>([%script %rover %vector script])
-      =/  next-pending
-        (~(put by (~(del by pending) wire)) write-wire 'seed-demo-fuel-write')
-      :_  this(pending next-pending)
-      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
-          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-      ==
-    ::
-        %kick
-      `this(pending (~(del by pending) wire))
-    ::
-        %watch-ack
-      `this
-    ==
-  ::
-      [%rover-demo-def *]
-    ?+  -.sign  (on-agent:def wire sign)
-        %fact
-      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
-      ?:  ?=(%.n -.res)
-        `this(last `res, pending (~(del by pending) wire))
-      =/  vehicles  (rows-at:view p.res 0)
-      =/  definitions  (rows-at:view p.res 1)
-      =/  existing  (rows-at:view p.res 2)
-      ?:  ?=(^ existing)
-        `this(last `res, pending (~(del by pending) wire))
-      ?:  ?|  !=(1 (lent vehicles))
-              !=(1 (lent definitions))
-          ==
-        `this(last `res, pending (~(del by pending) wire))
-      =/  base=@ux  (cut 7 [0 1] eny.bowl)
-      =/  script=tape
-        %:  seed-demo-def:act
-            base
-            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
-            `@ux`(cell-atom:view %consumable-id (snag 0 definitions))
-            now.bowl
-        ==
-      =/  write-wire=path  /rover/demo-def-write/(scot %da now.bowl)
-      =/  jon  !>([%script %rover %vector script])
-      =/  next-pending
-        (~(put by (~(del by pending) wire)) write-wire 'seed-demo-def-write')
-      :_  this(pending next-pending)
-      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
-          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-      ==
-    ::
-        %kick
-      `this(pending (~(del by pending) wire))
-    ::
-        %watch-ack
-      `this
-    ==
-  ::
       [%rover-consumable-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by fill-body-pending) wire)
-      ?:  ?|  ?=(%.n -.res)
-              ?=(~ eyre-id)
-              ?=(~ body)
-          ==
-        `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: consumable.definition'))
       =/  decoded  (decode-consumable:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
@@ -1578,10 +1089,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by fill-body-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       =/  decoded  (decode-consumable:entry u.body)
       =/  next
         this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
@@ -1663,74 +1175,17 @@
       `this
     ==
   ::
-      [%rover-energy-rename *]
-    ?+  -.sign  (on-agent:def wire sign)
-        %fact
-      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
-      =/  new-label  (~(get by pending) wire)
-      ?:  ?|  ?=(%.n -.res)
-              ?=(~ new-label)
-          ==
-        `this(last `res)
-      =/  definitions  (rows-at:view p.res 0)
-      ?.  =(1 (lent definitions))
-        `this(last `res)
-      =/  write-wire=path  /rover/energy-rename/(scot %da now.bowl)
-      =/  jon
-        !>([%script %rover %vector (rename-energy-definition:act `@ux`(cell-atom:view %energy-definition-id (snag 0 definitions)) u.new-label)])
-      =/  next-pending
-        (~(put by (~(del by pending) wire)) write-wire 'rename-energy-source')
-      :_  this(pending next-pending)
-      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
-          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-      ==
-    ::
-        %kick
-      `this(pending (~(del by pending) wire))
-    ::
-        %watch-ack
-      `this
-    ==
-  ::
-      [%rover-consumable-rename *]
-    ?+  -.sign  (on-agent:def wire sign)
-        %fact
-      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
-      =/  new-label  (~(get by pending) wire)
-      ?:  ?|  ?=(%.n -.res)
-              ?=(~ new-label)
-          ==
-        `this(last `res)
-      =/  definitions  (rows-at:view p.res 0)
-      ?.  =(1 (lent definitions))
-        `this(last `res)
-      =/  write-wire=path  /rover/consumable-rename/(scot %da now.bowl)
-      =/  jon
-        !>([%script %rover %vector (rename-consumable-definition:act `@ux`(cell-atom:view %consumable-id (snag 0 definitions)) u.new-label)])
-      =/  next-pending
-        (~(put by (~(del by pending) wire)) write-wire 'rename-consumable')
-      :_  this(pending next-pending)
-      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
-          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-      ==
-    ::
-        %kick
-      `this(pending (~(del by pending) wire))
-    ::
-        %watch-ack
-      `this
-    ==
-  ::
       [%rover-edit-vehicle-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       =/  decoded  (decode-vehicle-edit:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -1837,41 +1292,6 @@
       `this
     ==
   ::
-      [%rover-fill-edit-support *]
-    ?+  -.sign  (on-agent:def wire sign)
-        %fact
-      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
-      ?:  ?=(%.n -.res)
-        `this(last `res)
-      =/  vehicles  (rows-at:view p.res 0)
-      ?.  =(1 (lent vehicles))
-        `this(last `res)
-      =/  base=@ux  (cut 7 [0 1] eny.bowl)
-      =/  ids=fill-edit-support-ids:act
-        :*  (fixture-id:act base 921)
-            (fixture-id:act base 922)
-            (fixture-id:act base 923)
-            (fixture-id:act base 924)
-            (fixture-id:act base 925)
-            (fixture-id:act base 926)
-        ==
-      =/  write-wire=path  /rover/fill-edit-support/(scot %da now.bowl)
-      =/  jon
-        !>([%script %rover %vector (seed-fill-edit-support:act ids `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) now.bowl)])
-      =/  next-pending
-        (~(put by (~(del by pending) wire)) write-wire 'seed-fill-edit-support-write')
-      :_  this(pending next-pending)
-      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
-          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
-      ==
-    ::
-        %kick
-      `this(pending (~(del by pending) wire))
-    ::
-        %watch-ack
-      `this
-    ==
-  ::
       [%rover-edit-vehicle-write *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
@@ -1948,10 +1368,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
@@ -2031,10 +1452,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       =/  decoded  (decode-fill:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -2150,10 +1572,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       =/  decoded  (decode-fill:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -2318,10 +1741,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  body  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       =/  decoded  (decode-new-vehicle:entry u.body)
       ?:  ?=(%| -.decoded)
         :_  this
@@ -2399,10 +1823,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  label  (~(get by pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ label)
-          ==
+      ?~  eyre-id
         `this
+      ?~  label
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: add-vehicle'))
@@ -2422,10 +1847,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by preference-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-preference-lookup-refused p.res]
         :_  this
@@ -2482,10 +1908,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by preference-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-preference-write-refused p.res]
         :_  this
@@ -2521,10 +1948,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by odometer-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-odometer-lookup-refused p.res]
         :_  this
@@ -2580,10 +2008,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by odometer-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-odometer-write-refused p.res]
         :_  this
@@ -2617,10 +2046,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by charge-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-charge-lookup-refused p.res]
         :_  this
@@ -2712,10 +2142,11 @@
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by charge-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-charge-write-refused p.res]
         :_  this
@@ -3314,11 +2745,14 @@
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by fill-pending) wire)
       =/  body  (~(get by fill-body-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-              ?=(~ body)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-fill-lookup-refused p.res]
         :_  this
@@ -3586,10 +3020,11 @@
         ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
       =/  input  (~(get by fill-pending) wire)
-      ?:  ?|  ?=(~ eyre-id)
-              ?=(~ input)
-          ==
+      ?~  eyre-id
         `this
+      ?~  input
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
       ?:  ?=(%.n -.res)
         ~&  [%rover-fill-write-refused p.res]
         :_  this
@@ -3679,24 +3114,9 @@
         %fact
       =/  res
         ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
-      =/  op  (~(get by pending) wire)
-      =/  scenario=(unit integrity-kind:rover)
-        ?~  op  ~
-        (integrity-scenario:act u.op)
-      ?^  scenario
-        ?:  ?=(%.n -.res)
-          `this(last ~, integrity `[u.scenario %.y (integrity-message:act u.scenario)])
-        `this(last ~, integrity `[u.scenario %.n 'unexpectedly accepted invalid mutation'])
-      ?.  ?=(%.n -.res)
-        =/  cooked
-          ?~  op  res
-          ?:  =('vehicle-history' u.op)
-            [%.y (order-command-results:act %observed-start %.n p.res)]
-          ?:  =('current-odometer' u.op)
-            [%.y (latest-command-results:act p.res)]
-          res
-        `this(last `cooked)
-      ~&  "{<(slog p.res)>}"
+      ?:  ?=(%.n -.res)
+        ~&  "{<(slog p.res)>}"
+        `this
       `this(last `res)
     ::
         %kick
@@ -3713,18 +3133,6 @@
   ?+  path  (on-peek:def path)
       [%x %last ~]
     ``noun+!>(last)
-  ::
-      [%x %preview ~]
-    ``noun+!>(preview)
-  ::
-      [%x %total ~]
-    ``noun+!>(total)
-  ::
-      [%x %charging-total ~]
-    ``noun+!>(charging-total)
-  ::
-      [%x %integrity ~]
-    ``noun+!>(integrity)
   ==
 ::
 ++  on-watch

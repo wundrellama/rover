@@ -40,7 +40,7 @@ Every readback report and diagnostic probe now sends its urQL straight to
 `%obelisk` with `[%script %rover %vector "<urql>"]` on a per-probe wire. No
 probe in this directory pokes a `%rover-action` readback, diagnostic, or
 calculator arm. The urQL text is lifted verbatim from the matching arm in
-`desk/lib/rover-act.hoon`, which stays in place until T2 deletes it.
+the pre-Gate 7 `desk/lib/rover-act.hoon`; T2 removed the shipping copies.
 
 Probe defaults for the parametrized reports name demo fixture rows:
 `vehicle-settings-report` and `fill-edit-report` read `Rover Demo Gasoline`,
@@ -55,19 +55,16 @@ sets.
 The six `integrity-*` mutation probes carry fixed fixture ids. Each script
 ends in a statement the substrate must refuse, the whole script is atomic,
 so nothing persists and reruns never collide. The expected result is an
-error fact: `[0 %avow 0 %noun 1 ...]`. `integrity-zero-subtype` and
-`integrity-two-subtypes` exercise the Rover-side XOR check, so they build
-`lib/rover-act.hoon` and call `validate-acquisition-subtypes` directly.
+error fact: `[0 %avow 0 %noun 1 ...]`.
 
-The calculator probes (`pricing-preview*`, `pricing-total*`,
-`charging-total`) also build the lib and call the arm. They no longer keep
-a poke alive to test a function.
+The calculator probes (`pricing-total*` and `charging-total`) build the lib
+and call product calculator arms. The preview probes left with their orphaned
+preview arms in Gate 7 T2.
 
 `bin/ui-test.sh` now creates the `seed-spike`, `seed-app-structure`,
 `seed-charging-cost`, `seed-demo-fuel`, `seed-demo-def`, and
-`seed-fill-edit-support` state through the product endpoints. The probe
-files for the first four remain in this directory unchanged from master.
-They are superseded, and T2 deletes them.
+`seed-fill-edit-support` state through the product endpoints. The old
+privileged seed probes are absent.
 
 Five seeds are exempt from the re-drive per the 2026-08-11 ruling in
 `PLAN-GATE7.md`: `seed-fuel-evidence`, `seed-charging-evidence`,
@@ -75,9 +72,8 @@ Five seeds are exempt from the re-drive per the 2026-08-11 ruling in
 write has no product entry surface, so those areas leave M0 for M1. No
 battery or probe pokes them. Their report probes
 (`fuel-evidence-report`, `charging-evidence-report`, `consumption-report`,
-`location-report`, `pricing-report`) execute but return empty result sets
-on a fence-clean pier. T2 deletes the five seeds, these five reports, and
-their fixtures.
+`location-report`, `pricing-report`) are also absent because they returned
+only empty result sets on a fence-clean pier.
 
 Note on the date-literal pitfall below: the generated Gate 7 probes embed
 dates in the padded `scow %da` form (`~2026.07.01..12.00.00`) inside their
@@ -115,27 +111,6 @@ relation.
 Writes only to `cetprobe`, never to `%rover`: fixture data must not reach
 owner-facing state. Drop it from the dojo when finished
 (`DROP DATABASE cetprobe`) — the agent tooling blocks that as destructive.
-
-### `rating-scale-report.hoon`
-Import Q2. Reads the ignition-mode lookup — Rover stores **nothing** about
-ignition mode, so this builds `tests/lib/rover-enums` and reads
-`+rating-scales`.
-
-Expect exactly:
-
-    ['Gasoline' ~ %octane] ['Ethanol' ~ %octane] ['Propane' ~ %octane]
-    ['Diesel' ~ %cetane]
-    ['Electricity' ~] ['Hydrogen' ~] ['CNG' ~] ['LNG' ~]
-
-The four `~` entries are **assertions, not gaps**: Electricity and Hydrogen
-have no anti-knock rating at all, and CNG/LNG are rated on **methane number**,
-a third scale Rover deliberately does not model. A future edit that
-"helpfully" classifies CNG as `%octane` must fail this fixture.
-
-**Falsifiability verified 2026-07-30**: flipping Diesel to `` `%octane `` in
-`tests/lib/rover-enums.hoon`, committing, and re-running showed the change in
-the output — the probe reads live built state, not a cached constant. Restored
-afterward.
 
 ### `import-provenance.hoon`
 Import Q5. Pours `acquisition-imports` into a **throwaway `impprobe` database** with the
@@ -180,15 +155,6 @@ not store it because `formatted` was mandatory on the parent. The probe uses
 two separate pokes because `CREATE DATABASE` and a query against it cannot
 share one request. It writes only to `addrq9probe`, never `%rover`, and is
 one-shot unless that throwaway database is dropped from the dojo.
-
-### `run-test-import.hoon`
-
-Compiles and executes `desk/gen/test-import.hoon` from the live `%rover` desk.
-It checks the import decoder, mandatory `defaultEnergy`, Q14 unit validation,
-source-total classification, the atomic fill-plus-provenance mutation script,
-and the split provenance/support lookup shapes. Expect:
-
-    [0 %avow 0 %noun %import-tests-pass]
 
 For the real-substrate import battery, run:
 
