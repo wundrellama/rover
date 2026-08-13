@@ -284,6 +284,22 @@ right = document.find(end, left + len(start))
 print(document[left:] if right < 0 else document[left:right])' "$1" "$2"
 }
 
+scoped_view() {
+  local page="$1" vehicle="$2"
+  curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-binary "$(printf '{\"page\":\"%s\",\"vehicle\":\"%s\"}' "$page" "$vehicle")" \
+    "$URL/apps/rover/view"
+}
+
+scoped_view_status() {
+  sed -n 's/^ROVER_HTTP_STATUS=//p' <<<"$1"
+}
+
+scoped_view_html() {
+  sed '$d' <<<"$1"
+}
+
 CODE="$(derive_code "$PIER")"
 [ -n "$CODE" ] || fail "could not derive +code"
 JAR="$(mktemp /tmp/rover-ui-cookie.XXXXXX)"
@@ -293,6 +309,7 @@ IMPORT_VEHICLES="$(mktemp /tmp/rover-ui-import-vehicles.XXXXXX.json)"
 IMPORT_VERSION="$(mktemp /tmp/rover-ui-import-version.XXXXXX.json)"
 IMPORT_FILLS="$(mktemp /tmp/rover-ui-import-fills.XXXXXX.json)"
 IMPORT_REFUSED="$(mktemp /tmp/rover-ui-import-refused.XXXXXX.json)"
+IMPORT_STATSCOPE="$(mktemp /tmp/rover-ui-import-statscope.XXXXXX.json)"
 ROVER_TEST_BACKUP_DB="rovertestowner"
 ROVER_TEST_DB_SWAPPED=0
 
@@ -342,7 +359,7 @@ restore_test_database() {
 cleanup() {
   restore_test_database
   rm -f "$JAR" "$HDRS" "$ASSET" "$IMPORT_VEHICLES" \
-    "$IMPORT_VERSION" "$IMPORT_FILLS" "$IMPORT_REFUSED"
+    "$IMPORT_VERSION" "$IMPORT_FILLS" "$IMPORT_REFUSED" "$IMPORT_STATSCOPE"
 }
 trap cleanup EXIT
 
@@ -1350,14 +1367,20 @@ const fs = require('fs');
     });
     fs.writeFileSync(process.env.ROVER_STATISTICS_ARTIFACT, fragment);
   }
-  await selector.evaluate((select) => {
-    const option = [...select.options].find(
-      (candidate) => candidate.textContent === 'Rover Demo Diesel'
-    );
-    if (!option) throw new Error('Rover Demo Diesel selector option is missing');
-    select.value = option.value;
-    select.dispatchEvent(new Event('change', {bubbles: true}));
-  });
+  await Promise.all([
+    page.waitForResponse((response) =>
+      response.url().endsWith('/apps/rover/view') &&
+      response.request().method() === 'POST'
+    ),
+    selector.evaluate((select) => {
+      const option = [...select.options].find(
+        (candidate) => candidate.textContent === 'Rover Demo Diesel'
+      );
+      if (!option) throw new Error('Rover Demo Diesel selector option is missing');
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', {bubbles: true}));
+    })
+  ]);
   const after = await snapshot();
   const names = Object.keys(before.tables);
   const changed = names.filter((name) => before.tables[name] !== after.tables[name]);
@@ -1719,7 +1742,7 @@ fill_edit_setup="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/add-fill")"
 [ "$fill_edit_setup" = $'Saved fill - $3.499 - derived $34.99\n201' ] \
   || fail "fixture 38 setup fill failed: $fill_edit_setup"
-fill_edit_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+fill_edit_view="$(scoped_view_html "$(scoped_view 0 "$fill_edit_vehicle")")"
 fill_edit_html="$(html_slice 'class="history-edit-form"' '</form>' <<<"$fill_edit_view")"
 for field in quantity price observed partialFill subtype station drivingMode averageSpeed \
   driveBalance notes paymentMethod mileage; do
@@ -1759,7 +1782,7 @@ for expected in \
   grep -q "$expected" <<<"$fill_edit_report" \
     || fail "fixture 38 child field missing ($expected); actual: $fill_edit_report"
 done
-fill_edit_rerender="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+fill_edit_rerender="$(scoped_view_html "$(scoped_view 0 "$fill_edit_vehicle")")"
 grep -q 'value="11.111"' <<<"$fill_edit_rerender" \
   || fail "fixture 38 edited quantity did not re-render"
 grep -q '\$39\.99' <<<"$fill_edit_rerender" \
@@ -1788,7 +1811,7 @@ fill_edit_odometer_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 fill_edit_post_odometer="$(rover_report "$(urql_fill_edit "$fill_edit_vehicle" '~2026.07.27..11.45.00')")"
 grep -Fq '[%value-digits 25717 0x30d40] [%decimal-places 25717 1] [%unit %tas 26989]' <<<"$fill_edit_post_odometer" \
   || fail "fixture 39 did not create and link the exact historical odometer observation: $fill_edit_post_odometer"
-fill_edit_economy_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+fill_edit_economy_view="$(scoped_view_html "$(scoped_view 0 "$fill_edit_vehicle")")"
 grep -Fq "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" <<<"$fill_edit_economy_view" \
   || fail "fixture 39 economy interval did not update to exact 9.000 mpg; actual statistics HTML: ${fill_edit_economy_view#*data-statistic=\"economy-by-subtype\"}"
 note "fixture 39 PASS - historical fill edit creates and links odometer evidence and updates exact interval economy to 9.000 mpg"
@@ -1874,7 +1897,7 @@ consumable_seed="$(click_file "=/  m  (strand ,vase)
 (pure:m !>(result))")"
 grep -q '%noun 0' <<<"$consumable_seed" \
   || fail "fixture 42 consumable starter seed failed: $consumable_seed"
-consumable_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+consumable_view="$(scoped_view_html "$(scoped_view 0 "$fill_edit_vehicle")")"
 for starter in DEF 'Washer Fluid' 'Motor Oil' Coolant; do
   grep -q "<option value=\"$starter\"" <<<"$consumable_view" \
     || fail "fixture 42 consumable starter missing from purchase entry: $starter"
@@ -1889,7 +1912,7 @@ def_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
 def_report="$(rover_report "$(urql_consumable "$fill_edit_vehicle" 'DEF' '~2026.07.30..12.00.00')")"
 grep -q "\\[%consumable 116 'DEF'\\].*\\[%quantity-milli 25717 2500\\].*\\[%unit-price-mills 25717 4499\\].*\\[%settlement-mode %tas %standard\\].*\\[%price-profile %tas %us-usd-gal\\].*\\[%minor-unit-decimals 25717 2\\].*\\[%cash-increment-mills 25717 50\\]" <<<"$def_report" \
   || fail "fixture 42 DEF purchase did not retain exact snapshotted pricing: $def_report"
-consumable_after="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+consumable_after="$(scoped_view_html "$(scoped_view 0 "$fill_edit_vehicle")")"
 economy_after="$(grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" <<<"$consumable_after" | wc -l)"
 [ "$economy_before" -eq 1 ] && [ "$economy_after" -eq 1 ] \
   || fail "fixture 42 consumable changed fuel-economy derivation: before=$economy_before after=$economy_after"
@@ -2300,14 +2323,14 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 52 ]; then
   exit 0
 fi
 
-fuel_before_fixture53="$(curl -s -b "$JAR" "$URL/apps/rover/view" | grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" | wc -l)"
+fuel_before_fixture53="$(scoped_view_html "$(scoped_view 0 "$fill_edit_vehicle")" | grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" | wc -l)"
 def_outside_fuel="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/json' \
   --data-raw "$(printf '{"vehicle":"%s","consumable":"DEF","quantity":"1.000","price":"$4.49","profile":"us-usd-gal","settlement":"standard","observed":"2026-08-21T08:00","zone":"America/Chicago","mileage":"20200.0","mileageUnit":"mi"}' "$fill_edit_vehicle")" \
   "$URL/apps/rover/add-consumable")"
 [ "$def_outside_fuel" = $'Saved consumable purchase - $4.50\n201' ] \
   || fail "fixture 53 DEF control purchase failed: $def_outside_fuel"
-fuel_after_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+fuel_after_view="$(scoped_view_html "$(scoped_view 0 "$fill_edit_vehicle")")"
 fuel_after_fixture53="$(grep -oF "data-economy-vehicle=\"$fill_edit_vehicle\" data-economy=\"9.000 mpg\"" <<<"$fuel_after_view" | wc -l)"
 [ "$fuel_before_fixture53" -eq 1 ] && [ "$fuel_after_fixture53" -eq 1 ] \
   || fail "fixture 53 DEF changed fuel economy: before=$fuel_before_fixture53 after=$fuel_after_fixture53"
@@ -2328,6 +2351,7 @@ if ! grep -q 'Phase A Vehicle' <<<"$view"; then
 fi
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "seeded vehicle view not 200"
+view="$(scoped_view_html "$(scoped_view 0 "$fill_edit_vehicle")")"
 
 grep -q '<section id="main-hub"' <<<"$view" || fail "main hub is missing"
 grep -Eq 'DEFAULT VEHICLE NOT SET|Structure Vehicle|Mode Scope Vehicle' <<<"$view" ||
@@ -2597,6 +2621,7 @@ CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-li
 preview="$(
   URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" \
     SUBTYPE_VEHICLE="$browser_scope_vehicle" MODELESS_VEHICLE="$temporary_vehicle" \
+    HISTORY_VEHICLE="$fill_edit_vehicle" \
     NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
 const {chromium} = require('playwright');
 const fs = require('fs');
@@ -2713,12 +2738,21 @@ const fs = require('fs');
       .filter((row) => !row.hidden)
       .every((row) => row.dataset.historyVehicle === vehicle),
       process.env.MODELESS_VEHICLE);
+  const historyTarget = process.env.HISTORY_VEHICLE;
+  await Promise.all([
+    page.waitForResponse((response) =>
+      response.url().endsWith('/apps/rover/view') &&
+      response.request().method() === 'POST'
+    ),
+    historyFilter.evaluate((select, target) => {
+      select.value = target;
+      select.dispatchEvent(new Event('change', {bubbles: true}));
+    }, historyTarget)
+  ]);
   const firstHistoryRow = page.locator('[data-history-vehicle]').first();
-  const historyTarget = await firstHistoryRow.getAttribute('data-history-vehicle');
-  await historyFilter.evaluate((select, target) => {
-    select.value = target;
-    select.dispatchEvent(new Event('change', {bubbles: true}));
-  }, historyTarget);
+  if (await firstHistoryRow.getAttribute('data-history-vehicle') !== historyTarget) {
+    throw new Error(`history response did not contain ${historyTarget}`);
+  }
   if (await firstHistoryRow.getAttribute('hidden') !== null) {
     throw new Error(`${historyTarget} history row remained hidden after filter change`);
   }
@@ -2852,7 +2886,7 @@ history_edit="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/edit-fill")"
 [ "$history_edit" = $'Saved fill changes - $12.00\n201' ] \
   || fail "History edit failed: $history_edit"
-view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+view="$(scoped_view_html "$(scoped_view 0 "$history_vehicle")")"
 grep -q 'value="3.333"' <<<"$view" ||
   fail "edited History quantity did not render back"
 grep -q '\$12\.00' <<<"$view" ||
@@ -3589,6 +3623,203 @@ import_stopped_count="$(import_provenance_count)"
 [ "$import_stopped_count" = 6 ] ||
   fail "fixture 116 a refused batch changed the provenance row count to $import_stopped_count"
 note "fixture 116 PASS - a batch the desk refuses stops the browser where it stands, names the batch and the desk verdict, and holds back every batch behind it"
+
+# This import creates the page boundary that the small fixtures did not test.
+# The newer vehicle fills page 1. The older vehicle has three fills.
+python3 -c 'import copy, json, sys
+source, target = sys.argv[1:3]
+with open(source, encoding="utf-8") as handle:
+    base = json.load(handle)
+
+def scoped_fill(template, vehicle, definition, subtype, observed, mileage, source_id):
+    row = copy.deepcopy(template)
+    for key in list(row):
+        if key.startswith("new"):
+            del row[key]
+    for key in ("averageSpeed", "speedUnit", "driveBalance", "notes", "paymentMethod"):
+        row.pop(key, None)
+    row.update({
+        "vehicle": vehicle,
+        "definition": definition,
+        "quantity": "10.000",
+        "price": "3.000",
+        "profile": "us-usd-gal",
+        "tank": "full",
+        "settlement": "standard",
+        "observed": observed,
+        "zone": "America/Chicago",
+        "mileage": mileage,
+        "mileageUnit": "mi",
+        "station": "none",
+        "additives": [],
+        "subtype": subtype,
+        "missedFill": "no",
+        "tags": [],
+        "sourceApp": "statscope",
+        "sourceRecordId": source_id,
+        "sourceTotal": "30.00",
+    })
+    return row
+
+many_label = "Statscope Many Gasoline"
+few_label = "Statscope Few Diesel"
+gas_template = base["vehicles"][0]["fills"][2]
+diesel_template = base["vehicles"][1]["fills"][2]
+many_fills = [
+    scoped_fill(
+        gas_template,
+        many_label,
+        "Gasoline",
+        "Synthetic 87 AKI",
+        f"2026-04-{number:02d}T08:00",
+        f"{1000 + number * 100}.0",
+        f"many-{number:02d}",
+    )
+    for number in range(1, 31)
+]
+few_fills = [
+    scoped_fill(
+        diesel_template,
+        few_label,
+        "Diesel",
+        "Synthetic ULSD 45",
+        f"2025-05-{number:02d}T09:00",
+        f"{5000 + number * 100}.0",
+        f"few-{number:02d}",
+    )
+    for number in range(1, 4)
+]
+document = {
+    "rover-import": 1,
+    "source": {"app": "statscope"},
+    "definitions": copy.deepcopy(base["definitions"]),
+    "places": [],
+    "vehicles": [
+        {
+            "label": many_label,
+            "distanceUnit": "mi",
+            "volumeUnit": "gal",
+            "tankSize": {"value": "20.000", "unit": "gal"},
+            "defaultEnergy": "Gasoline",
+            "fills": many_fills,
+        },
+        {
+            "label": few_label,
+            "distanceUnit": "mi",
+            "volumeUnit": "gal",
+            "tankSize": {"value": "25.000", "unit": "gal"},
+            "defaultEnergy": "Diesel",
+            "fills": few_fills,
+        },
+    ],
+}
+with open(target, "w", encoding="utf-8") as handle:
+    json.dump(document, handle, separators=(",", ":"), sort_keys=True)' \
+  "$IMPORT_SOURCE" "$IMPORT_STATSCOPE" \
+  || fail "fixture 117 could not build the skew import document"
+statscope_import="$(import_browser import-upload "$IMPORT_STATSCOPE" 40)" \
+  || fail "fixture 117 the skew browser import failed: $statscope_import"
+statscope_result="$(import_line IMPORT_RESULT "$statscope_import")"
+[ "$(import_result_field outcome <<<"$statscope_result")" = success ] \
+  || fail "fixture 117 the skew import did not succeed: $statscope_result"
+[ "$(import_line IMPORT_POSTS "$statscope_import")" = 1 ] \
+  || fail "fixture 117 the browser did not send one skew import batch: $statscope_import"
+grep -q 'Fills: imported 33, already-imported 0, conflicts 0, failures 0' \
+  <<<"$(import_result_field aggregate <<<"$statscope_result")" \
+  || fail "fixture 117 the skew import did not add 30 and 3 fills: $statscope_result"
+note "fixture 117 PASS - the real import endpoint added a 30-fill vehicle and a 3-fill vehicle"
+
+scope_census() {
+  local document="$1" vehicle="$2" history_count="$3" statistics_count="$4"
+  local first_date="$5" last_date="$6" subtype="$7" page_text="$8"
+  python3 -c 'import html, re, sys
+vehicle, history_want, statistics_want, first_date, last_date, subtype, page_text = sys.argv[1:8]
+document = html.unescape(sys.stdin.read())
+history = document.split("<section id=\"history-screen\"", 1)[1].split("</section>", 1)[0]
+statistics = document.split("<section id=\"statistics-screen\"", 1)[1].split("<section id=\"settings-screen\"", 1)[0]
+history_rows = re.findall(r"<article[^>]*data-history-vehicle=\"([^\"]+)\"", history)
+statistics_rows = re.findall(r"<tr[^>]*data-statistics-vehicle=\"([^\"]+)\"", statistics)
+if len(history_rows) != int(history_want):
+    raise SystemExit(f"history rows {len(history_rows)}, want {history_want}: {history_rows}")
+if len(statistics_rows) != int(statistics_want):
+    raise SystemExit(f"statistics rows {len(statistics_rows)}, want {statistics_want}: {statistics_rows}")
+if set(history_rows) != {vehicle}:
+    raise SystemExit(f"history row vehicles {sorted(set(history_rows))}, want only {vehicle}")
+if set(statistics_rows) != {vehicle}:
+    raise SystemExit(f"statistics row vehicles {sorted(set(statistics_rows))}, want only {vehicle}")
+for expected in (first_date, last_date, subtype, page_text):
+    if expected not in history + statistics:
+        raise SystemExit(f"scoped markup lacks {expected!r}")
+print(f"history={len(history_rows)} statistics={len(statistics_rows)} vehicles={sorted(set(history_rows + statistics_rows))}")' \
+    "$vehicle" "$history_count" "$statistics_count" "$first_date" "$last_date" \
+    "$subtype" "$page_text" <<<"$document"
+}
+
+few_response="$(scoped_view 0 'Statscope Few Diesel')"
+[ "$(scoped_view_status "$few_response")" = 200 ] \
+  || fail "fixture 118 few-fill scope returned $(scoped_view_status "$few_response"): $few_response"
+few_html="$(scoped_view_html "$few_response")"
+few_census="$(scope_census "$few_html" 'Statscope Few Diesel' 3 16 \
+  '2025-05-01' '2025-05-03' 'Synthetic ULSD 45' 'Showing 1-3 of 3')" \
+  || fail "fixture 118 few-fill scope is not isolated: $few_census"
+grep -q 'Unavailable' <<<"$few_html" \
+  || fail "fixture 118 few-fill scope hides its unavailable interval result"
+grep -q 'An eligible adjacent full-fill interval is required.' <<<"$few_html" \
+  || fail "fixture 118 few-fill scope weakens the eligible-interval refusal"
+note "statscope few-fill census - $few_census"
+note "fixture 118 PASS - the selected 3-fill diesel vehicle keeps its honest interval refusal"
+
+many_response="$(scoped_view 0 'Statscope Many Gasoline')"
+[ "$(scoped_view_status "$many_response")" = 200 ] \
+  || fail "fixture 119 many-fill scope returned $(scoped_view_status "$many_response"): $many_response"
+many_html="$(scoped_view_html "$many_response")"
+many_census="$(scope_census "$many_html" 'Statscope Many Gasoline' 25 126 \
+  '2026-04-06' '2026-04-30' 'Synthetic 87 AKI' 'Showing 1-25 of 30')" \
+  || fail "fixture 119 many-fill page 1 is not isolated: $many_census"
+note "statscope many-fill page 1 census - $many_census"
+note "fixture 119 PASS - History and Statistics page inside the selected 30-fill vehicle"
+
+many_page_2_response="$(scoped_view 1 'Statscope Many Gasoline')"
+[ "$(scoped_view_status "$many_page_2_response")" = 200 ] \
+  || fail "fixture 120 many-fill page 2 returned $(scoped_view_status "$many_page_2_response"): $many_page_2_response"
+many_page_2_html="$(scoped_view_html "$many_page_2_response")"
+many_page_2_census="$(scope_census "$many_page_2_html" 'Statscope Many Gasoline' 5 26 \
+  '2026-04-01' '2026-04-05' 'Synthetic 87 AKI' 'Showing 26-30 of 30')" \
+  || fail "fixture 120 many-fill page 2 is not isolated: $many_page_2_census"
+note "statscope many-fill page 2 census - $many_page_2_census"
+note "fixture 120 PASS - page 2 stays inside the selected vehicle and serves its last 5 fills"
+
+for default_case in 'Statscope Many Gasoline:25:126:2026-04-06:2026-04-30:Synthetic 87 AKI:Showing 1-25 of 30' \
+                    'Statscope Few Diesel:3:16:2025-05-01:2025-05-03:Synthetic ULSD 45:Showing 1-3 of 3'; do
+  IFS=: read -r default_vehicle default_history default_statistics default_first \
+    default_last default_subtype default_page <<<"$default_case"
+  default_write="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{\"vehicle\":\"%s\"}' "$default_vehicle")" \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$default_write" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 121 could not set $default_vehicle as the app default: $default_write"
+  default_response="$(curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' "$URL/apps/rover/view")"
+  [ "$(scoped_view_status "$default_response")" = 200 ] \
+    || fail "fixture 121 GET for $default_vehicle returned $(scoped_view_status "$default_response")"
+  default_html="$(scoped_view_html "$default_response")"
+  default_census="$(scope_census "$default_html" "$default_vehicle" "$default_history" \
+    "$default_statistics" "$default_first" "$default_last" "$default_subtype" "$default_page")" \
+    || fail "fixture 121 GET did not use the app default $default_vehicle: $default_census"
+  note "statscope GET status=200 census for $default_vehicle - $default_census"
+  if [ "$default_vehicle" = 'Statscope Many Gasoline' ]; then
+    bare_response="$(curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' \
+      -H 'content-type: text/plain' --data-binary '0' "$URL/apps/rover/view")"
+    [ "$(scoped_view_status "$bare_response")" = 200 ] \
+      || fail "fixture 121 bare page POST returned $(scoped_view_status "$bare_response")"
+    bare_census="$(scope_census "$(scoped_view_html "$bare_response")" "$default_vehicle" \
+      "$default_history" "$default_statistics" "$default_first" "$default_last" \
+      "$default_subtype" "$default_page")" \
+      || fail "fixture 121 bare page POST lost the app default scope: $bare_census"
+    note "statscope bare-page POST status=200 census - $bare_census"
+  fi
+done
+note "fixture 121 PASS - GET serves both defaults and the old bare-page POST stays compatible"
 
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"

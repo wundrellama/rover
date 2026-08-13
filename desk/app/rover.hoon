@@ -542,7 +542,15 @@
     ?:  =('/apps/rover/view' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: page')) sat]
-      =/  page-text=@t  `@t`q.u.body.request.req
+      =/  request-text=@t  `@t`q.u.body.request.req
+      =/  request-object  (json-object:entry request-text)
+      =/  page-value=(unit @t)
+        ?~  request-object
+          `request-text
+        (json-string:entry 'page' u.request-object)
+      ?~  page-value
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: page')) sat]
+      =/  page-text=@t  u.page-value
       =/  parsed  (slaw %ud page-text)
       ?:  ?|  ?=(~ parsed)
               (gth u.parsed 1.000.000)
@@ -551,7 +559,7 @@
       =/  wir=wire  /rover-http/(scot %da now.bowl)/[eyre-id]
       =/  jon  !>([%script %rover %vector ui-view:act])
       =/  new-sat
-        sat(pending (~(put by pending.sat) wir page-text), http-pending (~(put by http-pending.sat) wir eyre-id))
+        sat(pending (~(put by pending.sat) wir request-text), http-pending (~(put by http-pending.sat) wir eyre-id))
       :_  new-sat
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
@@ -3102,7 +3110,7 @@
       =/  res
         ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       =/  eyre-id  (~(get by http-pending) wire)
-      =/  page-text  (~(get by pending) wire)
+      =/  request-text  (~(get by pending) wire)
       ?~  eyre-id
         `this
       ?:  ?=(%.n -.res)
@@ -3115,16 +3123,29 @@
             `(as-octs:mimes:html 'Unavailable - database query refused')
         ==
       =/  history-page=@ud
-        ?~  page-text
+        ?~  request-text
           0
-        =/  parsed  (slaw %ud u.page-text)
+        =/  request-object  (json-object:entry u.request-text)
+        =/  page-text=@t
+          ?~  request-object
+            u.request-text
+          =/  page-value  (json-string:entry 'page' u.request-object)
+          ?~(page-value '0' u.page-value)
+        =/  parsed  (slaw %ud page-text)
         ?~(parsed 0 u.parsed)
+      =/  selected-label=(unit @t)
+        ?~  request-text
+          ~
+        =/  request-object  (json-object:entry u.request-text)
+        ?~  request-object
+          ~
+        (json-string:entry 'vehicle' u.request-object)
       :_  this
       %:  http-give
           u.eyre-id
           200
           ['content-type' 'text/html']~
-          `(as-octs:mimes:html (page:view our.bowl history-page p.res))
+          `(as-octs:mimes:html (page:view our.bowl history-page selected-label p.res))
       ==
     ::
         %kick

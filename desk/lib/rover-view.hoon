@@ -2306,13 +2306,22 @@
           tags=(list vector:ast)
           fill-tags=(list vector:ast)
           payment-methods=(list vector:ast)
+          selected-vehicle=(unit vector:ast)
           history-page=@ud
       ==
   ^-  tape
   =/  history-window-size=@ud  25
-  =/  all-ordered  (order-vectors:act %observed-start %.y fills)
+  =/  scoped-fills=(list vector:ast)
+    ?~  selected-vehicle
+      ~
+    (rows-for (cell-atom %vehicle-id u.selected-vehicle) fills)
+  =/  all-ordered  (order-vectors:act %observed-start %.y scoped-fills)
   =/  ordered
     (scag history-window-size (slag (mul history-page history-window-size) all-ordered))
+  =/  selected-label=(unit @t)
+    ?~  selected-vehicle
+      ~
+    `(cell-text %label u.selected-vehicle)
   =/  render-rows
     |=  rows=(list vector:ast)
     ^-  tape
@@ -2343,8 +2352,11 @@
     (weld rendered $(rows t.rows))
   =/  rows=tape  (render-rows ordered)
   ;:  weld
-    "<section id=\"history-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER LOG</p><h1>HISTORY</h1></header>"
+    "<section id=\"history-screen\" class=\"app-screen\" hidden data-view-vehicle=\""
+    ?~(selected-label "" (escape u.selected-label))
+    "\"><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER LOG</p><h1>HISTORY</h1></header>"
     "<label>Vehicle<select id=\"history-vehicle-filter\">"
+    ?~(selected-label "<option value=\"\" selected>Select a vehicle</option>" "")
     (vehicle-options vehicles)
     "</select></label><div class=\"history-table-head\"><span>DATE</span><span>ODOMETER</span><span>GALLONS</span><span>TOTAL COST</span></div><div id=\"history-table\">"
     rows
@@ -2842,17 +2854,30 @@
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
           derivations=(map @ derived-fill)
+          selected-vehicle=(unit vector:ast)
           history-page=@ud
       ==
   ^-  tape
   =/  history-window-size=@ud  25
-  =/  all-recent  (order-vectors:act %observed-start %.y fills)
+  =/  scoped-fills=(list vector:ast)
+    ?~  selected-vehicle
+      ~
+    (rows-for (cell-atom %vehicle-id u.selected-vehicle) fills)
+  =/  scoped-vehicles=(list vector:ast)
+    ?~  selected-vehicle
+      ~
+    [u.selected-vehicle ~]
+  =/  scoped-def-purchases=(list vector:ast)
+    ?~  selected-vehicle
+      ~
+    (rows-for (cell-atom %vehicle-id u.selected-vehicle) def-purchases)
+  =/  all-recent  (order-vectors:act %observed-start %.y scoped-fills)
   =/  recent
     (scag history-window-size (slag (mul history-page history-window-size) all-recent))
   =/  default-label=(unit @t)
-    ?~  app-default
+    ?~  selected-vehicle
       ~
-    `(cell-text %label i.app-default)
+    `(cell-text %label u.selected-vehicle)
   =/  scope-header=tape
     ?~  default-label
       "<p id=\"statistics-vehicle-name\" data-statistics-scope-heading data-statistics-no-default>No default vehicle set.</p>"
@@ -2870,47 +2895,57 @@
       (vehicle-options vehicles)
       "</select></label>"
     ==
-  ?~  fills
+  ?:  ?&  ?=(~ scoped-fills)
+          ?=(~ scoped-def-purchases)
+      ==
     ;:  weld
-      "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1>"
+      "<section id=\"statistics-screen\" class=\"app-screen\" hidden data-view-vehicle=\""
+      ?~(default-label "" (escape u.default-label))
+      "\"><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1>"
       scope-header
       "</header>"
       selector
       "<div class=\"empty-state\" data-statistics-state=\"no-data\"><h2>No data yet</h2><p>Add a fill to begin tracking economy.</p></div></section>"
     ==
   ;:  weld
-    "<section id=\"statistics-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1>"
+    "<section id=\"statistics-screen\" class=\"app-screen\" hidden data-view-vehicle=\""
+    ?~(default-label "" (escape u.default-label))
+    "\"><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER ANALYSIS</p><h1>STATISTICS</h1>"
     scope-header
     "</header>"
     selector
     "<p id=\"statistics-empty\" class=\"empty\" hidden>No statistics are recorded for this vehicle.</p>"
     "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-fill-rows recent vehicles subtype-links derivations %economy)
+    (statistic-fill-rows recent scoped-vehicles subtype-links derivations %economy)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"fuel-costs\"><h2>Fuel costs</h2><table><thead><tr><th>Date</th><th>Total cost</th></tr></thead><tbody>"
-    (statistic-fill-rows recent vehicles subtype-links derivations %cost)
+    (statistic-fill-rows recent scoped-vehicles subtype-links derivations %cost)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"distance-between-fills\"><h2>Distance between fills</h2><table><thead><tr><th>Date</th><th>Distance</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-interval-rows recent vehicles tank-sizes derivations %distance)
+    (statistic-interval-rows recent scoped-vehicles tank-sizes derivations %distance)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"time-between-fills\"><h2>Time between fills</h2><table><thead><tr><th>Date</th><th>Elapsed time</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-interval-rows recent vehicles tank-sizes derivations %time)
+    (statistic-interval-rows recent scoped-vehicles tank-sizes derivations %time)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"average-price-per-unit\"><h2>Average price per unit - lifetime</h2><table><thead><tr><th>Period</th><th>Fills</th><th>Mean unit price</th><th>Basis</th></tr></thead><tbody>"
-    (average-price-stat-rows vehicles fills)
+    (average-price-stat-rows scoped-vehicles scoped-fills)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"distance-per-tank\"><h2>Distance per tank</h2><table><thead><tr><th>Date</th><th>Estimated distance</th><th>Eligibility</th></tr></thead><tbody>"
-    (statistic-interval-rows recent vehicles tank-sizes derivations %tank)
+    (statistic-interval-rows recent scoped-vehicles tank-sizes derivations %tank)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
-    (def-economy-stat-rows vehicles def-purchases def-odometers)
+    (def-economy-stat-rows scoped-vehicles scoped-def-purchases def-odometers)
     "</tbody></table></section>"
     (pagination-controls history-page (lent all-recent) 'statistics-screen')
     "</section>"
   ==
 ::
 ++  page
-  |=  [ship=@p history-page=@ud commands=(list cmd-result:ast)]
+  |=  $:  ship=@p
+          history-page=@ud
+          selected-label=(unit @t)
+          commands=(list cmd-result:ast)
+      ==
   ^-  @t
   =/  vehicles  (rows-at commands 0)
   =/  odometers  (rows-at commands 1)
@@ -2961,6 +2996,13 @@
     ?~  app-default
       ~
     `(cell-atom %vehicle-id i.app-default)
+  =/  selected-vehicle=(unit vector:ast)
+    ?^  selected-label
+      (row-by-text %label u.selected-label vehicles)
+    ?~  app-default
+      ~
+    =/  defaults  (rows-by %vehicle-id (cell-atom %vehicle-id i.app-default) vehicles)
+    ?~(defaults ~ `i.defaults)
   =/  derivations
     (derive-fill-series fills fill-odometers economy-breaks)
   =/  cards=tape
@@ -3031,8 +3073,8 @@
       "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
-      (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods history-page)
-      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations history-page)
+      (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
+      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations selected-vehicle history-page)
       (settings-screen custom-definitions)
       import-screen
     ==

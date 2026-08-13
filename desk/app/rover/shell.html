@@ -1565,7 +1565,9 @@
 
       const historyFilter = app.querySelector('#history-vehicle-filter');
       if (historyFilter) {
-        if (defaultVehicle) historyFilter.value = defaultVehicle;
+        const historyVehicle =
+          app.querySelector('#history-screen')?.dataset.viewVehicle || defaultVehicle;
+        if (historyVehicle) historyFilter.value = historyVehicle;
         const syncHistory = () => {
           let visible = 0;
           app.querySelectorAll('[data-history-vehicle]').forEach((row) => {
@@ -1574,13 +1576,18 @@
           });
           app.querySelector('#history-empty').hidden = visible !== 0;
         };
-        historyFilter.addEventListener('change', syncHistory);
+        historyFilter.addEventListener('change', async () => {
+          syncHistory();
+          await loadView(0, 'history-screen', historyFilter.value);
+        });
         syncHistory();
       }
 
       const statisticsVehicle = app.querySelector('#statistics-vehicle-select');
       if (statisticsVehicle) {
-        if (defaultVehicle) statisticsVehicle.value = defaultVehicle;
+        const statisticsScope =
+          app.querySelector('#statistics-screen')?.dataset.viewVehicle || defaultVehicle;
+        if (statisticsScope) statisticsVehicle.value = statisticsScope;
         const syncStatistics = () => {
           const selected = statisticsVehicle.value;
           let visible = 0;
@@ -1604,7 +1611,10 @@
           const empty = app.querySelector('#statistics-empty');
           if (empty) empty.hidden = visible !== 0;
         };
-        statisticsVehicle.addEventListener('change', syncStatistics);
+        statisticsVehicle.addEventListener('change', async () => {
+          syncStatistics();
+          await loadView(0, 'statistics-screen', statisticsVehicle.value);
+        });
         syncStatistics();
       }
 
@@ -2095,14 +2105,26 @@
       });
     }
 
-    async function loadView(page = 0, target = '') {
+    async function loadView(page = 0, target = '', vehicle = '') {
       status.textContent = 'Refreshing…';
       try {
+        const selectedVehicle = vehicle || (
+          target === 'history-screen'
+            ? app.querySelector('#history-vehicle-filter')?.value || ''
+            : target === 'statistics-screen'
+              ? app.querySelector('#statistics-vehicle-select')?.value || ''
+              : ''
+        );
+        const scopedRequest = selectedVehicle.length > 0;
         const response = await fetch('/apps/rover/view', {
-          method: page === 0 ? 'GET' : 'POST',
-          body: page === 0 ? undefined : String(page),
+          method: page === 0 && !scopedRequest ? 'GET' : 'POST',
+          body: page === 0 && !scopedRequest
+            ? undefined
+            : scopedRequest
+              ? JSON.stringify({page: String(page), vehicle: selectedVehicle})
+              : String(page),
           credentials: 'same-origin',
-          headers: {'accept': 'text/html'}
+          headers: {'accept': 'text/html', 'content-type': scopedRequest ? 'application/json' : 'text/plain'}
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         app.innerHTML = await response.text();
