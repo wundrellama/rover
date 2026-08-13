@@ -26,6 +26,7 @@
       [%14 state-14]
       [%15 state-15]
       [%16 state-16]
+      [%17 state-17]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -383,6 +384,22 @@
       fill-body-pending=(map wire @t)
       import-run=(unit import-run:rover)
   ==
++$  state-17
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+      import-run=(unit import-run:rover)
+      bootstrap-ready=?
+  ==
 +$  card  card:agent:gall
 --
 =>  |%
@@ -525,8 +542,8 @@
   ==
 ::
 ++  continue-import
-  |=  [sat=state-16 our=@p run=import-run:rover]
-  ^-  [(list card) state-16]
+  |=  [sat=state-17 our=@p run=import-run:rover]
+  ^-  [(list card) state-17]
   ?~  remaining.run
     :_  sat(import-run ~)
     %:  http-give
@@ -554,8 +571,8 @@
   ==
 ::
 ++  handle-http
-  |=  [sat=state-16 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-16]
+  |=  [sat=state-17 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-17]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -578,8 +595,14 @@
               (gth u.parsed 1.000.000)
           ==
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: page')) sat]
-      =/  wir=wire  /rover-bootstrap-probe/(scot %da now.bowl)/[eyre-id]
-      =/  jon  !>([%script %sys %vector database-list:act])
+      =/  wir=wire
+        ?:  bootstrap-ready.sat
+          /rover-http/recover/(scot %da now.bowl)/[eyre-id]
+        /rover-bootstrap-probe/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        ?:  bootstrap-ready.sat
+          !>([%script %rover %vector ui-view:act])
+        !>([%script %sys %vector database-list:act])
       =/  new-sat
         sat(pending (~(put by pending.sat) wir request-text), http-pending (~(put by http-pending.sat) wir eyre-id))
       :_  new-sat
@@ -954,8 +977,14 @@
   ?:  =('/apps/rover/assets/fonts/JetBrainsMono-Bold.woff2' url.request.req)
     [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-octs) sat]
   ?:  =('/apps/rover/view' url.request.req)
-    =/  wir=wire  /rover-bootstrap-probe/(scot %da now.bowl)/[eyre-id]
-    =/  jon  !>([%script %sys %vector database-list:act])
+    =/  wir=wire
+      ?:  bootstrap-ready.sat
+        /rover-http/recover/(scot %da now.bowl)/[eyre-id]
+      /rover-bootstrap-probe/(scot %da now.bowl)/[eyre-id]
+    =/  jon
+      ?:  bootstrap-ready.sat
+        !>([%script %rover %vector ui-view:act])
+      !>([%script %sys %vector database-list:act])
     =/  new-sat
       sat(pending (~(put by pending.sat) wir '0'), http-pending (~(put by http-pending.sat) wir eyre-id))
     :_  new-sat
@@ -964,7 +993,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-16
+=|  state-17
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -976,7 +1005,7 @@
   ^-  (quip card _this)
   [[bind-eyre]~ this]
 ::
-++  on-save  !>([%16 state])
+++  on-save  !>([%17 state])
 ::
 ++  on-load
   |=  old=vase
@@ -984,23 +1013,24 @@
   =/  s  !<(versioned-state old)
   =/  loaded=_this
     ?-  -.s
-      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~])
-      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~])
-      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~ ~ ~])
-      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~ ~])
-      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~])
-      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~])
-      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~])
-      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~])
-      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~])
-      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~])
-      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~])
-      %16  this(state +.s)
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ %.n])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ %.n])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~ ~ ~ %.n])
+      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~ ~ %.n])
+      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~ %.n])
+      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~ %.n])
+      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~ %.n])
+      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~ %.n])
+      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~ %.n])
+      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~ %.n])
+      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
+      %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
+      %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
+      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
+      %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
+      %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
+      %16  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s %.n])
+      %17  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -1179,7 +1209,7 @@
       =/  exists  (database-present p.res)
       =/  next-wire=path
         ?:  exists
-          /rover-http/(scot %da now.bowl)/[u.eyre-id]
+          /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
         /rover-bootstrap-pour/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
         ?:  exists
@@ -1189,7 +1219,7 @@
         (~(put by (~(del by pending) wire)) next-wire u.request-text)
       =/  next-http
         (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
-      :_  this(pending next-pending, http-pending next-http)
+      :_  this(pending next-pending, http-pending next-http, bootstrap-ready exists)
       :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
@@ -1281,7 +1311,7 @@
       =/  script  (starter-seed-script p.res base now.bowl)
       =/  next-wire=path
         ?:  ?=(~ script)
-          /rover-http/(scot %da now.bowl)/[u.eyre-id]
+          /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
         /rover-bootstrap-starter-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
         ?:  ?=(~ script)
@@ -1291,7 +1321,7 @@
         (~(put by (~(del by pending) wire)) next-wire u.request-text)
       =/  next-http
         (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
-      :_  this(pending next-pending, http-pending next-http)
+      :_  this(pending next-pending, http-pending next-http, bootstrap-ready ?=(~ script))
       :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
@@ -1333,13 +1363,13 @@
             ['content-type' 'text/plain']~
             `(text-octs 'Database setup failed while adding starter definitions. Obelisk refused the starter seed.')
         ==
-      =/  next-wire=path  /rover-http/(scot %da now.bowl)/[u.eyre-id]
+      =/  next-wire=path  /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
       =/  jon  !>([%script %rover %vector ui-view:act])
       =/  next-pending
         (~(put by (~(del by pending) wire)) next-wire u.request-text)
       =/  next-http
         (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
-      :_  this(pending next-pending, http-pending next-http)
+      :_  this(pending next-pending, http-pending next-http, bootstrap-ready %.y)
       :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
@@ -2430,7 +2460,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-16]
+        =/  continued=[(list card) state-17]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -2654,7 +2684,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-16]
+        =/  continued=[(list card) state-17]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -2706,7 +2736,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-16]
+        =/  continued=[(list card) state-17]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -2759,7 +2789,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-16]
+        =/  continued=[(list card) state-17]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -2916,7 +2946,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-16]
+        =/  continued=[(list card) state-17]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  phase=@ta
@@ -2945,7 +2975,7 @@
           report.run
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-16]
+        =/  continued=[(list card) state-17]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -2961,7 +2991,7 @@
         report.run
       =/  next
         run(writing %.n, remaining t.remaining.run, report report)
-      =/  continued=[(list card) state-16]
+      =/  continued=[(list card) state-17]
         (continue-import state our.bowl next)
       [-.continued this(state +.continued)]
     ::
@@ -3309,7 +3339,8 @@
       `this
     ==
   ::
-      [%rover-http *]
+      [%rover-http @tas *]
+    =/  mode=@tas  i.t.wire
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res
@@ -3320,6 +3351,21 @@
         `this
       ?:  ?=(%.n -.res)
         ~&  [%rover-ui-view-refused p.res]
+        ?:  =(mode %recover)
+          ?~  request-text
+            :_  this(http-pending (~(del by http-pending) wire))
+            (restart-http u.eyre-id)
+          =/  next-wire=path
+            /rover-bootstrap-probe/(scot %da now.bowl)/[u.eyre-id]
+          =/  jon  !>([%script %sys %vector database-list:act])
+          =/  next-pending
+            (~(put by (~(del by pending) wire)) next-wire u.request-text)
+          =/  next-http
+            (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
+          :_  this(pending next-pending, http-pending next-http)
+          :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+              [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+          ==
         :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
         %:  http-give
             u.eyre-id
@@ -3345,7 +3391,7 @@
         ?~  request-object
           ~
         (json-string:entry 'vehicle' u.request-object)
-      :_  this
+      :_  this(bootstrap-ready %.y)
       %:  http-give
           u.eyre-id
           200

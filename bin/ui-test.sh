@@ -260,6 +260,106 @@ derive_code() {
     | grep -oE '[a-z]{6}(-[a-z]{6}){3}' | head -1
 }
 
+resolve_pier_tmux() {
+  local target session pid command
+  while read -r target session pid; do
+    [ -r "/proc/$pid/cmdline" ] || continue
+    command="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
+    case "$command" in
+      *" -c $PIER "|*" -c $PIER"|*" $PIER ")
+        printf '%s %s %s\n' "$target" "$session" "$pid"
+        return 0
+        ;;
+    esac
+  done < <(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{session_name} #{pane_pid}')
+  return 1
+}
+
+restart_test_pier() {
+  local target session pid command attempt index ready=0
+  local -a current_command pier_command
+  read -r target session pid < <(resolve_pier_tmux) \
+    || fail "bootstrap latch fixtures cannot find the tmux pane for $PIER"
+  mapfile -d '' current_command < "/proc/$pid/cmdline"
+  pier_command=("${current_command[0]}")
+  for index in "${!current_command[@]}"; do
+    if [ "${current_command[$index]}" = -p ]; then
+      pier_command+=(-p "${current_command[$((index + 1))]}")
+      break
+    fi
+  done
+  pier_command+=("$PIER")
+  printf -v command '%q ' "${pier_command[@]}"
+  tmux send-keys -t "$target" '|exit' Enter
+  for attempt in $(seq 1 30); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  kill -0 "$pid" 2>/dev/null \
+    && fail "bootstrap latch fixtures could not stop $PIER"
+  for attempt in $(seq 1 30); do
+    ! pgrep -f "snap-dir $PIER" >/dev/null && break
+    sleep 1
+  done
+  pgrep -f "snap-dir $PIER" >/dev/null \
+    && fail "bootstrap latch fixtures found a Rover worker after shutdown"
+  if tmux has-session -t "$session" 2>/dev/null; then
+    fail "bootstrap latch fixtures found another pane in tmux session $session"
+  fi
+  tmux new-session -d -s "$session" "$command"
+  for attempt in $(seq 1 120); do
+    PORT="$(awk '/insecure public/{print $1}' "$PIER/.http.ports" 2>/dev/null)"
+    if [ -n "$PORT" ] && curl -s -o /dev/null "http://localhost:$PORT/~/login"; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$ready" = 1 ] \
+    || fail "bootstrap latch fixtures could not restart $PIER"
+  URL="http://localhost:$PORT"
+  CODE="$(derive_code "$PIER")"
+  [ -n "$CODE" ] || fail "bootstrap latch fixtures could not derive +code after restart"
+  : > "$JAR"
+  curl -s -c "$JAR" -o /dev/null "$URL/~/login" --data-raw "password=$CODE"
+  grep -q urbauth "$JAR" \
+    || fail "bootstrap latch fixtures could not log in after restart"
+}
+
+trace_view_probes() {
+  local label="$1" target session pid trace body response
+  read -r target session pid < <(resolve_pier_tmux) \
+    || fail "$label cannot find the tmux pane for $PIER"
+  trace="$BOOTSTRAP_TRACE"
+  body="$BOOTSTRAP_VIEW"
+  tmux clear-history -t "$target"
+  tmux send-keys -t "$target" C-l
+  tmux send-keys -t "$target" '|verb' Enter
+  sleep 1
+  response="$(curl -sS -b "$JAR" -o "$body" -w '%{http_code}' "$URL/apps/rover/view")" \
+    || {
+      tmux send-keys -t "$target" '|verb' Enter
+      fail "$label could not load the Rover view"
+    }
+  sleep 1
+  tmux send-keys -t "$target" '|verb' Enter
+  sleep 1
+  tmux capture-pane -t "$target" -p -S -10000 > "$trace"
+  TRACE_STATUS="$response"
+  TRACE_HTML="$(<"$body")"
+  read -r TRACE_PROBES TRACE_VIEWS < <(python3 -c 'import sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+def pokes(marker):
+    count = 0
+    for index, line in enumerate(lines):
+        if "%obelisk %poke]" not in line:
+            continue
+        if marker in "\n".join(lines[index:index + 12]):
+            count += 1
+    return count
+print(pokes("rover-bootstrap-probe"), pokes("rover-http"))' "$trace")
+}
+
 read_structure_report() {
   rover_report "$URQL_APP_STRUCTURE"
 }
@@ -310,6 +410,8 @@ IMPORT_VERSION="$(mktemp /tmp/rover-ui-import-version.XXXXXX.json)"
 IMPORT_FILLS="$(mktemp /tmp/rover-ui-import-fills.XXXXXX.json)"
 IMPORT_REFUSED="$(mktemp /tmp/rover-ui-import-refused.XXXXXX.json)"
 IMPORT_STATSCOPE="$(mktemp /tmp/rover-ui-import-statscope.XXXXXX.json)"
+BOOTSTRAP_TRACE="$(mktemp /tmp/rover-bootstrap-trace.XXXXXX.txt)"
+BOOTSTRAP_VIEW="$(mktemp /tmp/rover-bootstrap-view.XXXXXX.html)"
 ROVER_TEST_BACKUP_DB="rovertestowner"
 ROVER_TEST_DB_SWAPPED=0
 
@@ -367,7 +469,8 @@ restore_test_database() {
 cleanup() {
   restore_test_database
   rm -f "$JAR" "$HDRS" "$ASSET" "$IMPORT_VEHICLES" \
-    "$IMPORT_VERSION" "$IMPORT_FILLS" "$IMPORT_REFUSED" "$IMPORT_STATSCOPE"
+    "$IMPORT_VERSION" "$IMPORT_FILLS" "$IMPORT_REFUSED" "$IMPORT_STATSCOPE" \
+    "$BOOTSTRAP_TRACE" "$BOOTSTRAP_VIEW"
 }
 trap cleanup EXIT
 
@@ -420,11 +523,13 @@ if [ "${ROVER_NO_FIXTURE_ISOLATION:-}" != 1 ]; then
     || fail "fixture 124 could not remove the unusable database"
   note "fixture 124 PASS - a genuine database refusal names the failed view query and exposes no bare HTTP status"
 
-  cold_view="$(curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' \
-    "$URL/apps/rover/view")"
-  [ "$(scoped_view_status "$cold_view")" = 200 ] \
-    || fail "fixture 122 cold view returned $(scoped_view_status "$cold_view"): $cold_view"
-  cold_html="$(scoped_view_html "$cold_view")"
+  restart_test_pier
+  trace_view_probes "fixture 122 cold view"
+  [ "$TRACE_STATUS" = 200 ] \
+    || fail "fixture 122 cold view returned $TRACE_STATUS: $TRACE_HTML"
+  [ "$TRACE_PROBES" = 1 ] \
+    || fail "fixture 122 cold view sent $TRACE_PROBES database probes, want 1"
+  cold_html="$TRACE_HTML"
   grep -q '>Gasoline</option>' <<<"$cold_html" \
     || fail "fixture 122 cold view has no Gasoline starter"
   grep -q '>Diesel</option>' <<<"$cold_html" \
@@ -436,8 +541,47 @@ if [ "${ROVER_NO_FIXTURE_ISOLATION:-}" != 1 ]; then
     || fail "fixture 122 cold view did not create the disposable rover database"
   database_exists "$database_report" "$ROVER_TEST_BACKUP_DB" \
     || fail "fixture isolation lost the renamed owner database"
-  note "bootstrap cold transcript - database-before=absent GET-status=$(scoped_view_status "$cold_view") starters=Gasoline|Diesel empty-state=Add-a-fill-to-begin-tracking"
+  note "bootstrap cold transcript - database-before=absent GET-status=$TRACE_STATUS probe-pokes=$TRACE_PROBES view-pokes=$TRACE_VIEWS starters=Gasoline|Diesel empty-state=Add-a-fill-to-begin-tracking"
   note "fixture 122 PASS - a cold GET creates the database, seeds starters, and serves the usable empty state"
+
+  trace_view_probes "fixture 125 second view"
+  [ "$TRACE_STATUS" = 200 ] \
+    || fail "fixture 125 second view returned $TRACE_STATUS: $TRACE_HTML"
+  [ "$TRACE_PROBES" = 0 ] \
+    || fail "fixture 125 second view sent $TRACE_PROBES database probes, want 0"
+  note "bootstrap second-load transcript - GET-status=$TRACE_STATUS probe-pokes=$TRACE_PROBES view-pokes=$TRACE_VIEWS"
+  note "fixture 125 PASS - the second view skips the database probe"
+
+  restart_counts_before="$(rover_row_counts)"
+  restart_test_pier
+  trace_view_probes "fixture 126 restarted view"
+  [ "$TRACE_STATUS" = 200 ] \
+    || fail "fixture 126 restarted view returned $TRACE_STATUS: $TRACE_HTML"
+  [ "$TRACE_PROBES" = 0 ] \
+    || fail "fixture 126 restarted view sent $TRACE_PROBES database probes, want 0"
+  restart_counts_after="$(rover_row_counts)"
+  [ "$restart_counts_after" = "$restart_counts_before" ] \
+    || fail "fixture 126 restart changed data: before=$restart_counts_before after=$restart_counts_after"
+  note "bootstrap restart transcript - GET-status=$TRACE_STATUS probe-pokes=$TRACE_PROBES view-pokes=$TRACE_VIEWS before=$restart_counts_before after=$restart_counts_after"
+  note "fixture 126 PASS - the saved latch skips the probe after restart and keeps the data"
+
+  obelisk_mutate sys "DROP DATABASE FORCE rover" >/dev/null \
+    || fail "fixture 127 could not remove the isolated Rover database"
+  trace_view_probes "fixture 127 self-heal view"
+  [ "$TRACE_STATUS" = 200 ] \
+    || fail "fixture 127 self-heal view returned $TRACE_STATUS: $TRACE_HTML"
+  [ "$TRACE_PROBES" = 1 ] \
+    || fail "fixture 127 self-heal sent $TRACE_PROBES database probes, want 1"
+  database_report="$(read_database_report)"
+  database_exists "$database_report" rover \
+    || fail "fixture 127 self-heal did not restore the Rover database"
+  grep -q '>Gasoline</option>' <<<"$TRACE_HTML" \
+    || fail "fixture 127 self-heal did not restore the starter definitions"
+  note "bootstrap self-heal transcript - database-before=absent GET-status=$TRACE_STATUS probe-pokes=$TRACE_PROBES view-pokes=$TRACE_VIEWS database-after=present starter=Gasoline"
+  note "fixture 127 PASS - one failed latched view re-probes, restores the database, and serves"
+  if [ "${ROVER_BOOTSTRAP_LATCH_ONLY:-}" = 1 ]; then
+    exit 0
+  fi
 fi
 
 body="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover")"
