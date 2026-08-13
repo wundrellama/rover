@@ -341,6 +341,14 @@ database_exists() {
   grep -Fq "[%database %tas %$database]" <<<"$report"
 }
 
+rover_row_counts() {
+  local report
+  report="$(rover_report "FROM fuel-fills F SELECT F.acquisition-id; FROM energy-definitions E WHERE E.label = 'Gasoline' OR E.label = 'Diesel' OR E.label = 'Electricity' OR E.label = 'Propane' OR E.label = 'Hydrogen' OR E.label = 'CNG' OR E.label = 'LNG' OR E.label = 'Ethanol' SELECT E.energy-definition-id, E.label;")"
+  printf 'fills=%s starter-energy-definitions=%s\n' \
+    "$(grep -o '\[%acquisition-id ' <<<"$report" | wc -l)" \
+    "$(grep -o '\[%energy-definition-id ' <<<"$report" | wc -l)"
+}
+
 restore_test_database() {
   local database_report
   [ "$ROVER_TEST_DB_SWAPPED" -eq 1 ] || return 0
@@ -396,18 +404,40 @@ if [ "${ROVER_NO_FIXTURE_ISOLATION:-}" != 1 ]; then
     fail "fixture isolation still sees rover after renaming the owner database"
   fi
   ROVER_TEST_DB_SWAPPED=1
-  click_file '=/  m  (strand ,vase)
-;<  our=@p  bind:m  get-our
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%init-db ~]))
-;<  ~  bind:m  (sleep ~s8)
-;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
-;<  ~  bind:m  (sleep ~s8)
-(pure:m !>(~))' >/dev/null
+  obelisk_mutate sys "CREATE DATABASE rover" >/dev/null \
+    || fail "fixture 124 could not create the unusable database"
+  refused_view="$(curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' \
+    "$URL/apps/rover/view")"
+  [ "$(scoped_view_status "$refused_view")" = 503 ] \
+    || fail "fixture 124 unusable database returned $(scoped_view_status "$refused_view"): $refused_view"
+  refused_html="$(scoped_view_html "$refused_view")"
+  grep -q 'Rover could not load the vehicle log' <<<"$refused_html" \
+    || fail "fixture 124 refusal does not name the failed view query: $refused_html"
+  if grep -q 'HTTP 503' <<<"$refused_html"; then
+    fail "fixture 124 refusal exposes a bare HTTP status: $refused_html"
+  fi
+  obelisk_mutate sys "DROP DATABASE FORCE rover" >/dev/null \
+    || fail "fixture 124 could not remove the unusable database"
+  note "fixture 124 PASS - a genuine database refusal names the failed view query and exposes no bare HTTP status"
+
+  cold_view="$(curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' \
+    "$URL/apps/rover/view")"
+  [ "$(scoped_view_status "$cold_view")" = 200 ] \
+    || fail "fixture 122 cold view returned $(scoped_view_status "$cold_view"): $cold_view"
+  cold_html="$(scoped_view_html "$cold_view")"
+  grep -q '>Gasoline</option>' <<<"$cold_html" \
+    || fail "fixture 122 cold view has no Gasoline starter"
+  grep -q '>Diesel</option>' <<<"$cold_html" \
+    || fail "fixture 122 cold view has no Diesel starter"
+  grep -q 'Add a fill to begin tracking' <<<"$cold_html" \
+    || fail "fixture 122 cold view has no usable empty state"
   database_report="$(read_database_report)"
   database_exists "$database_report" rover \
-    || fail "fixture isolation did not create the disposable rover database"
+    || fail "fixture 122 cold view did not create the disposable rover database"
   database_exists "$database_report" "$ROVER_TEST_BACKUP_DB" \
     || fail "fixture isolation lost the renamed owner database"
+  note "bootstrap cold transcript - database-before=absent GET-status=$(scoped_view_status "$cold_view") starters=Gasoline|Diesel empty-state=Add-a-fill-to-begin-tracking"
+  note "fixture 122 PASS - a cold GET creates the database, seeds starters, and serves the usable empty state"
 fi
 
 body="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover")"
@@ -3820,6 +3850,17 @@ for default_case in 'Statscope Many Gasoline:25:126:2026-04-06:2026-04-30:Synthe
   fi
 done
 note "fixture 121 PASS - GET serves both defaults and the old bare-page POST stays compatible"
+
+bootstrap_counts_before="$(rover_row_counts)"
+bootstrap_idempotent_view="$(curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' \
+  "$URL/apps/rover/view")"
+[ "$(scoped_view_status "$bootstrap_idempotent_view")" = 200 ] \
+  || fail "fixture 123 populated view returned $(scoped_view_status "$bootstrap_idempotent_view"): $bootstrap_idempotent_view"
+bootstrap_counts_after="$(rover_row_counts)"
+[ "$bootstrap_counts_after" = "$bootstrap_counts_before" ] \
+  || fail "fixture 123 view changed populated rows: before=$bootstrap_counts_before after=$bootstrap_counts_after"
+note "bootstrap idempotence counts - before $bootstrap_counts_before after $bootstrap_counts_after"
+note "fixture 123 PASS - a populated view does not re-pour, re-seed, or change fill and starter counts"
 
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"

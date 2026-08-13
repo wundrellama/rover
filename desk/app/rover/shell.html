@@ -2106,7 +2106,9 @@
     }
 
     async function loadView(page = 0, target = '', vehicle = '') {
-      status.textContent = 'Refreshing…';
+      status.textContent = app.childElementCount === 0
+        ? 'Setting up the database…'
+        : 'Refreshing…';
       try {
         const selectedVehicle = vehicle || (
           target === 'history-screen'
@@ -2126,8 +2128,14 @@
           credentials: 'same-origin',
           headers: {'accept': 'text/html', 'content-type': scopedRequest ? 'application/json' : 'text/plain'}
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        app.innerHTML = await response.text();
+        const responseBody = await response.text();
+        if (!response.ok) {
+          app.textContent = responseBody;
+          status.textContent = 'Unavailable · Rover could not load the vehicle log';
+          refreshTime.textContent = 'The database request failed';
+          return;
+        }
+        app.innerHTML = responseBody;
         syncHeader();
         bindEntryScreens();
         if (target) {

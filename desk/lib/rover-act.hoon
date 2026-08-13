@@ -20,6 +20,10 @@
 ::
 ++  rover-db  %rover
 ::
+++  database-list
+  ^-  tape
+  "FROM sys.sys.databases SELECT database;"
+::
 ++  fixture-id
   |=  [seed=@ux ordinal=@ud]
   ^-  @ux
@@ -149,11 +153,30 @@
 ++  seed-starters
   |=  [base=@ux now=@da]
   ^-  tape
+  (seed-missing-starters base now %.y %.y %.y %.y)
+::
+++  seed-missing-starters
+  |=  $:  base=@ux
+          now=@da
+          energy-empty=?
+          consumables-empty=?
+          additives-empty=?
+          driving-modes-empty=?
+      ==
+  ^-  tape
   ;:  weld
-    (seed-energy-starters base now)
-    (seed-consumables base now)
-    (seed-additives base now)
-    (seed-driving-modes base now)
+    ?:  energy-empty
+      (seed-energy-starters base now)
+    ~
+    ?:  consumables-empty
+      (seed-consumables base now)
+    ~
+    ?:  additives-empty
+      (seed-additives base now)
+    ~
+    ?:  driving-modes-empty
+      (seed-driving-modes base now)
+    ~
   ==
 ::
 ++  seed-energy-starters

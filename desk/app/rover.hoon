@@ -432,6 +432,28 @@
   ^-  octs
   (as-octs:mimes:html text)
 ::
+++  database-present
+  |=  commands=(list cmd-result:ast)
+  ^-  ?
+  =/  rows  (rows-at:view commands 0)
+  ?=(^ (row-by-text:view %database 'rover' rows))
+::
+++  starter-seed-script
+  |=  [commands=(list cmd-result:ast) base=@ux now=@da]
+  ^-  tape
+  =/  definitions  (rows-at:view commands 0)
+  =/  consumables  (rows-at:view commands 1)
+  =/  additives  (rows-at:view commands 2)
+  =/  driving-modes  (rows-at:view commands 3)
+  %:  seed-missing-starters:act
+      base
+      now
+      ?=(~ definitions)
+      ?=(~ consumables)
+      ?=(~ additives)
+      ?=(~ driving-modes)
+  ==
+::
 ++  entry-refusal
   |=  verdict=entry-verdict:rover
   ^-  @t
@@ -556,8 +578,8 @@
               (gth u.parsed 1.000.000)
           ==
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: page')) sat]
-      =/  wir=wire  /rover-http/(scot %da now.bowl)/[eyre-id]
-      =/  jon  !>([%script %rover %vector ui-view:act])
+      =/  wir=wire  /rover-bootstrap-probe/(scot %da now.bowl)/[eyre-id]
+      =/  jon  !>([%script %sys %vector database-list:act])
       =/  new-sat
         sat(pending (~(put by pending.sat) wir request-text), http-pending (~(put by http-pending.sat) wir eyre-id))
       :_  new-sat
@@ -932,8 +954,8 @@
   ?:  =('/apps/rover/assets/fonts/JetBrainsMono-Bold.woff2' url.request.req)
     [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-octs) sat]
   ?:  =('/apps/rover/view' url.request.req)
-    =/  wir=wire  /rover-http/(scot %da now.bowl)/[eyre-id]
-    =/  jon  !>([%script %rover %vector ui-view:act])
+    =/  wir=wire  /rover-bootstrap-probe/(scot %da now.bowl)/[eyre-id]
+    =/  jon  !>([%script %sys %vector database-list:act])
     =/  new-sat
       sat(pending (~(put by pending.sat) wir '0'), http-pending (~(put by http-pending.sat) wir eyre-id))
     :_  new-sat
@@ -1135,39 +1157,222 @@
       `this
     ==
   ::
+      [%rover-bootstrap-probe *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  request-text  (~(get by pending) wire)
+      ?~  eyre-id
+        `this
+      ?~  request-text
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Database setup failed while checking for the Rover database. Obelisk refused the database list query.')
+        ==
+      =/  exists  (database-present p.res)
+      =/  next-wire=path
+        ?:  exists
+          /rover-http/(scot %da now.bowl)/[u.eyre-id]
+        /rover-bootstrap-pour/(scot %da now.bowl)/[u.eyre-id]
+      =/  jon
+        ?:  exists
+          !>([%script %rover %vector ui-view:act])
+        !>([%script %rover %vector schema-m0:act])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) next-wire u.request-text)
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
+      :_  this(pending next-pending, http-pending next-http)
+      :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      ?~  p.sign
+        `this
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+      %:  http-give
+          u.eyre-id
+          503
+          ['content-type' 'text/plain']~
+          `(text-octs 'Database setup failed while checking for the Rover database. Obelisk did not accept the database list request.')
+      ==
+    ==
+  ::
+      [%rover-bootstrap-pour *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  request-text  (~(get by pending) wire)
+      ?~  eyre-id
+        `this
+      ?~  request-text
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Database setup failed while creating the Rover database. Obelisk refused the schema pour.')
+        ==
+      =/  next-wire=path
+        /rover-bootstrap-delay/(scot %da now.bowl)/[u.eyre-id]
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) next-wire u.request-text)
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
+      :_  this(pending next-pending, http-pending next-http)
+      ~[[%pass next-wire %arvo %b %wait (add now.bowl ~s1)]]
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      ?~  p.sign
+        `this
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+      %:  http-give
+          u.eyre-id
+          503
+          ['content-type' 'text/plain']~
+          `(text-octs 'Database setup failed while creating the Rover database. Obelisk did not accept the schema pour.')
+      ==
+    ==
+  ::
+      [%rover-bootstrap-starter-check *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  request-text  (~(get by pending) wire)
+      ?~  eyre-id
+        `this
+      ?~  request-text
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Database setup failed while checking starter definitions. Obelisk refused the starter query.')
+        ==
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  script  (starter-seed-script p.res base now.bowl)
+      =/  next-wire=path
+        ?:  ?=(~ script)
+          /rover-http/(scot %da now.bowl)/[u.eyre-id]
+        /rover-bootstrap-starter-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  jon
+        ?:  ?=(~ script)
+          !>([%script %rover %vector ui-view:act])
+        !>([%script %rover %vector script])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) next-wire u.request-text)
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
+      :_  this(pending next-pending, http-pending next-http)
+      :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      ?~  p.sign
+        `this
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+      %:  http-give
+          u.eyre-id
+          503
+          ['content-type' 'text/plain']~
+          `(text-octs 'Database setup failed while checking starter definitions. Obelisk did not accept the starter query.')
+      ==
+    ==
+  ::
+      [%rover-bootstrap-starter-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  request-text  (~(get by pending) wire)
+      ?~  eyre-id
+        `this
+      ?~  request-text
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+        %:  http-give
+            u.eyre-id
+            503
+            ['content-type' 'text/plain']~
+            `(text-octs 'Database setup failed while adding starter definitions. Obelisk refused the starter seed.')
+        ==
+      =/  next-wire=path  /rover-http/(scot %da now.bowl)/[u.eyre-id]
+      =/  jon  !>([%script %rover %vector ui-view:act])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) next-wire u.request-text)
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
+      :_  this(pending next-pending, http-pending next-http)
+      :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      ?~  p.sign
+        `this
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+      %:  http-give
+          u.eyre-id
+          503
+          ['content-type' 'text/plain']~
+          `(text-octs 'Database setup failed while adding starter definitions. Obelisk did not accept the starter seed.')
+      ==
+    ==
+  ::
       [%rover-starter-check *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
       ?:  ?=(%.n -.res)
         `this(last `res)
-      =/  definitions  (rows-at:view p.res 0)
-      =/  consumables  (rows-at:view p.res 1)
-      =/  additives  (rows-at:view p.res 2)
-      =/  driving-modes  (rows-at:view p.res 3)
-      ?:  ?&  ?=(^ definitions)
-              ?=(^ consumables)
-              ?=(^ additives)
-              ?=(^ driving-modes)
-          ==
-        `this(last `res, pending (~(del by pending) wire))
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  script  (starter-seed-script p.res base now.bowl)
+      ?:  ?=(~ script)
+        `this(last `res, pending (~(del by pending) wire))
       =/  write-wire=path  /rover/starter-write/(scot %da now.bowl)
-      =/  script=tape
-        ;:  weld
-          ?:  ?=(^ definitions)
-            ~
-          (seed-energy-starters:act base now.bowl)
-          ?:  ?=(^ consumables)
-            ~
-          (seed-consumables:act base now.bowl)
-          ?:  ?=(^ additives)
-            ~
-          (seed-additives:act base now.bowl)
-          ?:  ?=(^ driving-modes)
-            ~
-          (seed-driving-modes:act base now.bowl)
-        ==
       =/  jon  !>([%script %rover %vector script])
       =/  next-pending
         (~(put by (~(del by pending) wire)) write-wire 'seed-starters-write')
@@ -3115,12 +3320,12 @@
         `this
       ?:  ?=(%.n -.res)
         ~&  [%rover-ui-view-refused p.res]
-        :_  this
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
         %:  http-give
             u.eyre-id
             503
             ['content-type' 'text/plain']~
-            `(as-octs:mimes:html 'Unavailable - database query refused')
+            `(text-octs 'Rover could not load the vehicle log. Obelisk refused the view query.')
         ==
       =/  history-page=@ud
         ?~  request-text
@@ -3208,6 +3413,35 @@
 ++  on-arvo
   |=  [=wire =sign-arvo]
   ^-  (quip card _this)
+  ?:  ?=([%rover-bootstrap-delay *] wire)
+    =/  eyre-id  (~(get by http-pending) wire)
+    =/  request-text  (~(get by pending) wire)
+    ?~  eyre-id
+      `this
+    ?~  request-text
+      :_  this(http-pending (~(del by http-pending) wire))
+      (restart-http u.eyre-id)
+    ?.  ?=([%behn %wake *] sign-arvo)
+      (on-arvo:def wire sign-arvo)
+    ?^  error.sign-arvo
+      :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+      %:  http-give
+          u.eyre-id
+          503
+          ['content-type' 'text/plain']~
+          `(text-octs 'Database setup failed while waiting to add starter definitions. The system timer refused the request.')
+      ==
+    =/  next-wire=path
+      /rover-bootstrap-starter-check/(scot %da now.bowl)/[u.eyre-id]
+    =/  jon  !>([%script %rover %vector starter-check:act])
+    =/  next-pending
+      (~(put by (~(del by pending) wire)) next-wire u.request-text)
+    =/  next-http
+      (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
+    :_  this(pending next-pending, http-pending next-http)
+    :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+        [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+    ==
   ?>  ?=([%eyre %connect ~] wire)
   ?>  ?=([%eyre %bound *] sign-arvo)
   ~?  !accepted.sign-arvo  [%rover %eyre-bind-refused]
