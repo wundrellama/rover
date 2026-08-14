@@ -1003,7 +1003,13 @@
 ::
 ++  on-init
   ^-  (quip card _this)
-  [[bind-eyre]~ this]
+  =/  wir=wire  /rover-install-probe/(scot %da now.bowl)
+  =/  jon  !>([%script %sys %vector database-list:act])
+  :_  this(bootstrap-ready %.n)
+  :~  bind-eyre
+      [%pass wir %agent [our.bowl %obelisk] %watch /server]
+      [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+  ==
 ::
 ++  on-save  !>([%17 state])
 ::
@@ -1089,6 +1095,84 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-install-probe *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this
+      ?:  (database-present p.res)
+        `this(bootstrap-ready %.y)
+      =/  next-wire=path  /rover-install-pour/(scot %da now.bowl)
+      =/  jon  !>([%script %rover %vector schema-m0:act])
+      :_  this
+      :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-install-pour *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this
+      =/  next-wire=path  /rover-install-delay/(scot %da now.bowl)
+      :_  this
+      ~[[%pass next-wire %arvo %b %wait (add now.bowl ~s1)]]
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-install-starter-check *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  script  (starter-seed-script p.res base now.bowl)
+      ?~  script
+        `this(bootstrap-ready %.y)
+      =/  next-wire=path  /rover-install-starter-write/(scot %da now.bowl)
+      =/  jon  !>([%script %rover %vector script])
+      :_  this
+      :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-install-starter-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this
+      `this(bootstrap-ready %.y)
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-consumable-lookup *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
@@ -1209,17 +1293,17 @@
       =/  exists  (database-present p.res)
       =/  next-wire=path
         ?:  exists
-          /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
+          /rover-bootstrap-starter-check/existing/(scot %da now.bowl)/[u.eyre-id]
         /rover-bootstrap-pour/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
         ?:  exists
-          !>([%script %rover %vector ui-view:act])
+          !>([%script %rover %vector starter-check:act])
         !>([%script %rover %vector schema-m0:act])
       =/  next-pending
         (~(put by (~(del by pending) wire)) next-wire u.request-text)
       =/  next-http
         (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
-      :_  this(pending next-pending, http-pending next-http, bootstrap-ready exists)
+      :_  this(pending next-pending, http-pending next-http, bootstrap-ready %.n)
       :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
@@ -1288,7 +1372,7 @@
       ==
     ==
   ::
-      [%rover-bootstrap-starter-check *]
+      [%rover-bootstrap-starter-check @tas *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -1299,19 +1383,45 @@
       ?~  request-text
         :_  this(http-pending (~(del by http-pending) wire))
         (restart-http u.eyre-id)
+      =/  source=@tas  i.t.wire
       ?:  ?=(%.n -.res)
+        ?:  =(source %existing)
+          =/  next-wire=path
+            /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
+          =/  jon  !>([%script %rover %vector ui-view:act])
+          =/  next-pending
+            (~(put by (~(del by pending) wire)) next-wire u.request-text)
+          =/  next-http
+            (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
+          :_  this(pending next-pending, http-pending next-http)
+          :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+              [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+          ==
         :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
         %:  http-give
             u.eyre-id
             503
             ['content-type' 'text/plain']~
             `(text-octs 'Database setup failed while checking starter definitions. Obelisk refused the starter query.')
-        ==
+      ==
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  script  (starter-seed-script p.res base now.bowl)
+      ?:  ?&  =(source %existing)
+              ?=(^ script)
+          ==
+        =/  next-wire=path
+          /rover-bootstrap-delay/(scot %da now.bowl)/[u.eyre-id]
+        =/  next-pending
+          (~(put by (~(del by pending) wire)) next-wire u.request-text)
+        =/  next-http
+          (~(put by (~(del by http-pending) wire)) next-wire u.eyre-id)
+        :_  this(pending next-pending, http-pending next-http)
+        ~[[%pass next-wire %arvo %b %wait (add now.bowl ~s1)]]
       =/  next-wire=path
         ?:  ?=(~ script)
-          /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
+          ?:  =(source %existing)
+            /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
+          /rover-http/bootstrapped/(scot %da now.bowl)/[u.eyre-id]
         /rover-bootstrap-starter-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
         ?:  ?=(~ script)
@@ -1363,7 +1473,7 @@
             ['content-type' 'text/plain']~
             `(text-octs 'Database setup failed while adding starter definitions. Obelisk refused the starter seed.')
         ==
-      =/  next-wire=path  /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
+      =/  next-wire=path  /rover-http/bootstrapped/(scot %da now.bowl)/[u.eyre-id]
       =/  jon  !>([%script %rover %vector ui-view:act])
       =/  next-pending
         (~(put by (~(del by pending) wire)) next-wire u.request-text)
@@ -3391,11 +3501,17 @@
         ?~  request-object
           ~
         (json-string:entry 'vehicle' u.request-object)
+      =/  headers=header-list:http
+        ?:  =(mode %bootstrapped)
+          :~  ['content-type' 'text/html']
+              ['x-rover-bootstrap' 'performed']
+          ==
+        ['content-type' 'text/html']~
       :_  this(bootstrap-ready %.y)
       %:  http-give
           u.eyre-id
           200
-          ['content-type' 'text/html']~
+          headers
           `(as-octs:mimes:html (page:view our.bowl history-page selected-label p.res))
       ==
     ::
@@ -3459,6 +3575,17 @@
 ++  on-arvo
   |=  [=wire =sign-arvo]
   ^-  (quip card _this)
+  ?:  ?=([%rover-install-delay *] wire)
+    ?.  ?=([%behn %wake *] sign-arvo)
+      (on-arvo:def wire sign-arvo)
+    ?^  error.sign-arvo
+      `this
+    =/  next-wire=path  /rover-install-starter-check/(scot %da now.bowl)
+    =/  jon  !>([%script %rover %vector starter-check:act])
+    :_  this
+    :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+        [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+    ==
   ?:  ?=([%rover-bootstrap-delay *] wire)
     =/  eyre-id  (~(get by http-pending) wire)
     =/  request-text  (~(get by pending) wire)
@@ -3478,7 +3605,7 @@
           `(text-octs 'Database setup failed while waiting to add starter definitions. The system timer refused the request.')
       ==
     =/  next-wire=path
-      /rover-bootstrap-starter-check/(scot %da now.bowl)/[u.eyre-id]
+      /rover-bootstrap-starter-check/created/(scot %da now.bowl)/[u.eyre-id]
     =/  jon  !>([%script %rover %vector starter-check:act])
     =/  next-pending
       (~(put by (~(del by pending) wire)) next-wire u.request-text)

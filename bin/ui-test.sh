@@ -403,6 +403,71 @@ print(pokes("rover-bootstrap-probe"), pokes("rover-http"))' "$trace")
     || fail "$label captured $TRACE_VIEWS Rover view pokes; refusing to report a probe count"
 }
 
+count_install_pokes() {
+  local label="$1" trace="$2"
+  [ -s "$trace" ] \
+    || fail "$label captured an empty trace; the instrument is broken"
+  grep -q '%obelisk %poke]' "$trace" \
+    || fail "$label captured no Obelisk poke lines at all; refusing to report install counts"
+  read -r INSTALL_PROBES INSTALL_POURS INSTALL_STARTER_CHECKS INSTALL_STARTER_WRITES < <(
+    python3 -c 'import sys
+lines = open(sys.argv[1], "rb").read().decode("utf-8").replace("\r", "").splitlines()
+def pokes(marker):
+    return sum(
+        marker in "\n".join(lines[index:index + 12])
+        for index, line in enumerate(lines)
+        if "%obelisk %poke]" in line
+    )
+print(*(pokes(marker) for marker in (
+    "rover-install-probe",
+    "rover-install-pour",
+    "rover-install-starter-check",
+    "rover-install-starter-write",
+)))' "$trace"
+  )
+  [ "$INSTALL_PROBES" -ge 1 ] \
+    || fail "$label captured $INSTALL_PROBES install probes; refusing to trust absence counts"
+}
+
+reinstall_rover() {
+  local result status attempt
+  result="$(click_file '=/  m  (strand ,vase)
+;<  =bowl:strand  bind:m  get-bowl
+;<  ~  bind:m  (poke [our.bowl %hood] %kiln-nuke !>([%rover %.y]))
+;<  ~  bind:m  (sleep ~s3)
+;<  ~  bind:m  (poke [our.bowl %hood] %kiln-install !>([%rover our.bowl %rover]))
+;<  ~  bind:m  (sleep ~s3)
+;<  ~  bind:m  (poke [our.bowl %hood] %kiln-revive !>(%rover))
+;<  ~  bind:m  (sleep ~s3)
+(pure:m !>(%rover-installed))')"
+  case "$result" in
+    *%rover-installed*) ;;
+    *) fail "Rover reinstall did not acknowledge: $result" ;;
+  esac
+  for attempt in $(seq 1 60); do
+    status="$(curl -s -b "$JAR" -o /dev/null -w '%{http_code}' "$URL/apps/rover")"
+    [ "$status" = 200 ] && return 0
+    sleep 1
+  done
+  fail "Rover did not serve its shell after reinstall"
+}
+
+wait_install_ready() {
+  local attempt report starters
+  for attempt in $(seq 1 "${ROVER_INSTALL_WAIT_ATTEMPTS:-60}"); do
+    report="$(read_database_report)"
+    if database_exists "$report" rover; then
+      starters="$(read_starter_report)"
+      if grep -Fq "[%label 116 'Gasoline']" <<<"$starters" &&
+         grep -Fq "[%label 116 'Diesel']" <<<"$starters"; then
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 trace_view_probes() {
   local label="$1" trace body response offset _attempt captured=0
   trace="$BOOTSTRAP_TRACE"
@@ -560,6 +625,28 @@ note "logged-out browser receives login redirect with no Rover body"
 curl -s -c "$JAR" -o /dev/null "$URL/~/login" --data-raw "password=$CODE"
 grep -q urbauth "$JAR" || fail "login with +code did not yield urbauth cookie"
 
+playwright_module="${ROVER_PLAYWRIGHT_MODULE:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules/playwright}"
+chromium_binary="${ROVER_CHROMIUM:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
+[ -f "$playwright_module/package.json" ] \
+  || fail "fixture 129 Playwright module is unavailable at $playwright_module"
+[ -x "$chromium_binary" ] \
+  || fail "fixture 129 Chromium is unavailable at $chromium_binary"
+auth_cookie_name="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $6; exit}' "$JAR")"
+auth_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
+normal_status="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/ui-browser-fixtures.cjs" \
+      bootstrap-status-normal "$URL" "$auth_cookie_name" "$auth_cookie" '' '' ''
+} 2>&1)" || fail "fixture 129 normal status is dishonest: $normal_status"
+grep -q '^BOOTSTRAP_STATUS=' <<<"$normal_status" \
+  || fail "fixture 129 normal status probe returned no observation: $normal_status"
+note "status normal transcript - ${normal_status#*BOOTSTRAP_STATUS=}"
+note "fixture 129 PASS - a normal first paint says Loading and no response marker makes a bootstrap claim"
+if [ "${ROVER_FIXTURE_STOP:-}" = 129 ]; then
+  exit 0
+fi
+
 owner_view_before="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 owner_vehicles_before="$(
   python3 -c 'import html, re, sys
@@ -600,25 +687,88 @@ if [ "${ROVER_NO_FIXTURE_ISOLATION:-}" != 1 ]; then
   note "fixture 124 PASS - a genuine database refusal names the failed view query and exposes no bare HTTP status"
 
   restart_test_pier
-  trace_view_probes "fixture 122 cold view"
-  [ "$TRACE_STATUS" = 200 ] \
-    || fail "fixture 122 cold view returned $TRACE_STATUS: $TRACE_HTML"
+  install_case="${ROVER_INSTALL_CASE:-all}"
+  if [ "$install_case" = idempotence ]; then
+    setup_status="$(curl -s -b "$JAR" -o /dev/null -w '%{http_code}' "$URL/apps/rover/view")"
+    [ "$setup_status" = 200 ] \
+      || fail "fixture 133 could not prepare its populated database: HTTP $setup_status"
+  else
+    install_offset="$(wc -c < "$PIER_LOG")"
+    reinstall_rover
+    if ! wait_install_ready; then
+      fail "fixture 131 install did not create and seed Rover before any page load"
+    fi
+    tail -c "+$((install_offset + 1))" "$PIER_LOG" > "$BOOTSTRAP_TRACE"
+    count_install_pokes "fixture 131 install bootstrap" "$BOOTSTRAP_TRACE"
+    [ "$INSTALL_POURS" -eq 1 ] \
+      || fail "fixture 131 install sent $INSTALL_POURS schema pours, want 1"
+    [ "$INSTALL_STARTER_CHECKS" -eq 1 ] \
+      || fail "fixture 131 install sent $INSTALL_STARTER_CHECKS starter checks, want 1"
+    [ "$INSTALL_STARTER_WRITES" -eq 1 ] \
+      || fail "fixture 131 install sent $INSTALL_STARTER_WRITES starter writes, want 1"
+    note "install bootstrap transcript - page-loads=0 install-probes=$INSTALL_PROBES pours=$INSTALL_POURS starter-checks=$INSTALL_STARTER_CHECKS starter-writes=$INSTALL_STARTER_WRITES database=present starters=Gasoline|Diesel"
+    note "fixture 131 PASS - on-init creates and seeds Rover before the first page load"
+    if [ "$install_case" = happy ]; then
+      exit 0
+    fi
+  fi
+
+  idempotent_before="$(rover_row_counts)"
+  idempotent_offset="$(wc -c < "$PIER_LOG")"
+  reinstall_rover
+  sleep 3
+  idempotent_after="$(rover_row_counts)"
+  tail -c "+$((idempotent_offset + 1))" "$PIER_LOG" > "$BOOTSTRAP_TRACE"
+  count_install_pokes "fixture 133 populated install" "$BOOTSTRAP_TRACE"
+  [ "$INSTALL_POURS" -eq 0 ] \
+    || fail "fixture 133 populated install sent $INSTALL_POURS schema pours, want 0"
+  [ "$idempotent_after" = "$idempotent_before" ] \
+    || fail "fixture 133 populated install changed rows: before=$idempotent_before after=$idempotent_after"
+  note "install idempotence transcript - install-probes=$INSTALL_PROBES pours=$INSTALL_POURS before=$idempotent_before after=$idempotent_after"
+  note "fixture 133 PASS - install against populated Rover re-pours nothing and changes no row counts"
+  if [ "$install_case" = idempotence ]; then
+    exit 0
+  fi
+
+  obelisk_mutate sys "DROP DATABASE FORCE rover" >/dev/null \
+    || fail "fixture 130 could not remove Rover before the marked lazy bootstrap"
+
+  bootstrap_offset="$(wc -c < "$PIER_LOG")"
+  bootstrap_status="$({
+    ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+    ROVER_CHROMIUM="$chromium_binary" \
+      node "$REPO/bin/ui-browser-fixtures.cjs" \
+        bootstrap-status-performed "$URL" "$auth_cookie_name" "$auth_cookie" '' '' ''
+  } 2>&1)" || fail "fixture 130 bootstrap status is dishonest: $bootstrap_status"
+  bootstrap_captured=0
+  for _attempt in $(seq 1 30); do
+    tail -c "+$((bootstrap_offset + 1))" "$PIER_LOG" > "$BOOTSTRAP_TRACE"
+    if grep -q 'rover-http' "$BOOTSTRAP_TRACE"; then
+      bootstrap_captured=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$bootstrap_captured" -eq 1 ] \
+    || fail "fixtures 122 and 130 did not capture the cold browser trace"
+  count_view_probes "fixtures 122 and 130 cold browser" "$BOOTSTRAP_TRACE"
   [ "$TRACE_PROBES" = 1 ] \
-    || fail "fixtures 122 and 128 cold view sent $TRACE_PROBES database probes, want 1"
+    || fail "fixtures 122, 128, and 130 cold browser sent $TRACE_PROBES database probes, want 1"
   note "fixture 128 PASS - the cold path proves the probe counter is live before any zero-probe assertion"
-  cold_html="$TRACE_HTML"
-  grep -q '>Gasoline</option>' <<<"$cold_html" \
+  grep -q '"gasoline":true' <<<"$bootstrap_status" \
     || fail "fixture 122 cold view has no Gasoline starter"
-  grep -q '>Diesel</option>' <<<"$cold_html" \
+  grep -q '"diesel":true' <<<"$bootstrap_status" \
     || fail "fixture 122 cold view has no Diesel starter"
-  grep -q 'Add a fill to begin tracking' <<<"$cold_html" \
+  grep -q '"emptyState":true' <<<"$bootstrap_status" \
     || fail "fixture 122 cold view has no usable empty state"
   database_report="$(read_database_report)"
   database_exists "$database_report" rover \
     || fail "fixture 122 cold view did not create the disposable rover database"
   database_exists "$database_report" "$ROVER_TEST_BACKUP_DB" \
     || fail "fixture isolation lost the renamed owner database"
-  note "bootstrap cold transcript - database-before=absent GET-status=$TRACE_STATUS probe-pokes=$TRACE_PROBES view-pokes=$TRACE_VIEWS starters=Gasoline|Diesel empty-state=Add-a-fill-to-begin-tracking"
+  note "status bootstrap transcript - ${bootstrap_status#*BOOTSTRAP_STATUS=}"
+  note "fixture 130 PASS - a response that performs bootstrap carries the marker and the shell echoes the setup status"
+  note "bootstrap cold transcript - database-before=absent GET-status=200 probe-pokes=$TRACE_PROBES view-pokes=$TRACE_VIEWS starters=Gasoline|Diesel empty-state=Add-a-fill-to-begin-tracking"
   note "fixture 122 PASS - a cold GET creates the database, seeds starters, and serves the usable empty state"
 
   trace_view_probes "fixture 125 second view"

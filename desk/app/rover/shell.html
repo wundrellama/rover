@@ -865,7 +865,7 @@
     <button id="glow-toggle" type="button" aria-pressed="false">Glow off</button>
   </header>
   <main>
-    <p id="status">Loading vehicle log…</p>
+    <p id="status">Loading…</p>
     <div id="app" aria-live="polite"></div>
   </main>
   <footer class="status-strip">
@@ -2105,10 +2105,10 @@
       });
     }
 
+    let viewLoaded = false;
+
     async function loadView(page = 0, target = '', vehicle = '') {
-      status.textContent = app.childElementCount === 0
-        ? 'Setting up the database…'
-        : 'Refreshing…';
+      status.textContent = viewLoaded ? 'Refreshing…' : 'Loading…';
       try {
         const selectedVehicle = vehicle || (
           target === 'history-screen'
@@ -2128,6 +2128,9 @@
           credentials: 'same-origin',
           headers: {'accept': 'text/html', 'content-type': scopedRequest ? 'application/json' : 'text/plain'}
         });
+        if (response.headers.get('x-rover-bootstrap') === 'performed') {
+          status.textContent = 'Setting up the database…';
+        }
         const responseBody = await response.text();
         if (!response.ok) {
           app.textContent = responseBody;
@@ -2136,6 +2139,7 @@
           return;
         }
         app.innerHTML = responseBody;
+        viewLoaded = true;
         syncHeader();
         bindEntryScreens();
         if (target) {

@@ -310,13 +310,79 @@ async function testImportPrepare(page, documentPath, batchSize) {
   const browser = await chromium.launch({headless: true, executablePath});
   const context = await browser.newContext({viewport: {width: 390, height: 844}});
   await context.addCookies([{name: authName, value: auth, url}]);
+  if (mode === 'bootstrap-status-normal' || mode === 'bootstrap-status-performed') {
+    await context.addInitScript(() => {
+      const nativeFetch = window.fetch.bind(window);
+      window.__roverStatuses = [];
+      window.__roverBootstrapMarkers = [];
+      window.fetch = async (...args) => {
+        const response = await nativeFetch(...args);
+        const requestUrl = String(args[0]);
+        if (!requestUrl.endsWith('/apps/rover/view')) return response;
+        window.__roverBootstrapMarkers.push(
+          response.headers.get('x-rover-bootstrap')
+        );
+        return {
+          ok: response.ok,
+          headers: response.headers,
+          text: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            return response.text();
+          }
+        };
+      };
+      window.addEventListener('DOMContentLoaded', () => {
+        const status = document.querySelector('#status');
+        if (!status) return;
+        const record = () => window.__roverStatuses.push(status.textContent);
+        record();
+        new MutationObserver(record).observe(status, {
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
+      });
+    });
+  }
   const page = await context.newPage();
 
   try {
     await page.goto(`${url}/apps/rover`, {waitUntil: 'domcontentloaded'});
     await page.waitForSelector('#app-default-data', {state: 'attached'});
 
-    if (mode === 'header-current') {
+    if (mode === 'bootstrap-status-normal' || mode === 'bootstrap-status-performed') {
+      const observation = await page.evaluate(() => ({
+        statuses: window.__roverStatuses,
+        markers: window.__roverBootstrapMarkers,
+        gasoline: [...document.querySelectorAll('option')].some(
+          (option) => option.textContent === 'Gasoline'
+        ),
+        diesel: [...document.querySelectorAll('option')].some(
+          (option) => option.textContent === 'Diesel'
+        ),
+        emptyState: document.body.textContent.includes(
+          'Add a fill to begin tracking'
+        )
+      }));
+      const performed = mode === 'bootstrap-status-performed';
+      if (!observation.statuses.includes('Loading…')) {
+        throw new Error(`first paint did not say Loading…: ${JSON.stringify(observation)}`);
+      }
+      if (performed) {
+        if (
+          !observation.statuses.includes('Setting up the database…') ||
+          observation.markers[0] !== 'performed'
+        ) {
+          throw new Error(`bootstrap response was not echoed: ${JSON.stringify(observation)}`);
+        }
+      } else if (
+        observation.statuses.includes('Setting up the database…') ||
+        observation.markers[0] !== null
+      ) {
+        throw new Error(`normal response claimed bootstrap: ${JSON.stringify(observation)}`);
+      }
+      console.log(`BOOTSTRAP_STATUS=${JSON.stringify(observation)}`);
+    } else if (mode === 'header-current') {
       await page.waitForFunction(
         ({ship, vehicle}) => {
           const text =
