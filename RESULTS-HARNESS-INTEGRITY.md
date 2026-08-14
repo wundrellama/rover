@@ -18,6 +18,8 @@ This source replaces the bounded tmux pane scrape. Pane history cannot evict
 the file data. Concurrent pane capture cannot clear it. The harness enables
 `|verb` once after restart and waits for the dojo prompt. It does not toggle
 `|verb` around each request or use fixed sleeps for the request window.
+The exit trap restarts the pier with its original command. It then removes the
+private file.
 
 The counter checks three liveness conditions before it reports any count:
 

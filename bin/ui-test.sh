@@ -280,6 +280,7 @@ restart_test_pier() {
   local -a current_command pier_command
   read -r target session pid < <(resolve_pier_tmux) \
     || fail "bootstrap latch fixtures cannot find the tmux pane for $PIER"
+  ROVER_TMUX_SESSION="$session"
   if [ "${#ROVER_PIER_COMMAND[@]}" -eq 0 ]; then
     mapfile -d '' current_command < "/proc/$pid/cmdline"
     case "${current_command[0]}" in
@@ -352,6 +353,33 @@ restart_test_pier() {
     sleep 1
   done
   fail "bootstrap latch fixtures could not enable the private pier trace"
+}
+
+restore_pier_output() {
+  local target pid command attempt ready=0
+  [ -n "$ROVER_TMUX_SESSION" ] || return 0
+  printf -v command '%q ' "${ROVER_PIER_COMMAND[@]}"
+  if tmux has-session -t "$ROVER_TMUX_SESSION" 2>/dev/null; then
+    target="$(tmux list-panes -t "$ROVER_TMUX_SESSION" -F '#{session_name}:#{window_index}.#{pane_index}' | head -1)"
+    pid="$(tmux list-panes -t "$ROVER_TMUX_SESSION" -F '#{pane_pid}' | head -1)"
+    tmux send-keys -t "$target" '|exit' Enter
+    for attempt in $(seq 1 30); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 1
+    done
+    kill -0 "$pid" 2>/dev/null && return 1
+  fi
+  tmux has-session -t "$ROVER_TMUX_SESSION" 2>/dev/null && return 1
+  tmux new-session -d -s "$ROVER_TMUX_SESSION" "$command"
+  for attempt in $(seq 1 120); do
+    PORT="$(awk '/insecure public/{print $1}' "$PIER/.http.ports" 2>/dev/null)"
+    if [ -n "$PORT" ] && curl -s -o /dev/null "http://localhost:$PORT/~/login"; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$ready" -eq 1 ]
 }
 
 count_view_probes() {
@@ -457,6 +485,7 @@ BOOTSTRAP_TRACE="$(mktemp /tmp/rover-bootstrap-trace.XXXXXX.txt)"
 BOOTSTRAP_VIEW="$(mktemp /tmp/rover-bootstrap-view.XXXXXX.html)"
 PIER_LOG="$(mktemp /tmp/rover-private-pier.XXXXXX.log)"
 declare -a ROVER_PIER_COMMAND=()
+ROVER_TMUX_SESSION=""
 ROVER_TEST_BACKUP_DB="rovertestowner"
 ROVER_TEST_DB_SWAPPED=0
 
@@ -512,6 +541,8 @@ restore_test_database() {
 }
 
 cleanup() {
+  restore_pier_output \
+    || echo "ui-test: cleanup could not restore the normal pier output" >&2
   restore_test_database
   rm -f "$JAR" "$HDRS" "$ASSET" "$IMPORT_VEHICLES" \
     "$IMPORT_VERSION" "$IMPORT_FILLS" "$IMPORT_REFUSED" "$IMPORT_STATSCOPE" \
