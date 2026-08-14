@@ -266,7 +266,7 @@ resolve_pier_tmux() {
     [ -r "/proc/$pid/cmdline" ] || continue
     command="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
     case "$command" in
-      *" -c $PIER "|*" -c $PIER"|*" $PIER ")
+      *" $PIER "*)
         printf '%s %s %s\n' "$target" "$session" "$pid"
         return 0
         ;;
@@ -276,20 +276,37 @@ resolve_pier_tmux() {
 }
 
 restart_test_pier() {
-  local target session pid command attempt index ready=0
+  local target session pid command attempt index log_offset ready=0
   local -a current_command pier_command
   read -r target session pid < <(resolve_pier_tmux) \
     || fail "bootstrap latch fixtures cannot find the tmux pane for $PIER"
-  mapfile -d '' current_command < "/proc/$pid/cmdline"
-  pier_command=("${current_command[0]}")
-  for index in "${!current_command[@]}"; do
-    if [ "${current_command[$index]}" = -p ]; then
-      pier_command+=(-p "${current_command[$((index + 1))]}")
-      break
-    fi
-  done
-  pier_command+=("$PIER")
-  printf -v command '%q ' "${pier_command[@]}"
+  if [ "${#ROVER_PIER_COMMAND[@]}" -eq 0 ]; then
+    mapfile -d '' current_command < "/proc/$pid/cmdline"
+    case "${current_command[0]}" in
+      */script|script)
+        for index in "${!current_command[@]}"; do
+          if [ "${current_command[$index]}" = -c ]; then
+            read -r -a pier_command <<<"${current_command[$((index + 1))]}"
+            break
+          fi
+        done
+        ;;
+      *)
+        pier_command=("${current_command[0]}")
+        for index in "${!current_command[@]}"; do
+          if [ "${current_command[$index]}" = -p ]; then
+            pier_command+=(-p "${current_command[$((index + 1))]}")
+            break
+          fi
+        done
+        pier_command+=("$PIER")
+        ;;
+    esac
+    [ "${#pier_command[@]}" -gt 0 ] \
+      || fail "bootstrap latch fixtures could not reconstruct the command for $PIER"
+    ROVER_PIER_COMMAND=("${pier_command[@]}")
+  fi
+  printf -v command '%q ' "${ROVER_PIER_COMMAND[@]}"
   tmux send-keys -t "$target" '|exit' Enter
   for attempt in $(seq 1 30); do
     kill -0 "$pid" 2>/dev/null || break
@@ -306,7 +323,9 @@ restart_test_pier() {
   if tmux has-session -t "$session" 2>/dev/null; then
     fail "bootstrap latch fixtures found another pane in tmux session $session"
   fi
-  tmux new-session -d -s "$session" "$command"
+  : > "$PIER_LOG"
+  tmux new-session -d -s "$session" \
+    "exec script -q -f -e -O $(printf '%q' "$PIER_LOG") -c $(printf '%q' "$command")"
   for attempt in $(seq 1 120); do
     PORT="$(awk '/insecure public/{print $1}' "$PIER/.http.ports" 2>/dev/null)"
     if [ -n "$PORT" ] && curl -s -o /dev/null "http://localhost:$PORT/~/login"; then
@@ -324,31 +343,25 @@ restart_test_pier() {
   curl -s -c "$JAR" -o /dev/null "$URL/~/login" --data-raw "password=$CODE"
   grep -q urbauth "$JAR" \
     || fail "bootstrap latch fixtures could not log in after restart"
+  log_offset="$(wc -c < "$PIER_LOG")"
+  tmux send-keys -t "$session" '|verb' Enter
+  for attempt in $(seq 1 30); do
+    if tail -c "+$((log_offset + 1))" "$PIER_LOG" | grep -q ':dojo>'; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "bootstrap latch fixtures could not enable the private pier trace"
 }
 
-trace_view_probes() {
-  local label="$1" target session pid trace body response
-  read -r target session pid < <(resolve_pier_tmux) \
-    || fail "$label cannot find the tmux pane for $PIER"
-  trace="$BOOTSTRAP_TRACE"
-  body="$BOOTSTRAP_VIEW"
-  tmux clear-history -t "$target"
-  tmux send-keys -t "$target" C-l
-  tmux send-keys -t "$target" '|verb' Enter
-  sleep 1
-  response="$(curl -sS -b "$JAR" -o "$body" -w '%{http_code}' "$URL/apps/rover/view")" \
-    || {
-      tmux send-keys -t "$target" '|verb' Enter
-      fail "$label could not load the Rover view"
-    }
-  sleep 1
-  tmux send-keys -t "$target" '|verb' Enter
-  sleep 1
-  tmux capture-pane -t "$target" -p -S -10000 > "$trace"
-  TRACE_STATUS="$response"
-  TRACE_HTML="$(<"$body")"
+count_view_probes() {
+  local label="$1" trace="$2"
+  [ -s "$trace" ] \
+    || fail "$label captured an empty trace; the instrument is broken"
+  grep -q '%obelisk %poke]' "$trace" \
+    || fail "$label captured no Obelisk poke lines at all; refusing to report a count"
   read -r TRACE_PROBES TRACE_VIEWS < <(python3 -c 'import sys
-lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+lines = open(sys.argv[1], "rb").read().decode("utf-8").replace("\r", "").splitlines()
 def pokes(marker):
     count = 0
     for index, line in enumerate(lines):
@@ -358,6 +371,30 @@ def pokes(marker):
             count += 1
     return count
 print(pokes("rover-bootstrap-probe"), pokes("rover-http"))' "$trace")
+  [ "$TRACE_VIEWS" -ge 1 ] \
+    || fail "$label captured $TRACE_VIEWS Rover view pokes; refusing to report a probe count"
+}
+
+trace_view_probes() {
+  local label="$1" trace body response offset _attempt captured=0
+  trace="$BOOTSTRAP_TRACE"
+  body="$BOOTSTRAP_VIEW"
+  offset="$(wc -c < "$PIER_LOG")"
+  response="$(curl -sS -b "$JAR" -o "$body" -w '%{http_code}' "$URL/apps/rover/view")" \
+    || fail "$label could not load the Rover view"
+  for _attempt in $(seq 1 30); do
+    tail -c "+$((offset + 1))" "$PIER_LOG" > "$trace"
+    if grep -q 'rover-http' "$trace"; then
+      captured=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$captured" -eq 1 ] \
+    || fail "$label did not capture a Rover view trace from the private pier log"
+  TRACE_STATUS="$response"
+  TRACE_HTML="$(<"$body")"
+  count_view_probes "$label" "$trace"
 }
 
 read_structure_report() {
@@ -400,6 +437,12 @@ scoped_view_html() {
   sed '$d' <<<"$1"
 }
 
+if [ -n "${ROVER_BOOTSTRAP_TRACE_CHECK:-}" ]; then
+  count_view_probes "bootstrap trace self-check" "$ROVER_BOOTSTRAP_TRACE_CHECK"
+  note "bootstrap trace self-check PASS - probe-pokes=$TRACE_PROBES view-pokes=$TRACE_VIEWS"
+  exit 0
+fi
+
 CODE="$(derive_code "$PIER")"
 [ -n "$CODE" ] || fail "could not derive +code"
 JAR="$(mktemp /tmp/rover-ui-cookie.XXXXXX)"
@@ -412,6 +455,8 @@ IMPORT_REFUSED="$(mktemp /tmp/rover-ui-import-refused.XXXXXX.json)"
 IMPORT_STATSCOPE="$(mktemp /tmp/rover-ui-import-statscope.XXXXXX.json)"
 BOOTSTRAP_TRACE="$(mktemp /tmp/rover-bootstrap-trace.XXXXXX.txt)"
 BOOTSTRAP_VIEW="$(mktemp /tmp/rover-bootstrap-view.XXXXXX.html)"
+PIER_LOG="$(mktemp /tmp/rover-private-pier.XXXXXX.log)"
+declare -a ROVER_PIER_COMMAND=()
 ROVER_TEST_BACKUP_DB="rovertestowner"
 ROVER_TEST_DB_SWAPPED=0
 
@@ -470,7 +515,7 @@ cleanup() {
   restore_test_database
   rm -f "$JAR" "$HDRS" "$ASSET" "$IMPORT_VEHICLES" \
     "$IMPORT_VERSION" "$IMPORT_FILLS" "$IMPORT_REFUSED" "$IMPORT_STATSCOPE" \
-    "$BOOTSTRAP_TRACE" "$BOOTSTRAP_VIEW"
+    "$BOOTSTRAP_TRACE" "$BOOTSTRAP_VIEW" "$PIER_LOG"
 }
 trap cleanup EXIT
 
@@ -528,7 +573,8 @@ if [ "${ROVER_NO_FIXTURE_ISOLATION:-}" != 1 ]; then
   [ "$TRACE_STATUS" = 200 ] \
     || fail "fixture 122 cold view returned $TRACE_STATUS: $TRACE_HTML"
   [ "$TRACE_PROBES" = 1 ] \
-    || fail "fixture 122 cold view sent $TRACE_PROBES database probes, want 1"
+    || fail "fixtures 122 and 128 cold view sent $TRACE_PROBES database probes, want 1"
+  note "fixture 128 PASS - the cold path proves the probe counter is live before any zero-probe assertion"
   cold_html="$TRACE_HTML"
   grep -q '>Gasoline</option>' <<<"$cold_html" \
     || fail "fixture 122 cold view has no Gasoline starter"
