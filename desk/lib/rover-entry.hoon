@@ -1030,7 +1030,9 @@
 ::  things. It is parsed with +parse-money, not +parse-us-price: an invoice
 ::  total has no market third digit to complete.
 ++  decode-event
-  |=  body=@t
+  ::  The kind comes from the route, never from the body. A client cannot
+  ::  name a kind that disagrees with the typed child the route selects.
+  |=  [kind=event-kind:rover body=@t]
   ^-  (each event-entry:rover entry-verdict:rover)
   =/  object  (json-object body)
   ?~  object
@@ -1040,15 +1042,6 @@
     [%| %missing-key 'event.vehicle']
   ?.  (nonempty u.vehicle)
     [%| %bad-shape 'event.vehicle']
-  =/  kind-text  (json-string 'kind' u.object)
-  ?~  kind-text
-    [%| %missing-key 'event.kind']
-  =/  kind-term  (slaw %tas u.kind-text)
-  ?.  ?&  ?=(^ kind-term)
-          ?=(?(%service %expense %note) u.kind-term)
-      ==
-    [%| %bad-shape 'event.kind']
-  =/  kind=event-kind:rover  ;;(event-kind:rover u.kind-term)
   =/  observed  (json-string 'observed' u.object)
   ?~  observed
     [%| %missing-key 'event.observed']

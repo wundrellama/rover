@@ -2077,7 +2077,11 @@
             const payload = Object.fromEntries(formData.entries());
             // Checkboxes repeat one name, and fromEntries keeps only the last.
             payload.tags = formData.getAll('tags');
-            const response = await fetch('/apps/rover/add-event', {
+            // The kind selects the route. The server reads the kind from the
+            // route, never from this body, so the two can never disagree.
+            const eventKind = payload.kind;
+            delete payload.kind;
+            const response = await fetch(`/apps/rover/add-${eventKind}-event`, {
               method: 'POST',
               credentials: 'same-origin',
               headers: {'content-type': 'application/json'},

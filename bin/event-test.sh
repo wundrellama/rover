@@ -134,8 +134,8 @@ eyre_view() {
 
 event_payload() {
   # kind observed total mileage station tags newTag payment notes
-  printf '{"vehicle":"%s","kind":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"%s","paymentMethod":"%s","notes":"%s"}' \
-    "$VEHICLE" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+  printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"%s","paymentMethod":"%s","notes":"%s"}' \
+    "$VEHICLE" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
 }
 
 # The one served event card of this kind that carries this run's unique note.
@@ -239,7 +239,7 @@ stations_before="$(count_rows "$(rover_report 'FROM stations S SELECT S.station-
 # fixture 4 - a service event with an entered total, a linked odometer, the
 # station the fill already uses, a tag, a payment method, and a note
 # ---------------------------------------------------------------------------
-eyre_post add-event \
+eyre_post add-service-event \
   "$(event_payload service "$SERVICE_AT" "$SERVICE_TOTAL" "$SERVICE_ODO" "$STATION" "[\"$TAG\"]" '' "$PAYMENT" "$SERVICE_NOTE")" \
   "$(printf 'Saved service event - %s\n201' "$SERVICE_TOTAL")" 'fixture 4 service event'
 note "fixture 4 PASS - the service endpoint accepted an entered total"
@@ -282,7 +282,7 @@ note "fixture 6 PASS - the event links to that reading through vehicle-event-odo
 # fixture 7 - an expense event with a total and no station writes no station
 # row and no odometer row
 # ---------------------------------------------------------------------------
-eyre_post add-event \
+eyre_post add-expense-event \
   "$(event_payload expense "$EXPENSE_AT" "$EXPENSE_TOTAL" '' none '[]' '' '' "$EXPENSE_NOTE")" \
   "$(printf 'Saved expense event - %s\n201' "$EXPENSE_TOTAL")" 'fixture 7 expense event'
 view="$(eyre_view)"
@@ -303,7 +303,7 @@ note "fixture 7 PASS - the expense event reads back and wrote no sentinel statio
 # ---------------------------------------------------------------------------
 # fixture 8 - a note event with no cost writes no zero-cost row
 # ---------------------------------------------------------------------------
-eyre_post add-event \
+eyre_post add-note-event \
   "$(event_payload note "$NOTE_AT" '' '' none '[]' '' '' "$NOTE_NOTE")" \
   $'Saved note event\n201' 'fixture 8 note event'
 view="$(eyre_view)"
@@ -455,6 +455,29 @@ PY
 )"
 [ "$arms" = 5 ] || fail "fixture 13 the shipping action union has $arms arms, want 5"
 note "fixture 13 PASS - the shipping action union still has five arms"
+
+# ---------------------------------------------------------------------------
+# fixture 15 - the route selects the kind, and a body cannot override it.
+# The three kinds share one handler, so the only thing separating them is the
+# route. A client that names a kind in the body must not be able to make the
+# server write a different typed child than the route selected.
+# ---------------------------------------------------------------------------
+FORGE_NOTE="Forged kind $STAMP"
+FORGE_AT="2026-08-01T13:00"
+forge_payload="$(printf '{"vehicle":"%s","kind":"service","observed":"%s","zone":"America/Chicago","total":"","currency":"usd","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"%s"}' \
+  "$VEHICLE" "$FORGE_AT" "$FORGE_NOTE")"
+eyre_post add-note-event "$forge_payload" $'Saved note event\n201' \
+  'fixture 15 forged-kind note event'
+
+# event_card reads $view, so refresh it before asserting on the new card.
+view="$(eyre_view)"
+forged_service="$(event_card service "$FORGE_NOTE")"
+[ -z "$forged_service" ] \
+  || fail "fixture 15 a body kind overrode the route and made a service event"
+forged_note="$(event_card note "$FORGE_NOTE")"
+[ -n "$forged_note" ] \
+  || fail "fixture 15 the note route did not write a note event"
+note "fixture 15 PASS - the route decides the kind, and the body cannot override it"
 
 # ---------------------------------------------------------------------------
 # fixture 14 - a person can reach the endpoint. Gate 7 deleted two real user

@@ -648,14 +648,25 @@
     ::  M7 T1. One endpoint for all three event kinds. The kind selects which
     ::  typed child the write creates; every association attaches to the parent,
     ::  so the three kinds share one lookup and one insert.
-    ?:  =('/apps/rover/add-event' url.request.req)
+    ?:  ?|  =('/apps/rover/add-service-event' url.request.req)
+            =('/apps/rover/add-expense-event' url.request.req)
+            =('/apps/rover/add-note-event' url.request.req)
+        ==
+      ::  One handler, three routes. The route selects the kind, so a client
+      ::  cannot send a kind that disagrees with the typed child it gets.
+      =/  kind=?(%service %expense %note)
+        ?:  =('/apps/rover/add-service-event' url.request.req)  %service
+        ?:  =('/apps/rover/add-expense-event' url.request.req)  %expense
+        %note
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event')) sat]
       =/  body-text=@t  `@t`q.u.body.request.req
-      =/  decoded  (decode-event:entry body-text)
+      =/  decoded  (decode-event:entry kind body-text)
       ?:  ?=(%| -.decoded)
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
-      =/  wir=wire  /rover-event-lookup/(scot %da now.bowl)/[eyre-id]
+      ::  The kind rides the wire, so the response handler recovers it without
+      ::  re-reading the body. The body never carried it.
+      =/  wir=wire  /rover-event-lookup/[kind]/(scot %da now.bowl)/[eyre-id]
       =/  jon
         !>([%script %rover %vector (event-lookup:act vehicle-label.p.decoded)])
       =/  next
@@ -1280,7 +1291,7 @@
       `this
     ==
   ::
-      [%rover-event-lookup *]
+      [%rover-event-lookup ?(%service %expense %note) *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -1296,7 +1307,7 @@
       ?:  ?=(%.n -.res)
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
-      =/  decoded  (decode-event:entry u.body)
+      =/  decoded  (decode-event:entry i.t.wire u.body)
       ?:  ?=(%| -.decoded)
         :_  cleared
         (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event'))
@@ -1353,7 +1364,7 @@
             (fixture-id:act base 9.304)
             (fixture-id:act base 9.305)
         ==
-      =/  write-wire=path  /rover-event-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  write-wire=path  /rover-event-write/[i.t.wire]/(scot %da now.bowl)/[u.eyre-id]
       =/  script=tape
         %:  insert-event:act
             ids
@@ -1381,7 +1392,7 @@
       `this
     ==
   ::
-      [%rover-event-write *]
+      [%rover-event-write ?(%service %expense %note) *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -1394,7 +1405,7 @@
       ?~  body
         :_  cleared
         (restart-http u.eyre-id)
-      =/  decoded  (decode-event:entry u.body)
+      =/  decoded  (decode-event:entry i.t.wire u.body)
       ?:  ?|  ?=(%.n -.res)
               ?=(%| -.decoded)
           ==
