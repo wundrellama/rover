@@ -898,6 +898,301 @@ grep -q '%event-id' <<<"$report" \
 note "fixture 33 PASS - the route decides the kind for acquisition and disposal, and the body cannot override it"
 
 # ---------------------------------------------------------------------------
+# M7 T5 - ownership intervals bound every derivation.
+#
+# Three vehicles carry the SAME four fills and the same odometer readings. Only
+# the ownership events differ, so any figure that differs between them differs
+# because of ownership and nothing else.
+#
+#   fill   date          odometer   quantity   interval        economy
+#   F1     2026-05-05      40,000   12.000 gal  -              baseline
+#   F2     2026-05-15      40,300   10.000 gal  300 mi         30.000 mpg
+#   F3     2026-07-05      41,100   10.000 gal  800 mi         80.000 mpg
+#   F4     2026-07-15      41,400   12.000 gal  300 mi         25.000 mpg
+#
+# GAP VEHICLE  buys 2026-05-01, sells 2026-06-01 at 40,400, buys back
+# 2026-07-01 at 40,800. The F2-to-F3 interval spans the sale and the
+# repurchase. The odometer rises the whole way and nothing in the readings
+# looks wrong, but 500 of those 800 miles belong to whoever held the vehicle
+# in between.
+#
+# 80.000 mpg is the MAXIMUM of the three. That is deliberate: if the gap is
+# not honoured it is what BEST ECONOMY reports.
+#
+# OPEN VEHICLE  buys 2026-05-01 and never sells. One interval, no gap.
+# BARE VEHICLE  neither buys nor sells. Every installed database is in this
+# state, and its figures must be exactly what they were before T5.
+# ---------------------------------------------------------------------------
+GAP_VEHICLE="Ownership Gap Vehicle $STAMP"
+OPEN_VEHICLE="Ownership Open Vehicle $STAMP"
+BARE_VEHICLE="Ownership Bare Vehicle $STAMP"
+DEF_GAP_VEHICLE="Ownership DEF Gap Vehicle $STAMP"
+DEF_BARE_VEHICLE="Ownership DEF Bare Vehicle $STAMP"
+
+own_add_vehicle() {
+  eyre_post add-vehicle "$(printf '{"label":"%s","energy":"%s","additionalEnergy":[]}' "$1" "$2")" \
+    "$(printf 'Added vehicle - %s\n201' "$1")" "T5 vehicle $1"
+}
+
+# A fill write whose derived total is not what this fixture is about. The
+# response code is asserted; the money is asserted by the fill battery.
+own_add_fill() {
+  # vehicle observed odometer quantity
+  local response
+  response="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"%s","price":"$3.29","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"%s","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' \
+      "$1" "$4" "$2" "$3")" \
+    "$URL/apps/rover/add-fill")"
+  case "$response" in
+    *$'\n'201)  ;;
+    *)  fail "T5 fill on $1 at $2: $response" ;;
+  esac
+}
+
+own_add_ownership_event() {
+  # route vehicle observed total odometer disposalKind
+  local response
+  response="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(ownership_payload "$2" "$3" "$4" "$5" "$6" "$2 $3")" \
+    "$URL/apps/rover/$1")"
+  case "$response" in
+    *$'\n'201)  ;;
+    *)  fail "T5 $1 on $2 at $3: $response" ;;
+  esac
+}
+
+set_default_vehicle() {
+  local response
+  response="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{"vehicle":"%s"}' "$1")" \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$response" = $'Saved default vehicle\n201' ] \
+    || fail "T5 could not make $1 the default vehicle: $response"
+}
+
+# The served view scoped to one vehicle. The statistics screen renders the
+# vehicle named here; the hub always renders the app default.
+eyre_view_vehicle() {
+  curl -s -b "$JAR" -H 'content-type: application/json' \
+    --data-raw "$(printf '{"page":"0","vehicle":"%s"}' "$1")" "$URL/apps/rover/view"
+}
+
+# The value of one hub readout, by the label above it.
+hub_readout() {
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+found = re.search(
+    r"<article[^>]*><span>%s</span><strong>(.*?)</strong>" % re.escape(sys.argv[1]),
+    document, re.S)
+sys.stdout.write(found.group(1) if found else "")
+' "$1"
+}
+
+# Every economy cell of the statistics economy table, newest fill first, one
+# per line. A cell is either a figure or the word Unavailable.
+economy_cells() {
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+table = re.search(r"data-statistic=\"economy-by-subtype\".*?</section>", document, re.S)
+if table:
+    for row in re.finditer(r"data-economy=\"(.*?)\"", table.group(0), re.S):
+        print(row.group(1))
+'
+}
+
+# The whole economy row whose figure cell holds this value.
+economy_row() {
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+table = re.search(r"data-statistic=\"economy-by-subtype\".*?</section>", document, re.S)
+if not table:
+    sys.exit(0)
+for row in re.finditer(r"<tr [^>]*data-economy-vehicle=.*?</tr>", table.group(0), re.S):
+    if "data-economy=\"%s\"" % sys.argv[1] in row.group(0):
+        sys.stdout.write(row.group(0))
+        break
+' "$1"
+}
+
+own_seed_fills() {
+  own_add_fill "$1" '2026-05-05T12:00' 40000 12.000
+  own_add_fill "$1" '2026-05-15T12:00' 40300 10.000
+  own_add_fill "$1" '2026-07-05T12:00' 41100 10.000
+  own_add_fill "$1" '2026-07-15T12:00' 41400 12.000
+}
+
+own_add_vehicle "$GAP_VEHICLE" Gasoline
+own_add_vehicle "$OPEN_VEHICLE" Gasoline
+own_add_vehicle "$BARE_VEHICLE" Gasoline
+own_seed_fills "$GAP_VEHICLE"
+own_seed_fills "$OPEN_VEHICLE"
+own_seed_fills "$BARE_VEHICLE"
+own_add_ownership_event add-acquisition-event "$GAP_VEHICLE" '2026-05-01T09:00' '$18,000.00' 39800 ''
+own_add_ownership_event add-disposal-event "$GAP_VEHICLE" '2026-06-01T09:00' '$16,400.00' 40400 'Sold'
+own_add_ownership_event add-acquisition-event "$GAP_VEHICLE" '2026-07-01T09:00' '$16,900.00' 40800 ''
+own_add_ownership_event add-acquisition-event "$OPEN_VEHICLE" '2026-05-01T09:00' '$18,000.00' 39800 ''
+
+# ---------------------------------------------------------------------------
+# fixture 36 - the fixture that decides the task. The cross-gap interval would
+# be the best economy on record. Asserting that a break exists proves nothing,
+# because the write side and the read side are separate code and the historical
+# defect was a correct break row that the read side ignored. So this asserts on
+# the AGGREGATE: the served BEST ECONOMY readout.
+# ---------------------------------------------------------------------------
+set_default_vehicle "$GAP_VEHICLE"
+view="$(eyre_view)"
+gap_best="$(hub_readout 'BEST ECONOMY' <<<"$view")"
+[ "$gap_best" != '80.000 mpg' ] \
+  || fail "fixture 36 the cross-gap interval is reported as the best economy: BEST ECONOMY = $gap_best"
+[ "$gap_best" = '30.000 mpg' ] \
+  || fail "fixture 36 the best economy is not the within-ownership figure 30.000 mpg: $gap_best"
+gap_worst="$(hub_readout 'WORST ECONOMY' <<<"$view")"
+[ "$gap_worst" = '25.000 mpg' ] \
+  || fail "fixture 36 the worst economy is not 25.000 mpg: $gap_worst"
+note "fixture 36 PASS - the cross-gap interval is not reported as best economy, and the reported best is the within-ownership figure"
+
+# ---------------------------------------------------------------------------
+# fixture 37 - the cross-gap interval does not enter the mean either. With the
+# gap honoured the mean is of 30.000 and 25.000. With it ignored 80.000 joins
+# them and the mean is 45.000.
+# ---------------------------------------------------------------------------
+gap_mean="$(hub_readout 'ECONOMY - LIFETIME' <<<"$view")"
+[ "$gap_mean" != '45.000 mpg' ] \
+  || fail "fixture 37 the cross-gap interval entered the mean: ECONOMY - LIFETIME = $gap_mean"
+[ "$gap_mean" = '27.500 mpg' ] \
+  || fail "fixture 37 the mean is not the mean of the two within-ownership intervals: $gap_mean"
+note "fixture 37 PASS - the cross-gap interval does not enter the mean"
+
+# ---------------------------------------------------------------------------
+# fixture 38 - the cross-gap interval renders unavailable with a human reason
+# that names the ownership gap. It never renders as zero, and the reason is a
+# sentence rather than a term dump.
+# ---------------------------------------------------------------------------
+view="$(eyre_view_vehicle "$GAP_VEHICLE")"
+mapfile -t gap_cells < <(economy_cells <<<"$view")
+[ "${#gap_cells[@]}" = 4 ] \
+  || fail "fixture 38 the economy table has ${#gap_cells[@]} rows, want 4: ${gap_cells[*]}"
+[ "${gap_cells[0]}" = '25.000 mpg' ] \
+  || fail "fixture 38 the newest interval is ${gap_cells[0]}, want 25.000 mpg"
+[ "${gap_cells[1]}" = 'Unavailable' ] \
+  || fail "fixture 38 the cross-gap interval renders ${gap_cells[1]}, want Unavailable"
+[ "${gap_cells[1]}" != '0.000 mpg' ] \
+  || fail "fixture 38 the cross-gap interval rendered as zero"
+gap_row="$(economy_row Unavailable <<<"$view")"
+grep -q 'data-economy-break="%ownership-gap"' <<<"$gap_row" \
+  || fail "fixture 38 the unavailable interval carries no ownership break: $gap_row"
+grep -qF 'The vehicle was not owned for part of this interval' <<<"$gap_row" \
+  || fail "fixture 38 the unavailable interval gives no human ownership reason: $gap_row"
+grep -q 'ownership-gap</td>' <<<"$gap_row" \
+  && fail "fixture 38 the eligibility cell dumps the term instead of a sentence: $gap_row"
+note "fixture 38 PASS - the cross-gap interval renders unavailable with a human reason naming the ownership gap, not as zero"
+
+# ---------------------------------------------------------------------------
+# fixture 39 - a within-ownership interval on the same vehicle still computes.
+# The break is bounded to the gap; it does not swallow the whole vehicle.
+# ---------------------------------------------------------------------------
+[ "${gap_cells[2]}" = '30.000 mpg' ] \
+  || fail "fixture 39 the interval inside the first ownership period is ${gap_cells[2]}, want 30.000 mpg"
+[ "${gap_cells[3]}" = 'Unavailable' ] \
+  || fail "fixture 39 the first fill of the record is ${gap_cells[3]}, want Unavailable"
+within_row="$(economy_row '30.000 mpg' <<<"$view")"
+grep -q 'data-economy-break=' <<<"$within_row" \
+  && fail "fixture 39 a within-ownership interval carries a break: $within_row"
+grep -qF 'Eligible full-fill interval.' <<<"$within_row" \
+  || fail "fixture 39 a within-ownership interval is not labelled eligible: $within_row"
+note "fixture 39 PASS - a within-ownership interval on the same vehicle still computes"
+
+# ---------------------------------------------------------------------------
+# fixture 40 - the compatibility rule. A vehicle with no acquisition and no
+# disposal derives exactly what it derived before T5. Its fills, odometers and
+# quantities are identical to the gap vehicle's, so 80.000 mpg still stands as
+# the best and still enters the mean.
+# ---------------------------------------------------------------------------
+set_default_vehicle "$BARE_VEHICLE"
+view="$(eyre_view)"
+bare_best="$(hub_readout 'BEST ECONOMY' <<<"$view")"
+[ "$bare_best" = '80.000 mpg' ] \
+  || fail "fixture 40 T5 changed the best economy of a vehicle with no ownership events: $bare_best"
+bare_mean="$(hub_readout 'ECONOMY - LIFETIME' <<<"$view")"
+[ "$bare_mean" = '45.000 mpg' ] \
+  || fail "fixture 40 T5 changed the mean of a vehicle with no ownership events: $bare_mean"
+bare_worst="$(hub_readout 'WORST ECONOMY' <<<"$view")"
+[ "$bare_worst" = '25.000 mpg' ] \
+  || fail "fixture 40 T5 changed the worst economy of a vehicle with no ownership events: $bare_worst"
+bare_last="$(hub_readout 'ECONOMY - LAST FILL' <<<"$view")"
+[ "$bare_last" = '25.000 mpg' ] \
+  || fail "fixture 40 T5 changed the last-fill economy of a vehicle with no ownership events: $bare_last"
+view="$(eyre_view_vehicle "$BARE_VEHICLE")"
+mapfile -t bare_cells < <(economy_cells <<<"$view")
+bare_expected=('25.000 mpg' '80.000 mpg' '30.000 mpg' 'Unavailable')
+[ "${bare_cells[*]}" = "${bare_expected[*]}" ] \
+  || fail "fixture 40 T5 changed a per-interval figure with no ownership events: ${bare_cells[*]}"
+grep -q 'data-economy-break=' <<<"$view" \
+  && fail "fixture 40 a vehicle with no ownership events gained a break"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$BARE_VEHICLE' SELECT E.event-id;")"
+grep -q '%event-id' <<<"$report" \
+  && fail "fixture 40 the control vehicle carries an event after all: $report"
+note "fixture 40 PASS - a vehicle with no acquisition and no disposal derives exactly what it derived before T5"
+
+# ---------------------------------------------------------------------------
+# fixture 41 - a vehicle owned from one purchase to now, with no disposal,
+# derives across its whole history with no break. The open end of an ownership
+# interval is not a gap.
+# ---------------------------------------------------------------------------
+set_default_vehicle "$OPEN_VEHICLE"
+view="$(eyre_view)"
+open_best="$(hub_readout 'BEST ECONOMY' <<<"$view")"
+[ "$open_best" = '80.000 mpg' ] \
+  || fail "fixture 41 a vehicle owned from one purchase to now lost its best economy: $open_best"
+open_mean="$(hub_readout 'ECONOMY - LIFETIME' <<<"$view")"
+[ "$open_mean" = '45.000 mpg' ] \
+  || fail "fixture 41 a vehicle owned from one purchase to now lost intervals from its mean: $open_mean"
+view="$(eyre_view_vehicle "$OPEN_VEHICLE")"
+mapfile -t open_cells < <(economy_cells <<<"$view")
+open_expected=('25.000 mpg' '80.000 mpg' '30.000 mpg' 'Unavailable')
+[ "${open_cells[*]}" = "${open_expected[*]}" ] \
+  || fail "fixture 41 a vehicle owned to now derives differently: ${open_cells[*]}"
+grep -q 'data-economy-break=' <<<"$view" \
+  && fail "fixture 41 a vehicle owned from one purchase to now carries a break"
+note "fixture 41 PASS - a vehicle owned from one purchase to now derives across its whole history with no break"
+
+# ---------------------------------------------------------------------------
+# fixture 42 - consumable economy is an interval derivation too, so the same
+# bound applies. Two DEF vehicles carry the same two purchases 500 miles apart.
+# Only the ownership events differ.
+# ---------------------------------------------------------------------------
+own_add_vehicle "$DEF_GAP_VEHICLE" Diesel
+own_add_vehicle "$DEF_BARE_VEHICLE" Diesel
+for def_vehicle in "$DEF_GAP_VEHICLE" "$DEF_BARE_VEHICLE"; do
+  eyre_post edit-vehicle "$(printf '{"vehicle":"%s","label":"%s","tankSize":"","tankUnit":"gal","defaultSubtype":"","energySources":["Diesel"],"drivingModes":[],"defEnabled":"yes","defTankSize":"5","defTankUnit":"gal"}' "$def_vehicle" "$def_vehicle")" \
+    $'Saved vehicle settings\n201' "fixture 42 DEF enablement on $def_vehicle"
+  eyre_post add-consumable "$(printf '{"vehicle":"%s","consumable":"DEF","quantity":"2.000","price":"$4.29","observed":"2026-05-10T14:00","zone":"America/Chicago","mileage":"70000","mileageUnit":"mi"}' "$def_vehicle")" \
+    $'Saved consumable purchase - $8.60\n201' "fixture 42 DEF purchase 1 on $def_vehicle"
+  eyre_post add-consumable "$(printf '{"vehicle":"%s","consumable":"DEF","quantity":"2.000","price":"$4.29","observed":"2026-07-10T14:00","zone":"America/Chicago","mileage":"70500","mileageUnit":"mi"}' "$def_vehicle")" \
+    $'Saved consumable purchase - $8.60\n201' "fixture 42 DEF purchase 2 on $def_vehicle"
+done
+own_add_ownership_event add-acquisition-event "$DEF_GAP_VEHICLE" '2026-05-01T09:00' '$41,000.00' 69800 ''
+own_add_ownership_event add-disposal-event "$DEF_GAP_VEHICLE" '2026-06-01T09:00' '$38,000.00' 70100 'Sold'
+own_add_ownership_event add-acquisition-event "$DEF_GAP_VEHICLE" '2026-07-01T09:00' '$37,500.00' 70400 ''
+view="$(eyre_view_vehicle "$DEF_BARE_VEHICLE")"
+grep -qF "data-def-economy=\"250.000 mi/gal DEF\"" <<<"$view" \
+  || fail "fixture 42 the control DEF interval does not compute"
+view="$(eyre_view_vehicle "$DEF_GAP_VEHICLE")"
+grep -qF "data-def-economy=\"250.000 mi/gal DEF\"" <<<"$view" \
+  && fail "fixture 42 the cross-gap DEF interval was reported as a figure"
+grep -qF "data-def-economy-unavailable=\"$DEF_GAP_VEHICLE\"" <<<"$view" \
+  || fail "fixture 42 the cross-gap DEF interval is not marked unavailable"
+grep -qF 'The vehicle was not owned for part of this interval' <<<"$view" \
+  || fail "fixture 42 the cross-gap DEF interval gives no human ownership reason"
+note "fixture 42 PASS - consumable economy respects ownership gaps the same way fuel economy does"
+
+# ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
 # The pier may be the pane's own process or a child of it. Which one it is
@@ -1049,6 +1344,36 @@ report="$(rover_report "FROM vehicles V WHERE V.label = '$VEHICLE' SELECT V.labe
 grep -q '%archived 102 0' <<<"$report" \
   && fail "fixture 34 the sold vehicle became archived over the restart: $report"
 note "fixture 34 PASS - both purchases, the sale and its kind, the trade-in pair, the odometer links, and the disposal-kind pack survived a ship restart"
+
+# ---------------------------------------------------------------------------
+# fixture 43 - the ownership bound survives the same real ship restart. The
+# break is derived on every read rather than stored, so a restart is the check
+# that the derivation still runs, not that a row is still there.
+# ---------------------------------------------------------------------------
+set_default_vehicle "$GAP_VEHICLE"
+view="$(eyre_view)"
+restart_best="$(hub_readout 'BEST ECONOMY' <<<"$view")"
+[ "$restart_best" = '30.000 mpg' ] \
+  || fail "fixture 43 the best economy after restart is $restart_best, want 30.000 mpg"
+restart_mean="$(hub_readout 'ECONOMY - LIFETIME' <<<"$view")"
+[ "$restart_mean" = '27.500 mpg' ] \
+  || fail "fixture 43 the mean after restart is $restart_mean, want 27.500 mpg"
+view="$(eyre_view_vehicle "$GAP_VEHICLE")"
+mapfile -t restart_cells < <(economy_cells <<<"$view")
+restart_expected=('25.000 mpg' 'Unavailable' '30.000 mpg' 'Unavailable')
+[ "${restart_cells[*]}" = "${restart_expected[*]}" ] \
+  || fail "fixture 43 the per-interval figures changed over the restart: ${restart_cells[*]}"
+grep -q 'data-economy-break="%ownership-gap"' <<<"$view" \
+  || fail "fixture 43 the derived ownership break is gone after the restart"
+set_default_vehicle "$BARE_VEHICLE"
+view="$(eyre_view)"
+restart_bare="$(hub_readout 'BEST ECONOMY' <<<"$view")"
+[ "$restart_bare" = '80.000 mpg' ] \
+  || fail "fixture 43 the no-ownership-event vehicle changed over the restart: $restart_bare"
+view="$(eyre_view_vehicle "$DEF_GAP_VEHICLE")"
+grep -qF "data-def-economy-unavailable=\"$DEF_GAP_VEHICLE\"" <<<"$view" \
+  || fail "fixture 43 the cross-gap DEF interval computed again after the restart"
+note "fixture 43 PASS - the derived ownership break, the bounded aggregates, and the untouched control vehicle all survived a ship restart"
 
 # ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut

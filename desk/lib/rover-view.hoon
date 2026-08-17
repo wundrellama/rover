@@ -46,6 +46,12 @@
       quantity-valid=?
       break-reason=(unit @tas)
   ==
+::  M7 T5, ruling 12. Ownership is an interval. A purchase opens one and a
+::  disposal closes one, so a vehicle carries one or more of them. An absent
+::  bound is not a sentinel: an absent start reaches back to the first record,
+::  and an absent end reaches the present.
++$  ownership-interval
+  [start=(unit @da) end=(unit @da)]
 ++  result-rows
   |=  command=cmd-result:ast
   ^-  (list vector:ast)
@@ -176,10 +182,102 @@
     ~
   `(cell-term %reason (snag 0 u.found))
 ::
+::  M7 T5. One ownership map for the whole render, keyed by vehicle. The two
+::  typed children carry identity only, so which child a boundary event belongs
+::  to is what makes it a purchase or a sale.
+++  ownership-index
+  |=  $:  events=(list vector:ast)
+          acquisitions=(list vector:ast)
+          disposals=(list vector:ast)
+      ==
+  ^-  (map @ (list ownership-interval))
+  =/  bought=(set @)
+    (~(gas in *(set @)) `(list @)`(row-ids %event-id acquisitions))
+  =/  sold=(set @)
+    (~(gas in *(set @)) `(list @)`(row-ids %event-id disposals))
+  =/  boundaries=(list vector:ast)
+    %+  skim  events
+    |=  row=vector:ast
+    =/  event  (cell-atom %event-id row)
+    ?|((~(has in bought) event) (~(has in sold) event))
+  =/  by-vehicle
+    (index-rows %vehicle-id boundaries *(map @ (list vector:ast)))
+  %-  ~(gas by *(map @ (list ownership-interval)))
+  %+  turn  ~(tap by by-vehicle)
+  |=  [vehicle=@ rows=(list vector:ast)]
+  ^-  [@ (list ownership-interval)]
+  [vehicle (ownership-walk (order-vectors:act %observed-start %.n rows) sold)]
+::
+::  A purchase opens an interval and a disposal closes one. Two rules the event
+::  rows can force and the ruling does not name:
+::
+::  A second purchase inside an open interval opens nothing. The vehicle never
+::  left the owner's hands, so there is no gap to honour.
+::
+::  A sale with no purchase before it closes an interval that reaches back to
+::  the first record. An owner who records only the sale still held the vehicle
+::  before it, and refusing to close on that evidence would ignore a disposal
+::  Rover can plainly see.
+++  ownership-walk
+  |=  [rows=(list vector:ast) sold=(set @)]
+  ^-  (list ownership-interval)
+  =|  spans=(list ownership-interval)
+  =/  open=?  %.n
+  =/  start=(unit @da)  ~
+  |-
+  ^-  (list ownership-interval)
+  ?~  rows
+    ?.  open
+      (flop spans)
+    =/  reaching-now=ownership-interval  [start ~]
+    (flop [reaching-now spans])
+  =/  date=@da  `@da`(cell-atom %observed-start i.rows)
+  ?:  (~(has in sold) (cell-atom %event-id i.rows))
+    $(rows t.rows, spans [[start `date] spans], open %.n, start ~)
+  ?:  open
+    $(rows t.rows)
+  $(rows t.rows, open %.y, start `date)
+::
+::  Which ownership interval holds this date. A date inside a gap is in none of
+::  them, and the empty product says so.
+++  ownership-segment
+  |=  [spans=(list ownership-interval) date=@da]
+  ^-  (unit @ud)
+  =/  index=@ud  0
+  |-
+  ^-  (unit @ud)
+  ?~  spans
+    ~
+  ?:  ?&  ?~(start.i.spans %.y (gte date u.start.i.spans))
+          ?~(end.i.spans %.y (lte date u.end.i.spans))
+      ==
+    `index
+  $(spans t.spans, index +(index))
+::
+::  Ruling 12: every interval derivation runs inside ONE ownership interval and
+::  never crosses a gap between two. A break here is DERIVED. Nothing writes a
+::  row for it, and the owner is never asked to mark it.
+::
+::  A vehicle with no purchase and no sale has no ownership boundary. The empty
+::  span list answers no, so its derivations are exactly what they were before
+::  T5. Every database installed today is in that state.
+++  ownership-gap
+  |=  [spans=(list ownership-interval) after=@da through=@da]
+  ^-  ?
+  ?~  spans
+    %.n
+  =/  opening  (ownership-segment spans after)
+  =/  closing  (ownership-segment spans through)
+  ?|  ?=(~ opening)
+      ?=(~ closing)
+      !=(u.opening u.closing)
+  ==
+::
 ++  derive-fill-series
   |=  $:  fills=(list vector:ast)
           odometers=(list vector:ast)
           breaks=(list vector:ast)
+          ownership=(map @ (list ownership-interval))
       ==
   ^-  (map @ derived-fill)
   =/  ordered  (order-vectors:act %observed-start %.n fills)
@@ -230,9 +328,20 @@
     $(rows t.rows, states (~(put by states) vehicle state))
   ?~  close-odometer
     $(rows t.rows, states (~(put by states) vehicle state))
+  ::  M7 T5. The derived break. An owner-supplied reason still wins when both
+  ::  apply: it is the more specific fact, and it is what the owner was told.
+  =/  spans=(list ownership-interval)  (~(gut by ownership) vehicle ~)
+  =/  break-reason=(unit @tas)
+    ?^  break-reason.state
+      break-reason.state
+    ?~  prior.state
+      ~
+    ?.  (ownership-gap spans date.u.prior.state date)
+      ~
+    `%ownership-gap
   =/  interval=(unit interval-proof)
     ?:  ?|  ?=(~ prior.state)
-            ?=(^ break-reason.state)
+            ?=(^ break-reason)
         ==
       ~
     =/  prior-odometer  odometer.u.prior.state
@@ -274,7 +383,7 @@
       (div (add (mul distance-milli.u.interval 1.000) (div quantity.state 2)) quantity.state)
     `[economy-milli unit]
   =/  result=derived-fill
-    [economy interval break-reason.state]
+    [economy interval break-reason]
   =/  next-state=interval-walk
     [`[date u.close-odometer] 0 ~ %.y ~]
   $(rows t.rows, states (~(put by states) vehicle next-state), derived (~(put by derived) acquisition result))
@@ -1005,6 +1114,7 @@
   |=  $:  vehicle-id=@
           purchases=(list vector:ast)
           odometers=(list vector:ast)
+          ownership=(map @ (list ownership-interval))
       ==
   ^-  [available=? display=@t reason=@t]
   =/  vehicle-purchases=(list vector:ast)
@@ -1013,6 +1123,15 @@
     [%.n 'Unavailable' 'Two consecutive DEF purchases are required']
   =/  close=vector:ast  (snag 0 vehicle-purchases)
   =/  prior=vector:ast  (snag 1 vehicle-purchases)
+  ::  M7 T5, ruling 12. Consumable economy is an interval derivation, so it is
+  ::  bounded the same way fuel economy is.
+  =/  spans=(list ownership-interval)  (~(gut by ownership) vehicle-id ~)
+  ?:  %:  ownership-gap
+          spans
+          `@da`(cell-atom %observed-start prior)
+          `@da`(cell-atom %observed-start close)
+      ==
+    [%.n 'Unavailable' (economy-break-text %ownership-gap)]
   =/  close-odos=(list vector:ast)
     (rows-by %consumable-acquisition-id (cell-atom %consumable-acquisition-id close) odometers)
   ?~  close-odos
@@ -1070,6 +1189,7 @@
   |=  $:  vehicles=(list vector:ast)
           purchases=(list vector:ast)
           odometers=(list vector:ast)
+          ownership=(map @ (list ownership-interval))
       ==
   ^-  tape
   ?~  vehicles
@@ -1080,7 +1200,7 @@
     rest
   =/  label  (escape (cell-text %label i.vehicles))
   =/  status=[available=? display=@t reason=@t]
-    (def-economy id purchases odometers)
+    (def-economy id purchases odometers ownership)
   ;:  weld
     "<tr "
     "data-statistics-vehicle=\""
@@ -1167,6 +1287,10 @@
     %missed-fill  'A missed fill was recorded, so this economy interval is unavailable.'
     %excluded     'The owner excluded this fill from economy calculations.'
     %owner-marked  'The owner marked this fill as an economy-chain break.'
+    ::  M7 T5. The one derived reason. Rover reads the sale and the later
+    ::  purchase from the database and honours them without being told.
+    %ownership-gap
+  'The vehicle was not owned for part of this interval, so it is unavailable.'
   ==
 ::
 ++  main-hub
@@ -1181,6 +1305,7 @@
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
           derivations=(map @ derived-fill)
+          ownership=(map @ (list ownership-interval))
       ==
   ^-  tape
   =/  default-id=(unit @)
@@ -1306,7 +1431,7 @@
   =/  def-status=[available=? display=@t reason=@t]
     ?~  default-id
       [%.n 'Unavailable' 'No default vehicle is set']
-    (def-economy u.default-id def-purchases def-odometers)
+    (def-economy u.default-id def-purchases def-odometers ownership)
   ;:  weld
     default-marker
     "<section id=\"main-hub\" class=\"app-screen\">"
@@ -3204,6 +3329,7 @@
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
           derivations=(map @ derived-fill)
+          ownership=(map @ (list ownership-interval))
           selected-vehicle=(unit vector:ast)
           history-page=@ud
       ==
@@ -3284,7 +3410,7 @@
     (statistic-interval-rows recent scoped-vehicles tank-sizes derivations %tank)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
-    (def-economy-stat-rows scoped-vehicles scoped-def-purchases def-odometers)
+    (def-economy-stat-rows scoped-vehicles scoped-def-purchases def-odometers ownership)
     "</tbody></table></section>"
     (pagination-controls history-page (lent all-recent) 'statistics-screen')
     "</section>"
@@ -3371,8 +3497,12 @@
       ~
     =/  defaults  (rows-by %vehicle-id (cell-atom %vehicle-id i.app-default) vehicles)
     ?~(defaults ~ `i.defaults)
+  ::  M7 T5. The ownership map is built once and bounds every interval
+  ::  derivation the page renders.
+  =/  ownership
+    (ownership-index events.events acquisitions.events disposals.events)
   =/  derivations
-    (derive-fill-series fills energy-odometers economy-breaks)
+    (derive-fill-series fills energy-odometers economy-breaks ownership)
   =/  cards=tape
     |-
     ?~  vehicles
@@ -3423,7 +3553,7 @@
       ==
       "></span>"
       (address-locality-data localities)
-      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations)
+      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations ownership)
       (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes disposal-kinds)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
@@ -3444,7 +3574,7 @@
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
       (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
-      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations selected-vehicle history-page)
+      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations ownership selected-vehicle history-page)
       (settings-screen custom-definitions)
       import-screen
     ==
