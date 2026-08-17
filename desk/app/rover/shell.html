@@ -2097,6 +2097,21 @@
           eventForm.elements.kind.addEventListener('change', showSubtypes);
           showSubtypes();
         }
+        // A disposal kind belongs on a disposal and nowhere else. Hiding the
+        // control also clears it, so a kind picked before the kind changed
+        // cannot ride along unseen. The server ignores it on every other
+        // route anyway; this keeps the form honest about what it will send.
+        const disposalKind = app.querySelector('#event-disposal-kind');
+        if (disposalKind) {
+          const showDisposalKind = () => {
+            const disposal = eventForm.elements.kind.value === 'disposal';
+            disposalKind.hidden = !disposal;
+            eventForm.elements.disposalKind.required = disposal;
+            if (!disposal) eventForm.elements.disposalKind.value = '';
+          };
+          eventForm.elements.kind.addEventListener('change', showDisposalKind);
+          showDisposalKind();
+        }
         eventForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = app.querySelector('#event-verdict');

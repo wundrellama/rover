@@ -160,7 +160,7 @@
 ++  seed-starters
   |=  [base=@ux now=@da]
   ^-  tape
-  (seed-missing-starters base now %.y %.y %.y %.y %.y)
+  (seed-missing-starters base now %.y %.y %.y %.y %.y %.y)
 ::
 ++  seed-missing-starters
   |=  $:  base=@ux
@@ -170,6 +170,7 @@
           additives-empty=?
           driving-modes-empty=?
           service-subtypes-empty=?
+          disposal-kinds-empty=?
       ==
   ^-  tape
   ;:  weld
@@ -187,6 +188,9 @@
     ~
     ?:  service-subtypes-empty
       (seed-service-subtypes base now)
+    ~
+    ?:  disposal-kinds-empty
+      (seed-disposal-kinds base now)
     ~
   ==
 ::
@@ -443,6 +447,41 @@
     ==
   $(labels t.labels, ordinal +(ordinal))
 ::
+::
+::  M7 T4. The disposal-kind starter pack, ratified in ruling 13. Six labels,
+::  owner-editable from T8 onward. `Traded In` is one of them and carries no
+::  link to anything: ruling 14 makes a trade-in two independent events, so
+::  the label records what happened and joins nothing.
+++  disposal-kind-starters
+  ^-  (list tape)
+  :~  "Sold"
+      "Traded In"
+      "Totaled"
+      "Scrapped"
+      "Gifted"
+      "Stolen"
+  ==
+::
+++  seed-disposal-kinds
+  |=  [base=@ux now=@da]
+  ^-  tape
+  =/  labels=(list tape)  disposal-kind-starters
+  =/  ordinal=@ud  9.501
+  |-  ^-  tape
+  ?~  labels
+    ~
+  %+  weld
+    ;:  weld
+      "INSERT INTO disposal-kind-definitions VALUES ("
+      (scow %ux (fixture-id base ordinal))
+      ", '"
+      i.labels
+      "', N, "
+      (scow %da now)
+      "); "
+    ==
+  $(labels t.labels, ordinal +(ordinal))
+::
 ++  starter-check
   ^-  tape
   ;:  weld
@@ -450,7 +489,8 @@
     "FROM consumable-definitions C SELECT C.consumable-id, C.label, C.archived; "
     "FROM additive-definitions A SELECT A.additive-id, A.label, A.archived; "
     "FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived; "
-    "FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
+    "FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived; "
+    "FROM disposal-kind-definitions K SELECT K.disposal-kind-id, K.label, K.archived;"
   ==
 ::
 ++  consumable-lookup
@@ -556,6 +596,9 @@
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
     " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
     " FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
+    ::  M7 T4. The disposal-kind catalog. A disposal names one of these rows;
+    ::  a kind the catalog does not hold is refused, never invented.
+    " FROM disposal-kind-definitions K SELECT K.disposal-kind-id, K.label, K.archived;"
   ==
 ::
 ::  One atomic script for one vehicle event, shaped after +insert-consumable.
@@ -568,6 +611,7 @@
           station-id=(unit @ux)
           tag-ids=(list @ux)
           subtype-ids=(list @ux)
+          disposal-kind-id=(unit @ux)
           payment-method-id=(unit @ux)
           input=event-entry:rover
           recorded-at=@da
@@ -618,12 +662,30 @@
       ");"
     ==
   ::  The kind is this row and nothing else. No column repeats it.
+  ::
+  ::  A disposal is the one child that carries a value of its own, so its row
+  ::  takes a second column. Every other kind writes identity alone.
   =/  child-row=tape
+    ?:  ?=(%disposal kind.input)
+      ::  The request path resolves the label first and refuses an unknown one,
+      ::  so this can only fail if a caller skipped that step. Failing loudly
+      ::  beats writing a parent row with no typed child under it.
+      ?>  ?=(^ disposal-kind-id)
+      ;:  weld
+        " INSERT INTO vehicle-disposals VALUES ("
+        event
+        ", "
+        (scow %ux u.disposal-kind-id)
+        ");"
+      ==
+    ::  The disposal arm above already returned, so this face no longer holds
+    ::  %disposal and naming it here would be dead code.
     =/  relation=tape
       ?-  kind.input
-        %service  "service-events"
-        %expense  "expense-events"
-        %note     "note-events"
+        %service      "service-events"
+        %expense      "expense-events"
+        %note         "note-events"
+        %acquisition  "vehicle-acquisitions"
       ==
     ;:  weld
       " INSERT INTO "
@@ -997,6 +1059,27 @@
       ::  has no row here.
       :-  %vehicle-event-service-subtypes
       "CREATE TABLE rover..vehicle-event-service-subtypes (event-id @ux, service-subtype-id @ux) PRIMARY KEY (event-id, service-subtype-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M7 T4. An owner-editable name for how a vehicle left, shaped exactly
+      ::  like service-subtype-definitions. The primary key is ONE column, so a
+      ::  later child can reference the complete primary key, which is all
+      ::  Obelisk permits a foreign key to reference.
+      :-  %disposal-kind-definitions
+      "CREATE TABLE rover..disposal-kind-definitions (disposal-kind-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (disposal-kind-id); "
+      ::  Identity only, beside service, expense, and note. Keying this to
+      ::  vehicle-id with an "at most one" primary key was REJECTED: a person
+      ::  can buy a vehicle, sell it, and buy it back, so the constraint is
+      ::  false, and it would rebuild six associations to gain one check.
+      :-  %vehicle-acquisitions
+      "CREATE TABLE rover..vehicle-acquisitions (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  Identity plus the one type-specific reference a disposal carries. The
+      ::  kind is mandatory when this row exists, so it is a column on this new
+      ::  relation rather than an absent-or-present link row. It is NOT on the
+      ::  parent: a kind there would let a purchase name how it was sold.
+      ::
+      ::  No column joins this row to another vehicle's purchase. A trade-in is
+      ::  two independent events, and the out-of-pocket figure is a rendering.
+      :-  %vehicle-disposals
+      "CREATE TABLE rover..vehicle-disposals (event-id @ux, disposal-kind-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (disposal-kind-id) REFERENCES disposal-kind-definitions (disposal-kind-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
 ::
 ++  relation-pour
@@ -1118,6 +1201,14 @@
     ::  the event parent, so one query serves every kind.
     " FROM vehicle-event-service-subtypes L JOIN service-subtype-definitions S ON L.service-subtype-id = S.service-subtype-id SELECT L.event-id, S.label AS service-subtype;"
     " FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
+    ::  M7 T4. Two more typed children, read the same way the first three are
+    ::  read: by which child row exists. The disposal query names the
+    ::  definition relation FIRST, because the pinned engine crashes on a join
+    ::  whose leftmost relation is empty, and a database with no disposal has
+    ::  no rows in the child.
+    " FROM vehicle-acquisitions A SELECT A.event-id;"
+    " FROM disposal-kind-definitions K JOIN vehicle-disposals X ON K.disposal-kind-id = X.disposal-kind-id SELECT X.event-id, K.label AS disposal-kind;"
+    " FROM disposal-kind-definitions K SELECT K.disposal-kind-id, K.label, K.archived;"
   ==
 ::
 ++  sql-quote

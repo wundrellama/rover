@@ -1150,6 +1150,17 @@
     ?~  subtype-labels
       ~
     (skim u.subtype-labels nonempty)
+  ::  M7 T4. The kind of disposal. It is read only for a disposal, so a body
+  ::  that names one on any other route is ignored exactly as a body that
+  ::  names an event kind is ignored: the route decides, not the client.
+  =/  disposal-kind=(unit @t)
+    ?.  ?=(%disposal kind)
+      ~
+    (optional-text 'disposalKind' u.object)
+  ?:  ?&  ?=(%disposal kind)
+          ?=(~ disposal-kind)
+      ==
+    [%| %missing-key 'event.disposal-kind']
   =/  payment-method  (optional-text 'paymentMethod' u.object)
   =/  notes  (optional-text 'notes' u.object)
   :-  %&
@@ -1167,6 +1178,7 @@
       tags
       new-tag
       subtypes
+      disposal-kind
       payment-method
       notes
   ==

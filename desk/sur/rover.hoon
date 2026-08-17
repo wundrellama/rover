@@ -253,7 +253,11 @@
 ::  Which typed child of `vehicle-events` a new event creates. The kind is not
 ::  a column: it is which child row exists. This term never reaches the
 ::  database - it selects the INSERT target and nothing else.
-+$  event-kind  ?(%service %expense %note)
+::
+::  M7 T4 extends the union rather than adding a second decoder. Acquisition
+::  and disposal reach the same handler through their own routes, so a client
+::  cannot name a kind that disagrees with the child it gets.
++$  event-kind  ?(%service %expense %note %acquisition %disposal)
 ::  One vehicle event as a human entered it (M7 T1). Every optional member is
 ::  a unit, and a `~` writes NO row rather than a bunt, a zero, or an empty
 ::  string. The total is entered: a shop invoice has no quantity and no unit
@@ -277,6 +281,11 @@
       ::  absence of the rows is what "no subtype" means, and there is no
       ::  `None` definition and no sentinel row.
       subtype-labels=(list @t)
+      ::  M7 T4. The kind of disposal, by label. It is mandatory on a disposal
+      ::  and absent on every other kind: a sale, a write-off, and a theft are
+      ::  different facts, and the amount alone cannot tell them apart. An
+      ::  acquisition carries no kind - see the T4 report for why.
+      disposal-kind-label=(unit @t)
       payment-method-label=(unit @t)
       notes=(unit @t)
   ==
