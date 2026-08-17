@@ -60,11 +60,19 @@ fork the database engine and silently break the pin.
 - **Schema scope (Gate 6, ratified 2026-07-28):** M0 is a **single schema pour** —
   the vehicle/observation/energy/place/station backbone **plus** the evidence,
   arithmetic, and provenance relations. Sharing (`vehicle-grants`,
-  `vehicle-grant-fields`) is a **separate second pour** and is the populated-data
-  migration rehearsal. The earlier eleven-relation v1 / v2 / v3 progression is
-  superseded — do not treat "eleven relations exactly" as current.
-- Because the M0 pour is fresh (pre-publish), relations take their **honest shape**:
-  mandatory fill facts — price per unit, currency, settlement mode — are **columns on
+  `vehicle-grant-fields`) is a **separate second pour**. The earlier eleven-relation
+  v1 / v2 / v3 progression is superseded — do not treat "eleven relations exactly" as
+  current.
+- **The migration rehearsal moved to M7 T3 (ratified 2026-08-17).** Sharing was the
+  designated populated-data rehearsal. The charging odometer repair now takes that
+  role, because it migrates 420 real rows of one small link relation and its result is
+  verifiable by row count and content. Sharing stays a separate pour.
+- **Rover is published (2026-08-14) and installed on another ship.** New capability
+  enters through a new child or link relation. It never enters through a new column on
+  a populated relation.
+- The M0 pour was fresh when it was written, so its relations took their **honest
+  shape**: mandatory fill facts — price per unit, currency, settlement mode — are
+  **columns on
   `fuel-fills`**, not a child table. The child/link shape was only ever a way to dodge
   a migration constraint that does not apply to a fresh pour.
 - **Optional** data still uses **absent child/link rows**, never NULL/sentinel
@@ -109,16 +117,34 @@ fork the database engine and silently break the pin.
 - TDD: failing test first, watch it fail, minimal code to pass. See the
   `test-driven-development` skill in `.claude/skills/`.
 
-## Do-NOT-build fence (M0 scope)
+## Do-NOT-build fence — M7 OPEN, ratified 2026-08-17
 
-Do not build: sharing (`vehicle-grants`, `vehicle-grant-fields` — that is the second
-pour), Landscape UI, remote/poke sharing protocol, CSV import, attachments, permanent
-EVSE/connector inventory, or maintenance/service/insurance/modification records (M7).
+**The M7 fence is lifted.** Maintenance, service, expenses, reminders, vehicle
+specification, and vehicle acquisition and disposal are now in scope. See
+`PLAN-M7.md` and `~/brain/projects/rover/app-structure.md` rulings 11 through 14.
 
-Everything else in the adopted M0 relation family — including fill pricing, fill↔odometer
+Still do not build: sharing (`vehicle-grants`, `vehicle-grant-fields` — that is the
+second pour), the remote/poke sharing protocol, the community aggregate corpus,
+attachments in the database, permanent EVSE/connector inventory, leases, trip records,
+or vehicle parts.
+
+**Rover is published and installed on another ship.** New capability enters through a
+new child or link relation. It never enters through a new column on a populated
+relation.
+
+**The common event header governs every new event family.** A family parent carries
+`vehicle-id`, `observed-start`, `observed-end`, `observed-precision`, `source-zone`,
+`recorded-at`, plus at most one type-specific reference. Every association — odometer,
+station, cost, tags, payment method, notes — attaches to the family parent, never to a
+typed child. A family without an odometer link is incomplete by definition.
+
+**Ownership is an interval.** A purchase opens one and a disposal closes one. No
+interval derivation crosses a gap between ownership intervals.
+
+Everything in the adopted M0 relation family — including fill pricing, fill↔odometer
 links, economy breaks, additives, charging measurements, battery and consumption
 observations, charging cost components, address/coordinate evidence, and station
-identifiers — is **in scope for the single M0 pour** per Gate 6.
+identifiers — was in scope for the single M0 pour per Gate 6.
 
 ## Fixture fence (Gate 7, ratified 2026-08-06) — CLOSED 2026-08-12
 
