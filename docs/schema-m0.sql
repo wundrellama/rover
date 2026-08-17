@@ -655,3 +655,81 @@ CREATE TABLE rover..consumable-acquisition-odometers
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   (odometer-id) REFERENCES odometer-observations (odometer-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- The typed child row defines the event kind. All optional associations use
+-- the family parent, so each event kind can use the same evidence.
+CREATE TABLE rover..vehicle-events
+  (event-id @ux, vehicle-id @ux, observed-start @da, observed-end @da,
+   observed-precision @tas, source-zone @t, recorded-at @da)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..service-events
+  (event-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..expense-events
+  (event-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..note-events
+  (event-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- An entered invoice total follows the receipt-total-only evidence shape.
+CREATE TABLE rover..vehicle-event-costs
+  (event-id @ux, cost-state @tas, currency @tas, recorded-at @da)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-cost-source-totals
+  (event-id @ux, total-mills @ud)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-event-costs (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-stations
+  (event-id @ux, station-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (station-id) REFERENCES stations (station-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-odometers
+  (event-id @ux, odometer-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (odometer-id) REFERENCES odometer-observations (odometer-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-tags
+  (event-id @ux, tag-id @ux)
+  PRIMARY KEY (event-id, tag-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (tag-id) REFERENCES tag-definitions (tag-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-payment-method
+  (event-id @ux, method-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (method-id) REFERENCES payment-method-definitions (method-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-notes
+  (event-id @ux, note @t)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;

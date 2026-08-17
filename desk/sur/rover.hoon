@@ -250,6 +250,20 @@
       observed-start=@da
       source-zone=@t
   ==
++$  event-kind  ?(%service %expense %note)
++$  event-cost-entry  [total-mills=@ud currency=currency]
++$  event-entry
+  $:  kind=event-kind
+      vehicle-label=@t
+      observed-start=@da
+      source-zone=@t
+      mileage=(unit odo-reading)
+      cost=(unit event-cost-entry)
+      station-label=(unit @t)
+      tag-labels=(list @t)
+      payment-method-label=(unit @t)
+      notes=(unit @t)
+  ==
 +$  preference-entry
   [vehicle-label=@t distance-unit=(unit distance-unit) currency=currency]
 +$  vehicle-label-entry  [vehicle-label=@t]

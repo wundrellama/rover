@@ -419,6 +419,149 @@
     odometer-script
   ==
 ::
+++  event-lookup
+  |=  vehicle-label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND V.archived = N SELECT V.vehicle-id; "
+    "FROM stations S JOIN places P ON S.place-id = P.place-id WHERE S.archived = N AND P.archived = N SELECT S.station-id, S.label, P.label AS place; "
+    "FROM tag-definitions T WHERE T.archived = N SELECT T.tag-id, T.label; "
+    "FROM payment-method-definitions P WHERE P.archived = N SELECT P.method-id, P.label;"
+  ==
+::
+++  insert-event-tags
+  |=  [event-id=@ux tag-ids=(list @ux)]
+  ^-  tape
+  ?~  tag-ids
+    ~
+  =/  row
+    ;:  weld
+      " INSERT INTO vehicle-event-tags VALUES ("
+      (scow %ux event-id)
+      ", "
+      (scow %ux i.tag-ids)
+      ");"
+    ==
+  (weld row $(tag-ids t.tag-ids))
+::
+++  insert-event
+  |=  $:  event-id=@ux
+          odometer-id=@ux
+          vehicle-id=@ux
+          station-id=(unit @ux)
+          tag-ids=(list @ux)
+          payment-method-id=(unit @ux)
+          input=event-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  event  (scow %ux event-id)
+  =/  typed-row=tape
+    ?-  kind.input
+      %service  ;:(weld " INSERT INTO service-events VALUES (" event ");")
+      %expense  ;:(weld " INSERT INTO expense-events VALUES (" event ");")
+      %note     ;:(weld " INSERT INTO note-events VALUES (" event ");")
+    ==
+  =/  cost-row=tape
+    ?~  cost.input
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-costs VALUES ("
+      event
+      ", %receipt-total-only, "
+      (sql-term currency.u.cost.input)
+      ", "
+      (scow %da recorded-at)
+      "); INSERT INTO vehicle-event-cost-source-totals VALUES ("
+      event
+      ", "
+      (sql-ud total-mills.u.cost.input)
+      ");"
+    ==
+  =/  station-row=tape
+    ?~  station-id
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-stations VALUES ("
+      event
+      ", "
+      (scow %ux u.station-id)
+      ");"
+    ==
+  =/  payment-row=tape
+    ?~  payment-method-id
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-payment-method VALUES ("
+      event
+      ", "
+      (scow %ux u.payment-method-id)
+      ");"
+    ==
+  =/  note-row=tape
+    ?~  notes.input
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-notes VALUES ("
+      event
+      ", '"
+      (sql-quote u.notes.input)
+      "');"
+    ==
+  =/  odometer-row=tape
+    ?~  mileage.input
+      ~
+    =/  odometer  (scow %ux odometer-id)
+    ;:  weld
+      " INSERT INTO odometer-observations VALUES ("
+      odometer
+      ", "
+      (scow %ux vehicle-id)
+      ", "
+      (sql-ud digits.u.mileage.input)
+      ", "
+      (sql-ud places.u.mileage.input)
+      ", "
+      (sql-term odo-unit.u.mileage.input)
+      ", "
+      (scow %da observed-start.input)
+      ", "
+      (scow %da (add observed-start.input (bex 64)))
+      ", %second, '"
+      (sql-quote source-zone.input)
+      "', "
+      (scow %da recorded-at)
+      "); INSERT INTO vehicle-event-odometers VALUES ("
+      event
+      ", "
+      odometer
+      ");"
+    ==
+  ;:  weld
+    "INSERT INTO vehicle-events VALUES ("
+    event
+    ", "
+    (scow %ux vehicle-id)
+    ", "
+    (scow %da observed-start.input)
+    ", "
+    (scow %da (add observed-start.input (bex 64)))
+    ", %second, '"
+    (sql-quote source-zone.input)
+    "', "
+    (scow %da recorded-at)
+    ");"
+    typed-row
+    cost-row
+    station-row
+    (insert-event-tags event-id tag-ids)
+    payment-row
+    note-row
+    odometer-row
+  ==
+::
 ++  pow-ten
   |=  exponent=@ud
   ^-  @ud
@@ -564,6 +707,17 @@
     "CREATE TABLE rover..consumable-purchases (consumable-acquisition-id @ux, quantity-milli @ud, quantity-unit @tas, unit-price-mills @ud, currency @tas, settlement-mode @tas, price-profile @tas, minor-unit-decimals @ud, cash-increment-mills @ud) PRIMARY KEY (consumable-acquisition-id) FOREIGN KEY (consumable-acquisition-id) REFERENCES consumable-acquisitions (consumable-acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumable-acquisition-stations (consumable-acquisition-id @ux, station-id @ux) PRIMARY KEY (consumable-acquisition-id) FOREIGN KEY (consumable-acquisition-id) REFERENCES consumable-acquisitions (consumable-acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (station-id) REFERENCES stations (station-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumable-acquisition-odometers (consumable-acquisition-id @ux, odometer-id @ux) PRIMARY KEY (consumable-acquisition-id) FOREIGN KEY (consumable-acquisition-id) REFERENCES consumable-acquisitions (consumable-acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-events (event-id @ux, vehicle-id @ux, observed-start @da, observed-end @da, observed-precision @tas, source-zone @t, recorded-at @da) PRIMARY KEY (event-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..service-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..expense-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..note-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-costs (event-id @ux, cost-state @tas, currency @tas, recorded-at @da) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-cost-source-totals (event-id @ux, total-mills @ud) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-event-costs (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-stations (event-id @ux, station-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (station-id) REFERENCES stations (station-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-odometers (event-id @ux, odometer-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-tags (event-id @ux, tag-id @ux) PRIMARY KEY (event-id, tag-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (tag-id) REFERENCES tag-definitions (tag-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-payment-method (event-id @ux, method-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (method-id) REFERENCES payment-method-definitions (method-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-notes (event-id @ux, note @t) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
 ::
 ++  display-preference-schema
@@ -573,8 +727,17 @@
 ++  def-schema
   ^-  tape
   ;:  weld
-    "CREATE TABLE rover..vehicle-consumables (vehicle-id @ux, consumable-id @ux, archived @f) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (consumable-id) REFERENCES consumable-definitions (consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
-    "CREATE TABLE rover..vehicle-consumable-tank-size (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id, consumable-id) REFERENCES vehicle-consumables (vehicle-id, consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
+    "CREATE TABLE rover..vehicle-events (event-id @ux, vehicle-id @ux, observed-start @da, observed-end @da, observed-precision @tas, source-zone @t, recorded-at @da) PRIMARY KEY (event-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..service-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..expense-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..note-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-costs (event-id @ux, cost-state @tas, currency @tas, recorded-at @da) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-cost-source-totals (event-id @ux, total-mills @ud) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-event-costs (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-stations (event-id @ux, station-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (station-id) REFERENCES stations (station-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-odometers (event-id @ux, odometer-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-tags (event-id @ux, tag-id @ux) PRIMARY KEY (event-id, tag-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (tag-id) REFERENCES tag-definitions (tag-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-payment-method (event-id @ux, method-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (method-id) REFERENCES payment-method-definitions (method-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    "CREATE TABLE rover..vehicle-event-notes (event-id @ux, note @t) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
   ==
 ::
 ++  verify-schema
@@ -629,6 +792,15 @@
     " FROM vehicle-refill-reserve R SELECT R.vehicle-id, R.reserve-percent;"
     " FROM charging-cost-components C SELECT C.acquisition-id, C.component, C.quantity, C.quantity-decimals, C.quantity-unit, C.rate-mills, C.amount-mills;"
     " FROM charging-cost-source-totals T SELECT T.acquisition-id, T.total-mills;"
+    " FROM vehicle-events E JOIN service-events S ON E.event-id = S.event-id SELECT E.vehicle-id, E.event-id, E.observed-start, E.observed-end, E.source-zone, E.recorded-at;"
+    " FROM vehicle-events E JOIN expense-events X ON E.event-id = X.event-id SELECT E.vehicle-id, E.event-id, E.observed-start, E.observed-end, E.source-zone, E.recorded-at;"
+    " FROM vehicle-events E JOIN note-events H ON E.event-id = H.event-id SELECT E.vehicle-id, E.event-id, E.observed-start, E.observed-end, E.source-zone, E.recorded-at;"
+    " FROM vehicle-event-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.event-id, O.value-digits, O.decimal-places, O.unit;"
+    " FROM vehicle-event-stations L JOIN stations S ON L.station-id = S.station-id JOIN places P ON S.place-id = P.place-id SELECT L.event-id, S.label AS station, P.label AS place;"
+    " FROM vehicle-event-costs C JOIN vehicle-event-cost-source-totals T ON C.event-id = T.event-id SELECT C.event-id, C.cost-state, C.currency, T.total-mills;"
+    " FROM vehicle-event-tags L JOIN tag-definitions T ON L.tag-id = T.tag-id SELECT L.event-id, T.label AS tag;"
+    " FROM vehicle-event-payment-method L JOIN payment-method-definitions P ON L.method-id = P.method-id SELECT L.event-id, P.label AS payment-method;"
+    " FROM vehicle-event-notes H SELECT H.event-id, H.note;"
   ==
 ::
 ++  sql-quote

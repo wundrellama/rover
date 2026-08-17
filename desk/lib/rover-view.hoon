@@ -41,6 +41,13 @@
   ^-  (list vector:ast)
   (result-rows (snag index commands))
 ::
+++  event-kind-rows
+  |=  [kind=@tas rows=(list vector:ast)]
+  ^-  (list vector:ast)
+  %+  turn  rows
+  |=  row=vector:ast
+  [%vector [[%kind [%tas kind]] +.row]]
+::
 ++  cell-atom
   |=  [key=@tas row=vector:ast]
   ^-  @
@@ -1819,6 +1826,115 @@
     "</dl></article>"
   ==
 ::
+++  event-labels
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    "Not recorded"
+  ?~  t.rows
+    (escape (cell-text %tag i.rows))
+  ;:(weld (escape (cell-text %tag i.rows)) ", " $(rows t.rows))
+::
+++  event-card
+  |=  $:  row=vector:ast
+          odometers=(list vector:ast)
+          stations=(list vector:ast)
+          costs=(list vector:ast)
+          tags=(list vector:ast)
+          payments=(list vector:ast)
+          notes=(list vector:ast)
+      ==
+  ^-  tape
+  =/  event-id  (cell-atom %event-id row)
+  =/  odometer-rows  (rows-by %event-id event-id odometers)
+  =/  station-rows  (rows-by %event-id event-id stations)
+  =/  cost-rows  (rows-by %event-id event-id costs)
+  =/  tag-rows  (rows-by %event-id event-id tags)
+  =/  payment-rows  (rows-by %event-id event-id payments)
+  =/  note-rows  (rows-by %event-id event-id notes)
+  =/  kind  (cell-term %kind row)
+  =/  mileage=tape
+    ?~  odometer-rows
+      "Incomplete - no odometer recorded"
+    (trip (format-distance:render (cell-atom %value-digits i.odometer-rows) (cell-atom %decimal-places i.odometer-rows) (cell-term %unit i.odometer-rows) %.n))
+  =/  total=tape
+    ?~  cost-rows
+      "Not recorded"
+    (trip (format-mills:render (cell-atom %total-mills i.cost-rows) (cell-term %currency i.cost-rows)))
+  =/  station=tape
+    ?~  station-rows
+      "Not recorded"
+    ;:(weld (escape (cell-text %station i.station-rows)) " - " (escape (cell-text %place i.station-rows)))
+  =/  payment=tape
+    ?~  payment-rows
+      "Not recorded"
+    (escape (cell-text %payment-method i.payment-rows))
+  =/  note=tape
+    ?~  note-rows
+      "Not recorded"
+    (escape (cell-text %note i.note-rows))
+  ;:  weld
+    "<article class=\"history-card event "
+    (escape (scot %tas kind))
+    "\"><header><span>"
+    (escape (scot %tas kind))
+    "</span><time>"
+    (trip (format-da:render `@da`(cell-atom %observed-start row)))
+    " ("
+    (escape (cell-text %source-zone row))
+    ")</time></header><dl><div><dt>ODOMETER</dt><dd>"
+    mileage
+    "</dd></div><div><dt>ENTERED TOTAL</dt><dd>"
+    total
+    "</dd></div><div><dt>STATION</dt><dd>"
+    station
+    "</dd></div><div><dt>TAGS</dt><dd>"
+    (event-labels tag-rows)
+    "</dd></div><div><dt>PAYMENT METHOD</dt><dd>"
+    payment
+    "</dd></div><div><dt>NOTES</dt><dd>"
+    note
+    "</dd></div></dl></article>"
+  ==
+::
+++  event-cards
+  |=  $:  rows=(list vector:ast)
+          odometers=(list vector:ast)
+          stations=(list vector:ast)
+          costs=(list vector:ast)
+          tags=(list vector:ast)
+          payments=(list vector:ast)
+          notes=(list vector:ast)
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  %+  weld
+    (event-card i.rows odometers stations costs tags payments notes)
+  $(rows t.rows)
+::
+++  ordered-event-history
+  |=  $:  events=(list vector:ast)
+          odometers=(list vector:ast)
+          stations=(list vector:ast)
+          costs=(list vector:ast)
+          tags=(list vector:ast)
+          payments=(list vector:ast)
+          notes=(list vector:ast)
+          history-page=@ud
+      ==
+  ^-  tape
+  =/  history-window-size=@ud  25
+  =/  all-ordered  (order-vectors:act %observed-start %.y events)
+  =/  ordered
+    (scag history-window-size (slag (mul history-page history-window-size) all-ordered))
+  ?:  ?=(~ ordered)
+    "<p class=\"empty\">No vehicle events.</p>"
+  ;:  weld
+    (event-cards ordered odometers stations costs tags payments notes)
+    (pagination-controls history-page (lent all-ordered) 'vehicle-settings-screen')
+  ==
+::
 ++  history-cards
   |=  $:  rows=(list vector:ast)
           measurements=(list vector:ast)
@@ -1915,6 +2031,7 @@
           default-rows=(list vector:ast)
           fills=(list vector:ast)
           charges=(list vector:ast)
+          events=(list vector:ast)
           measurements=(list vector:ast)
           batteries=(list vector:ast)
           costs=charging-cost-rows
@@ -1932,6 +2049,12 @@
           consumable-tank-sizes=(list vector:ast)
           tank-sizes=(list vector:ast)
           refill-reserves=(list vector:ast)
+          event-odometers=(list vector:ast)
+          event-stations=(list vector:ast)
+          event-costs=(list vector:ast)
+          event-tags=(list vector:ast)
+          event-payments=(list vector:ast)
+          event-notes=(list vector:ast)
           is-default=?
           history-page=@ud
       ==
@@ -2026,6 +2149,17 @@
         economy-breaks
         history-page
     ==
+  =/  event-history
+    %:  ordered-event-history
+        (rows-for id events)
+        event-odometers
+        event-stations
+        event-costs
+        event-tags
+        event-payments
+        event-notes
+        history-page
+    ==
   ;:  weld
     "<article class=\"vehicle-card\" data-vehicle-settings-panel data-vehicle=\""
     (escape (cell-text %label row))
@@ -2108,6 +2242,8 @@
     defs
     "<section class=\"history\"><h3>ORDERED HISTORY</h3>"
     history
+    "<h3>VEHICLE EVENTS</h3>"
+    event-history
     "</section></article>"
   ==
 ::
@@ -2987,6 +3123,16 @@
   =/  refill-reserves  (rows-at commands 38)
   =/  costs=charging-cost-rows
     [(rows-at commands 39) (rows-at commands 40)]
+  =/  events
+    %+  weld  (event-kind-rows %service (rows-at commands 41))
+    %+  weld  (event-kind-rows %expense (rows-at commands 42))
+    (event-kind-rows %note (rows-at commands 43))
+  =/  event-odometers  (rows-at commands 44)
+  =/  event-stations  (rows-at commands 45)
+  =/  event-costs  (rows-at commands 46)
+  =/  event-tags  (rows-at commands 47)
+  =/  event-payments  (rows-at commands 48)
+  =/  event-notes  (rows-at commands 49)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -3017,6 +3163,7 @@
           default-rows
           fills
           charges
+          events
           measurements
           batteries
           costs
@@ -3034,6 +3181,12 @@
           consumable-tank-sizes
           tank-sizes
           refill-reserves
+          event-odometers
+          event-stations
+          event-costs
+          event-tags
+          event-payments
+          event-notes
           ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
           history-page
       ==

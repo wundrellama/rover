@@ -570,6 +570,34 @@
     ==
   ==
 ::
+++  event-http
+  |=  $:  sat=state-17
+          =bowl:gall
+          eyre-id=@ta
+          req=inbound-request:eyre
+          kind=event-kind:rover
+      ==
+  ^-  [(list card) state-17]
+  ?~  body.request.req
+    [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event')) sat]
+  =/  body-text=@t  `@t`q.u.body.request.req
+  =/  decoded  (decode-event:entry body-text kind)
+  ?:  ?=(%| -.decoded)
+    [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+  =/  wir=wire
+    /rover-event-lookup/[kind]/(scot %da now.bowl)/[eyre-id]
+  =/  jon
+    !>([%script %rover %vector (event-lookup:act vehicle-label.p.decoded)])
+  =/  next
+    %_  sat
+      http-pending  (~(put by http-pending.sat) wir eyre-id)
+      fill-body-pending  (~(put by fill-body-pending.sat) wir body-text)
+    ==
+  :_  next
+  :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+      [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+  ==
+::
 ++  handle-http
   |=  [sat=state-17 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
   ^-  [(list card) state-17]
@@ -625,6 +653,13 @@
             (initial-report:imp p.decoded)
         ==
       (continue-import sat our.bowl run)
+    ::
+    ?:  =('/apps/rover/add-service-event' url.request.req)
+      (event-http sat bowl eyre-id req %service)
+    ?:  =('/apps/rover/add-expense-event' url.request.req)
+      (event-http sat bowl eyre-id req %expense)
+    ?:  =('/apps/rover/add-note-event' url.request.req)
+      (event-http sat bowl eyre-id req %note)
     ::
     ?:  =('/apps/rover/add-consumable' url.request.req)
       ?~  body.request.req
@@ -1168,6 +1203,130 @@
     ::
         %kick
       `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-event-lookup @tas *]
+    =/  kind  ;;(event-kind:rover i.t.wire)
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      ?~  eyre-id
+        `this(fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      =/  next
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?:  ?=(%.n -.res)
+        :_  next
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
+      =/  decoded  (decode-event:entry u.body kind)
+      ?:  ?=(%| -.decoded)
+        :_  next
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded)))
+      ?.  (gte (lent p.res) 4)
+        :_  next
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event.evidence'))
+      =/  vehicles  (rows-at:view p.res 0)
+      ?.  =(1 (lent vehicles))
+        :_  next
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.vehicle'))
+      =/  station-rows  (rows-at:view p.res 1)
+      =/  tag-rows  (rows-at:view p.res 2)
+      =/  payment-rows  (rows-at:view p.res 3)
+      =/  station-id=(unit @ux)
+        ?~  station-label.p.decoded
+          ~
+        =/  found  (row-by-text:view %label u.station-label.p.decoded station-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %station-id u.found)
+      ?:  ?&  ?=(^ station-label.p.decoded)
+              ?=(~ station-id)
+          ==
+        :_  next
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.station'))
+      =/  tag-proof
+        (ids-for-labels:view tag-labels.p.decoded tag-rows %label %tag-id)
+      ?:  ?=(%| -.tag-proof)
+        :_  next
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.tags'))
+      =/  payment-method-id=(unit @ux)
+        ?~  payment-method-label.p.decoded
+          ~
+        =/  found
+          (row-by-text:view %label u.payment-method-label.p.decoded payment-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %method-id u.found)
+      ?:  ?&  ?=(^ payment-method-label.p.decoded)
+              ?=(~ payment-method-id)
+          ==
+        :_  next
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.payment-method'))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  write-wire=path
+        /rover-event-write/[kind]/(scot %da now.bowl)/[u.eyre-id]
+      =/  script
+        %:  insert-event:act
+            (fixture-id:act base 9.301)
+            (fixture-id:act base 9.302)
+            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+            station-id
+            p.tag-proof
+            payment-method-id
+            p.decoded
+            now.bowl
+        ==
+      =/  jon  !>([%script %rover %vector script])
+      :_  this(http-pending (~(put by http-pending.next) write-wire u.eyre-id), fill-body-pending (~(put by fill-body-pending.next) write-wire u.body))
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-event-write @tas *]
+    =/  kind  ;;(event-kind:rover i.t.wire)
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      ?~  eyre-id
+        `this(fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      =/  decoded  (decode-event:entry u.body kind)
+      =/  next
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?:  ?|  ?=(%.n -.res)
+              ?=(%| -.decoded)
+          ==
+        :_  next
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
+      =/  message=@t
+        ?-  kind
+          %service  'Saved service event'
+          %expense  'Saved expense event'
+          %note     'Saved note event'
+        ==
+      :_  next
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs message))
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
     ::
         %watch-ack
       `this
