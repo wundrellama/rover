@@ -72,9 +72,10 @@ fork the database engine and silently break the pin.
   a populated relation.
 - The M0 pour was fresh when it was written, so its relations took their **honest
   shape**: mandatory fill facts — price per unit, currency, settlement mode — are
-  **columns on
-  `fuel-fills`**, not a child table. The child/link shape was only ever a way to dodge
-  a migration constraint that does not apply to a fresh pour.
+  **columns on `fuel-fills`**, not a child table. The child/link shape was only ever a
+  way to dodge a migration constraint that does not apply to a fresh pour. **That
+  reasoning is historical.** The pour is no longer fresh, so it licenses no new column
+  anywhere.
 - **Optional** data still uses **absent child/link rows**, never NULL/sentinel
   (Obelisk has no nullable columns). Mileage on a fill is optional → stays a link row.
   Mandatory data uses columns. Do not confuse the two.
