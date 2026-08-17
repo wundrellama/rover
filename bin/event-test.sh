@@ -1005,6 +1005,22 @@ if table:
 '
 }
 
+# Every figure cell of one interval statistics table, newest fill first, one
+# per line, each with the break term the row carries.
+interval_cells() {
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+table = re.search(r"data-statistic=\"%s\".*?</section>" % re.escape(sys.argv[1]), document, re.S)
+if not table:
+    sys.exit(0)
+for row in re.finditer(r"<tr data-statistics-vehicle=.*?</tr>", table.group(0), re.S):
+    cells = re.findall(r"<td>(.*?)</td>", row.group(0), re.S)
+    brk = re.search(r"data-interval-break=\"(.*?)\"", row.group(0))
+    print("%s %s" % (cells[1], brk.group(1) if brk else "-"))
+' "$1"
+}
+
 # The whole economy row whose figure cell holds this value.
 economy_row() {
   python3 -c '
@@ -1091,7 +1107,17 @@ grep -qF 'The vehicle was not owned for part of this interval' <<<"$gap_row" \
   || fail "fixture 38 the unavailable interval gives no human ownership reason: $gap_row"
 grep -q 'ownership-gap</td>' <<<"$gap_row" \
   && fail "fixture 38 the eligibility cell dumps the term instead of a sentence: $gap_row"
-note "fixture 38 PASS - the cross-gap interval renders unavailable with a human reason naming the ownership gap, not as zero"
+# The bound covers every figure derived across the interval, not the economy
+# alone. Distance between fills and time between fills are the other two.
+mapfile -t gap_distance < <(interval_cells distance-between-fills <<<"$view")
+distance_expected=('300.000 mi -' 'Unavailable %ownership-gap' '300.000 mi -' 'Unavailable -')
+[ "${gap_distance[*]}" = "${distance_expected[*]}" ] \
+  || fail "fixture 38 the distance figures are ${gap_distance[*]}, want ${distance_expected[*]}"
+mapfile -t gap_time < <(interval_cells time-between-fills <<<"$view")
+time_expected=('240.000 h -' 'Unavailable %ownership-gap' '240.000 h -' 'Unavailable -')
+[ "${gap_time[*]}" = "${time_expected[*]}" ] \
+  || fail "fixture 38 the elapsed-time figures are ${gap_time[*]}, want ${time_expected[*]}"
+note "fixture 38 PASS - the cross-gap economy, distance, and elapsed-time figures all render unavailable with a human reason naming the ownership gap, and none renders as zero"
 
 # ---------------------------------------------------------------------------
 # fixture 39 - a within-ownership interval on the same vehicle still computes.
@@ -1133,6 +1159,10 @@ mapfile -t bare_cells < <(economy_cells <<<"$view")
 bare_expected=('25.000 mpg' '80.000 mpg' '30.000 mpg' 'Unavailable')
 [ "${bare_cells[*]}" = "${bare_expected[*]}" ] \
   || fail "fixture 40 T5 changed a per-interval figure with no ownership events: ${bare_cells[*]}"
+mapfile -t bare_distance < <(interval_cells distance-between-fills <<<"$view")
+bare_distance_expected=('300.000 mi -' '800.000 mi -' '300.000 mi -' 'Unavailable -')
+[ "${bare_distance[*]}" = "${bare_distance_expected[*]}" ] \
+  || fail "fixture 40 T5 changed a distance figure with no ownership events: ${bare_distance[*]}"
 grep -q 'data-economy-break=' <<<"$view" \
   && fail "fixture 40 a vehicle with no ownership events gained a break"
 report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$BARE_VEHICLE' SELECT E.event-id;")"
