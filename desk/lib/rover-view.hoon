@@ -176,10 +176,83 @@
     ~
   `(cell-term %reason (snag 0 u.found))
 ::
+++  ownership-rows
+  |=  [vehicle-id=@ family=event-rows]
+  ^-  (list vector:ast)
+  %+  skim  events.family
+  |=  row=vector:ast
+  =/  event-id  (cell-atom %event-id row)
+  ?&  =(vehicle-id (cell-atom %vehicle-id row))
+      ?|  ?=(^ (rows-by %event-id event-id acquisitions.family))
+          ?=(^ (rows-by %event-id event-id disposals.family))
+      ==
+  ==
+::
+++  ownership-has-acquisition
+  |=  [rows=(list vector:ast) family=event-rows]
+  ^-  ?
+  ?~  rows
+    %.n
+  ?:  ?=(^ (rows-by %event-id (cell-atom %event-id i.rows) acquisitions.family))
+    %.y
+  $(rows t.rows)
+::
+++  owned-at-date
+  |=  $:  rows=(list vector:ast)
+          family=event-rows
+          at=@da
+          owned=?
+      ==
+  ^-  ?
+  ?~  rows
+    owned
+  =/  date=@da  `@da`(cell-atom %observed-start i.rows)
+  ?:  (gth date at)
+    owned
+  =/  event-id  (cell-atom %event-id i.rows)
+  =/  next-owned
+    ?:  ?=(^ (rows-by %event-id event-id acquisitions.family))
+      %.y
+    ?:  ?=(^ (rows-by %event-id event-id disposals.family))
+      %.n
+    owned
+  $(rows t.rows, owned next-owned)
+::
+++  ownership-boundary-between
+  |=  [rows=(list vector:ast) after=@da through=@da]
+  ^-  ?
+  ?~  rows
+    %.n
+  =/  date=@da  `@da`(cell-atom %observed-start i.rows)
+  ?:  ?&((gth date after) (lte date through))
+    %.y
+  $(rows t.rows)
+::
+::  Ownership gaps are derived from facts already in the event family. A
+::  vehicle with no ownership events keeps the published, unbounded behavior.
+::  Once a purchase exists, it opens ownership; a disposal closes it. A
+::  disposal-only legacy history is treated as owned until that disposal.
+++  ownership-interval-break-reason
+  |=  [vehicle-id=@ after=@da through=@da family=event-rows]
+  ^-  (unit @tas)
+  =/  rows=(list vector:ast)
+    (order-vectors:act %observed-start %.n (ownership-rows vehicle-id family))
+  ?~  rows
+    ~
+  =/  has-acquisition  (ownership-has-acquisition rows family)
+  =/  owned-at-start
+    (owned-at-date rows family after =(%.n has-acquisition))
+  ?:  =(%.n owned-at-start)
+    `%ownership-gap
+  ?:  (ownership-boundary-between rows after through)
+    `%ownership-gap
+  ~
+::
 ++  derive-fill-series
   |=  $:  fills=(list vector:ast)
           odometers=(list vector:ast)
           breaks=(list vector:ast)
+          family=event-rows
       ==
   ^-  (map @ derived-fill)
   =/  ordered  (order-vectors:act %observed-start %.n fills)
@@ -230,9 +303,22 @@
     $(rows t.rows, states (~(put by states) vehicle state))
   ?~  close-odometer
     $(rows t.rows, states (~(put by states) vehicle state))
+  =/  derived-break=(unit @tas)
+    ?~  prior.state
+      ~
+    %:  ownership-interval-break-reason
+        vehicle
+        date.u.prior.state
+        date
+        family
+    ==
+  =/  interval-break=(unit @tas)
+    ?~  derived-break
+      break-reason.state
+    derived-break
   =/  interval=(unit interval-proof)
     ?:  ?|  ?=(~ prior.state)
-            ?=(^ break-reason.state)
+            ?=(^ interval-break)
         ==
       ~
     =/  prior-odometer  odometer.u.prior.state
@@ -274,7 +360,7 @@
       (div (add (mul distance-milli.u.interval 1.000) (div quantity.state 2)) quantity.state)
     `[economy-milli unit]
   =/  result=derived-fill
-    [economy interval break-reason.state]
+    [economy interval interval-break]
   =/  next-state=interval-walk
     [`[date u.close-odometer] 0 ~ %.y ~]
   $(rows t.rows, states (~(put by states) vehicle next-state), derived (~(put by derived) acquisition result))
@@ -1005,6 +1091,7 @@
   |=  $:  vehicle-id=@
           purchases=(list vector:ast)
           odometers=(list vector:ast)
+          family=event-rows
       ==
   ^-  [available=? display=@t reason=@t]
   =/  vehicle-purchases=(list vector:ast)
@@ -1013,6 +1100,15 @@
     [%.n 'Unavailable' 'Two consecutive DEF purchases are required']
   =/  close=vector:ast  (snag 0 vehicle-purchases)
   =/  prior=vector:ast  (snag 1 vehicle-purchases)
+  =/  ownership-break
+    %:  ownership-interval-break-reason
+        vehicle-id
+        `@da`(cell-atom %observed-start prior)
+        `@da`(cell-atom %observed-start close)
+        family
+    ==
+  ?^  ownership-break
+    [%.n 'Unavailable' (economy-break-text u.ownership-break)]
   =/  close-odos=(list vector:ast)
     (rows-by %consumable-acquisition-id (cell-atom %consumable-acquisition-id close) odometers)
   ?~  close-odos
@@ -1070,6 +1166,7 @@
   |=  $:  vehicles=(list vector:ast)
           purchases=(list vector:ast)
           odometers=(list vector:ast)
+          family=event-rows
       ==
   ^-  tape
   ?~  vehicles
@@ -1080,7 +1177,7 @@
     rest
   =/  label  (escape (cell-text %label i.vehicles))
   =/  status=[available=? display=@t reason=@t]
-    (def-economy id purchases odometers)
+    (def-economy id purchases odometers family)
   ;:  weld
     "<tr "
     "data-statistics-vehicle=\""
@@ -1167,6 +1264,7 @@
     %missed-fill  'A missed fill was recorded, so this economy interval is unavailable.'
     %excluded     'The owner excluded this fill from economy calculations.'
     %owner-marked  'The owner marked this fill as an economy-chain break.'
+    %ownership-gap  'The vehicle was not owned for part of this interval, so the derived value is unavailable.'
   ==
 ::
 ++  main-hub
@@ -1181,6 +1279,7 @@
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
           derivations=(map @ derived-fill)
+          family=event-rows
       ==
   ^-  tape
   =/  default-id=(unit @)
@@ -1306,7 +1405,7 @@
   =/  def-status=[available=? display=@t reason=@t]
     ?~  default-id
       [%.n 'Unavailable' 'No default vehicle is set']
-    (def-economy u.default-id def-purchases def-odometers)
+    (def-economy u.default-id def-purchases def-odometers family)
   ;:  weld
     default-marker
     "<section id=\"main-hub\" class=\"app-screen\">"
@@ -1866,16 +1965,19 @@
 ::
 ++  charge-card
   |=  $:  row=vector:ast
+          charges=(list vector:ast)
           measurements=(list vector:ast)
           batteries=(list vector:ast)
           costs=charging-cost-rows
           odometers=(list vector:ast)
+          family=event-rows
           preference=(unit @tas)
       ==
   ^-  tape
   =/  acquisition-id  (cell-atom %acquisition-id row)
   =/  energy-rows  (rows-by %acquisition-id acquisition-id measurements)
   =/  battery-rows  (rows-by %acquisition-id acquisition-id batteries)
+  =/  odometer-rows  (rows-by %acquisition-id acquisition-id odometers)
   =/  delivered=tape
     ?~  energy-rows
       "Not recorded"
@@ -1896,7 +1998,6 @@
       ")"
     ==
   =/  odometer-line=tape
-    =/  odometer-rows  (rows-by %acquisition-id acquisition-id odometers)
     ?~  odometer-rows
       ~
     =/  source-unit  (cell-term %unit i.odometer-rows)
@@ -1917,6 +2018,38 @@
       (escape reading)
       "</dd></div>"
     ==
+  =/  efficiency-break=(unit @tas)
+    ?~  odometer-rows
+      ~
+    =/  vehicle-id  (cell-atom %vehicle-id row)
+    =/  close-date=@da  `@da`(cell-atom %observed-end row)
+    =/  prior-charges=(list vector:ast)
+      %+  skim  charges
+      |=  prior=vector:ast
+      ?&  =(vehicle-id (cell-atom %vehicle-id prior))
+          (lth (cell-atom %observed-end prior) close-date)
+          =(1 (lent (rows-by %acquisition-id (cell-atom %acquisition-id prior) odometers)))
+      ==
+    ?~  prior-charges
+      ~
+    =/  prior
+      (snag 0 (order-vectors:act %observed-end %.y prior-charges))
+    %:  ownership-interval-break-reason
+        vehicle-id
+        `@da`(cell-atom %observed-end prior)
+        close-date
+        family
+    ==
+  =/  efficiency-break-line=tape
+    ?~  efficiency-break
+      ~
+    ;:  weld
+      "<div><dt>CHARGING EFFICIENCY</dt><dd data-charging-efficiency=\"Unavailable\" data-charging-efficiency-break=\"%"
+      (trip (scot %tas u.efficiency-break))
+      "\">Unavailable <small>"
+      (trip (economy-break-text u.efficiency-break))
+      "</small></dd></div>"
+    ==
   ;:  weld
     "<article class=\"history-card charge\"><header><span>CHARGE</span><time>"
     observed
@@ -1931,6 +2064,7 @@
     (battery-at %end battery-rows)
     "</dd></div>"
     odometer-line
+    efficiency-break-line
     "<div><dt>COST STATE</dt><dd data-cost-state=\""
     (escape (scot %tas (cell-term %cost-state row)))
     "\">"
@@ -2149,6 +2283,7 @@
 ::
 ++  history-cards
   |=  $:  rows=(list vector:ast)
+          charges=(list vector:ast)
           measurements=(list vector:ast)
           batteries=(list vector:ast)
           costs=charging-cost-rows
@@ -2170,7 +2305,7 @@
       (event-card i.rows events preference)
     ?^  is-fill
       (fill-card i.rows station-links additive-links subtype-links economy-breaks)
-    (charge-card i.rows measurements batteries costs odometers preference)
+    (charge-card i.rows charges measurements batteries costs odometers events preference)
   (weld card $(rows t.rows))
 ::
 ++  pagination-controls
@@ -2239,6 +2374,7 @@
   ;:  weld
     %:  history-cards
         ordered
+        charges
         measurements
         batteries
         costs
@@ -2748,8 +2884,11 @@
           vehicle-id=@
           after=@da
           through=@da
+          family=event-rows
       ==
   ^-  ?
+  ?^  (ownership-interval-break-reason vehicle-id after through family)
+    %.y
   ?~  fills
     %.n
   =/  row  i.fills
@@ -2768,8 +2907,13 @@
           vehicle-id=@
           after=@da
           through=@da
+          family=event-rows
       ==
   ^-  (unit @tas)
+  =/  ownership-break
+    (ownership-interval-break-reason vehicle-id after through family)
+  ?^  ownership-break
+    ownership-break
   ?~  fills
     ~
   =/  row  i.fills
@@ -2789,6 +2933,7 @@
           fills=(list vector:ast)
           odometers=(list vector:ast)
           breaks=(list vector:ast)
+          family=event-rows
       ==
   ^-  (unit [milli=@ud unit=@t])
   ?.  =(%full (cell-term %tank-state close))
@@ -2811,7 +2956,7 @@
     ~
   =/  prior  (snag 0 (order-vectors:act %observed-start %.y prior-fulls))
   =/  prior-date=@da  `@da`(cell-atom %observed-start prior)
-  ?:  (interval-has-break fills breaks vehicle-id prior-date close-date)
+  ?:  (interval-has-break fills breaks vehicle-id prior-date close-date family)
     ~
   =/  quantity-unit  (cell-term %quantity-unit close)
   =/  quantity
@@ -2858,6 +3003,7 @@
           fills=(list vector:ast)
           odometers=(list vector:ast)
           breaks=(list vector:ast)
+          family=event-rows
       ==
   ^-  (unit @tas)
   ?.  =(%full (cell-term %tank-state close))
@@ -2875,13 +3021,14 @@
   ?~  prior-fulls
     ~
   =/  prior  (snag 0 (order-vectors:act %observed-start %.y prior-fulls))
-  (interval-break-reason fills breaks vehicle-id `@da`(cell-atom %observed-start prior) close-date)
+  (interval-break-reason fills breaks vehicle-id `@da`(cell-atom %observed-start prior) close-date family)
 ::
 ++  interval-for-fill
   |=  $:  close=vector:ast
           fills=(list vector:ast)
           odometers=(list vector:ast)
           breaks=(list vector:ast)
+          family=event-rows
       ==
   ^-  (unit interval-proof)
   ?.  =(%full (cell-term %tank-state close))
@@ -2904,7 +3051,7 @@
     ~
   =/  prior  (snag 0 (order-vectors:act %observed-start %.y prior-fulls))
   =/  prior-date=@da  `@da`(cell-atom %observed-start prior)
-  ?:  (interval-has-break fills breaks vehicle-id prior-date close-date)
+  ?:  (interval-has-break fills breaks vehicle-id prior-date close-date family)
     ~
   =/  prior-odo
     (snag 0 (rows-by %acquisition-id (cell-atom %acquisition-id prior) odometers))
@@ -3204,6 +3351,7 @@
           def-purchases=(list vector:ast)
           def-odometers=(list vector:ast)
           derivations=(map @ derived-fill)
+          family=event-rows
           selected-vehicle=(unit vector:ast)
           history-page=@ud
       ==
@@ -3284,7 +3432,7 @@
     (statistic-interval-rows recent scoped-vehicles tank-sizes derivations %tank)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
-    (def-economy-stat-rows scoped-vehicles scoped-def-purchases def-odometers)
+    (def-economy-stat-rows scoped-vehicles scoped-def-purchases def-odometers family)
     "</tbody></table></section>"
     (pagination-controls history-page (lent all-recent) 'statistics-screen')
     "</section>"
@@ -3372,7 +3520,7 @@
     =/  defaults  (rows-by %vehicle-id (cell-atom %vehicle-id i.app-default) vehicles)
     ?~(defaults ~ `i.defaults)
   =/  derivations
-    (derive-fill-series fills energy-odometers economy-breaks)
+    (derive-fill-series fills energy-odometers economy-breaks events)
   =/  cards=tape
     |-
     ?~  vehicles
@@ -3423,7 +3571,7 @@
       ==
       "></span>"
       (address-locality-data localities)
-      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations)
+      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations events)
       (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes disposal-kinds)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
@@ -3444,7 +3592,7 @@
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
       (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
-      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations selected-vehicle history-page)
+      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations events selected-vehicle history-page)
       (settings-screen custom-definitions)
       import-screen
     ==
