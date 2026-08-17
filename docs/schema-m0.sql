@@ -1,8 +1,9 @@
--- Rover M0 schema — full pour, 68 relations.
+-- Rover schema — full pour, 79 relations.
 -- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
 -- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5),
 --                     +place-address-formatted / place-addresses loses formatted (Q9),
 --                     +vehicle-refill-reserve.
+-- Amended 2026-08-16 (M7 T1): +the eleven-relation vehicle-event family.
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -597,25 +598,6 @@ CREATE TABLE rover..consumable-definitions
   (consumable-id @ux, label @t, quantity-unit @tas, archived @f, recorded-at @da)
   PRIMARY KEY (consumable-id);
 
--- Enablement is presence of this link, never a boolean on vehicles. An
--- archived link is retained configuration history and does not enable use.
-CREATE TABLE rover..vehicle-consumables
-  (vehicle-id @ux, consumable-id @ux, archived @f)
-  PRIMARY KEY (vehicle-id, consumable-id)
-  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
-    ON DELETE RESTRICT ON UPDATE RESTRICT,
-  (consumable-id) REFERENCES consumable-definitions (consumable-id)
-    ON DELETE RESTRICT ON UPDATE RESTRICT;
-
--- Capacity belongs to any vehicle/consumable pair, not specifically to DEF.
--- Absence means no tank size was recorded.
-CREATE TABLE rover..vehicle-consumable-tank-size
-  (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas)
-  PRIMARY KEY (vehicle-id, consumable-id)
-  FOREIGN KEY (vehicle-id, consumable-id)
-    REFERENCES vehicle-consumables (vehicle-id, consumable-id)
-    ON DELETE RESTRICT ON UPDATE RESTRICT;
-
 CREATE TABLE rover..consumable-acquisitions
   (consumable-acquisition-id @ux, vehicle-id @ux, consumable-id @ux,
    observed-start @da, observed-end @da, observed-precision @tas,
@@ -654,4 +636,131 @@ CREATE TABLE rover..consumable-acquisition-odometers
     REFERENCES consumable-acquisitions (consumable-acquisition-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   (odometer-id) REFERENCES odometer-observations (odometer-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ===========================================================================
+-- Definition-layer pour (lib/rover-act +def-relations)
+-- ===========================================================================
+-- These relations pour together for a fresh database and arrive one at a time
+-- on an installed ship. `ensure-def-schema` reads sys.tables first and sends
+-- only the members that are absent, because Obelisk has no
+-- CREATE TABLE IF NOT EXISTS and a multi-command script is atomic.
+
+-- Enablement is presence of this link, never a boolean on vehicles. An
+-- archived link is retained configuration history and does not enable use.
+CREATE TABLE rover..vehicle-consumables
+  (vehicle-id @ux, consumable-id @ux, archived @f)
+  PRIMARY KEY (vehicle-id, consumable-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (consumable-id) REFERENCES consumable-definitions (consumable-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Capacity belongs to any vehicle/consumable pair, not specifically to DEF.
+-- Absence means no tank size was recorded.
+CREATE TABLE rover..vehicle-consumable-tank-size
+  (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas)
+  PRIMARY KEY (vehicle-id, consumable-id)
+  FOREIGN KEY (vehicle-id, consumable-id)
+    REFERENCES vehicle-consumables (vehicle-id, consumable-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ===========================================================================
+-- M7 T1 - the vehicle-event family
+-- ===========================================================================
+-- The third event-family parent, beside energy-acquisitions and
+-- consumable-acquisitions. It carries the common event header and no
+-- type-specific column at all: the kind is which typed child row exists.
+--
+-- EVERY association below keys to this parent. A link keyed to a typed child
+-- leaves every sibling of that child with a hole, which is the defect
+-- fuel-fill-subtype and fuel-fill-odometers each shipped once.
+CREATE TABLE rover..vehicle-events
+  (event-id @ux, vehicle-id @ux, observed-start @da, observed-end @da,
+   observed-precision @tas, source-zone @t, recorded-at @da)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Identity only, as charging-sessions carries identity only. Exactly one child
+-- per event is a Rover invariant: Obelisk cannot express a cross-table XOR.
+CREATE TABLE rover..service-events
+  (event-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..expense-events
+  (event-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..note-events
+  (event-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Cost evidence, shaped like charging-costs. An event with no cost has no row
+-- here at all - not a zero, and not an empty state. The state column is what
+-- lets a later itemized invoice attach components without a new column on a
+-- populated relation.
+CREATE TABLE rover..vehicle-event-costs
+  (event-id @ux, cost-state @tas, currency @tas, minor-unit-decimals @ud,
+   recorded-at @da)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- The ENTERED total, held as charging-cost-source-totals holds a receipt
+-- total. A shop invoice has no quantity and no unit price, so there are no
+-- operands to multiply. This does not weaken the rule that a fill's total paid
+-- is always calculated: a fill has operands and an invoice does not.
+CREATE TABLE rover..vehicle-event-cost-totals
+  (event-id @ux, total-mills @ud)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-event-costs (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- The reading itself is never copied here. One odometer-observations list per
+-- vehicle holds every reading, and the event links to that list.
+CREATE TABLE rover..vehicle-event-odometers
+  (event-id @ux, odometer-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (odometer-id) REFERENCES odometer-observations (odometer-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- A service visit and a fuel fill in the same town reference the same station
+-- row. Only this link is new.
+CREATE TABLE rover..vehicle-event-stations
+  (event-id @ux, station-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (station-id) REFERENCES stations (station-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-tags
+  (event-id @ux, tag-id @ux)
+  PRIMARY KEY (event-id, tag-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (tag-id) REFERENCES tag-definitions (tag-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-payment-method
+  (event-id @ux, method-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (method-id) REFERENCES payment-method-definitions (method-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-event-notes
+  (event-id @ux, note @t)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;

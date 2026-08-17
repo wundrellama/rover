@@ -2055,6 +2055,42 @@
         });
       }
 
+      const eventForm = app.querySelector('#event-form');
+      if (eventForm) {
+        if (defaultVehicle) eventForm.elements.vehicle.value = defaultVehicle;
+        eventForm.elements.observed.value = local.toISOString().slice(0, 16);
+        eventForm.elements.zone.value =
+          Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const eventStation = app.querySelector('#event-station');
+        const eventNewStation = app.querySelector('#event-new-station');
+        if (eventStation && eventNewStation) {
+          eventStation.addEventListener('change', () => {
+            eventNewStation.hidden = eventStation.value !== 'new';
+          });
+        }
+        eventForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = app.querySelector('#event-verdict');
+          verdict.value = 'Saving…';
+          try {
+            const formData = new FormData(eventForm);
+            const payload = Object.fromEntries(formData.entries());
+            // Checkboxes repeat one name, and fromEntries keeps only the last.
+            payload.tags = formData.getAll('tags');
+            const response = await fetch('/apps/rover/add-event', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {'content-type': 'application/json'},
+              body: JSON.stringify(payload)
+            });
+            verdict.value = await response.text();
+            if (response.ok) await loadView();
+          } catch (error) {
+            verdict.value = `%unavailable: event · ${error.message}`;
+          }
+        });
+      }
+
       const odometerForm = app.querySelector('#odometer-form');
       if (odometerForm) {
         if (defaultVehicle) odometerForm.elements.vehicle.value = defaultVehicle;

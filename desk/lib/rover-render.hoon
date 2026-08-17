@@ -79,6 +79,15 @@
     %aud  "AUD "
   ==
 ::
+::  How many digits the currency's minor unit carries. Yen and won have none.
+++  currency-minor-decimals
+  |=  currency=@tas
+  ^-  @ud
+  ?+  currency  2
+    %jpy  0
+    %krw  0
+  ==
+::
 ++  format-quantity
   |=  [quantity-milli=@ud unit=@tas]
   ^-  @t
@@ -209,6 +218,30 @@
     [%| %excess-precision]
   =/  all  (weld whole.u.parsed frac.u.parsed)
   [%& [(scan all (bass 10 (plus dit))) places]]
+::
+::  An ENTERED total, not a calculated one. `parse-us-price` completes a fuel
+::  price to the market's third digit, because a pump price carries one. An
+::  invoice total does not: the owner reads $412.75 off the paper and that is
+::  the whole observation. So this accepts at most the currency's minor-unit
+::  digits and scales exactly, adding nothing.
+++  parse-money
+  |=  [txt=@t currency=@tas minor-unit-decimals=@ud]
+  ^-  (each [total-mills=@ud display=@t] ?(%bad-shape %excess-precision))
+  ?.  (lte minor-unit-decimals 3)
+    [%| %bad-shape]
+  =/  tap  (trim-spaces (trip txt))
+  =.  tap
+    ?:  ?&  ?=(^ tap)
+            =('$' i.tap)
+        ==
+      (trim-spaces t.tap)
+    tap
+  =/  parsed  (parse-decimal (crip tap) minor-unit-decimals)
+  ?:  ?=(%| -.parsed)
+    [%| p.parsed]
+  =/  mills
+    (mul digits.p.parsed (pow-ten (sub 3 places.p.parsed)))
+  [%& [mills (format-total mills currency minor-unit-decimals)]]
 ::
 ++  parse-us-price
   |=  txt=@t

@@ -18,6 +18,22 @@
 ::  render, so one name carries both instead of two positional arguments.
 +$  charging-cost-rows
   [components=(list vector:ast) source-totals=(list vector:ast)]
+::  The vehicle-event family travels through the history render as one name.
+::  Every member after `events` is keyed by `event-id` - by the family PARENT,
+::  never by a typed child - so one lookup shape serves all three kinds.
++$  event-rows
+  $:  events=(list vector:ast)
+      services=(list vector:ast)
+      expenses=(list vector:ast)
+      notes=(list vector:ast)
+      costs=(list vector:ast)
+      cost-totals=(list vector:ast)
+      odometers=(list vector:ast)
+      stations=(list vector:ast)
+      tags=(list vector:ast)
+      payments=(list vector:ast)
+      note-texts=(list vector:ast)
+  ==
 +$  interval-walk
   $:  prior=(unit interval-baseline)
       quantity=@ud
@@ -1252,6 +1268,7 @@
     ?:(has-fill "<button type=\"button\" data-open-screen=\"add-fill\">Add Fill</button>" "")
     ?:(has-charge "<button type=\"button\" data-open-screen=\"add-charge\">Add Charge</button>" "")
     "<button type=\"button\" data-open-screen=\"add-consumable\">Add Consumable</button>"
+    "<button type=\"button\" data-open-screen=\"add-event\">Add Event</button>"
     ?:  ?|(has-fill has-charge)
       ""
     "<button type=\"button\" data-open-screen=\"vehicles-screen\">Configure a vehicle</button>"
@@ -1455,6 +1472,19 @@
     "</select></label><label>Consumable<select name=\"consumable\" required>"
     consumable-html
     "</select></label><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" required></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" required></label><input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\"><label>Settlement<select name=\"settlement\"><option value=\"standard\">Standard</option><option value=\"cash\">Cash</option></select></label><label>Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\"></label><label>Odometer unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save purchase</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"consumable-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+    ::  M7 T1. One form for all three kinds. Total, odometer, station, tags,
+    ::  payment method, and note are every one optional: a blank field writes
+    ::  no row, which is how a parking fee with no station and a note with no
+    ::  cost stay distinct from a zero.
+    "<section id=\"add-event\" class=\"entry-screen app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header><p class=\"eyebrow\">NEW EVENT</p><h2>Add event</h2></header><form id=\"event-form\"><label>Vehicle<select name=\"vehicle\" required>"
+    vehicle-html
+    "</select></label><label>Kind<select name=\"kind\" required><option value=\"service\">Service</option><option value=\"expense\">Expense</option><option value=\"note\">Note</option></select></label><label>Total <span class=\"optional\">optional</span><input name=\"total\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$412.75\"></label><input name=\"currency\" type=\"hidden\" value=\"usd\"><label>Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\"></label><label>Odometer unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><fieldset class=\"station-field\"><legend>Station <span class=\"optional\">optional</span></legend><select id=\"event-station\" name=\"station\"><option value=\"none\">No station recorded</option>"
+    station-html
+    "<option value=\"new\">Add new station&hellip;</option></select><div id=\"event-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div></fieldset><fieldset id=\"event-tags\"><legend>Tags <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
+    tag-html
+    "</div><label>New tag<input name=\"newTag\" autocomplete=\"off\"></label></fieldset><label>Payment method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
+    payment-html
+    "</select></label><label>Note <span class=\"optional\">optional</span><input name=\"notes\" autocomplete=\"off\"></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save event</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"event-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
     "<section id=\"add-odometer\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header>"
@@ -1819,6 +1849,145 @@
     "</dl></article>"
   ==
 ::
+::  Which kind an event is, read the only way there is to read it: by which
+::  typed child row exists. There is no kind column, and adding one would let
+::  the column and the child disagree.
+++  event-kind-of
+  |=  [event-id=@ events=event-rows]
+  ^-  @tas
+  ?^  (rows-by %event-id event-id services.events)
+    %service
+  ?^  (rows-by %event-id event-id expenses.events)
+    %expense
+  ?^  (rows-by %event-id event-id notes.events)
+    %note
+  %unknown
+::
+::  An absent member renders NO line. The absence of the row is the value, so
+::  a parking fee shows no station and a note shows no cost.
+++  event-card
+  |=  [row=vector:ast events=event-rows preference=(unit @tas)]
+  ^-  tape
+  =/  event-id  (cell-atom %event-id row)
+  =/  kind  (event-kind-of event-id events)
+  =/  observed=tape
+    ;:  weld
+      (trip (format-da:render `@da`(cell-atom %observed-start row)))
+      " ("
+      (escape (cell-text %source-zone row))
+      ")"
+    ==
+  =/  total-line=tape
+    =/  cost-rows  (rows-by %event-id event-id costs.events)
+    =/  total-rows  (rows-by %event-id event-id cost-totals.events)
+    ?:  ?|  ?=(~ cost-rows)
+            ?=(~ total-rows)
+        ==
+      ~
+    =/  total
+      %:  format-total:render
+          (cell-atom %total-mills i.total-rows)
+          (cell-term %currency i.cost-rows)
+          (cell-atom %minor-unit-decimals i.cost-rows)
+      ==
+    ;:  weld
+      "<div><dt>TOTAL</dt><dd data-event-total=\""
+      (escape total)
+      "\">"
+      (escape total)
+      " <small>entered</small></dd></div>"
+    ==
+  =/  odometer-line=tape
+    =/  odometer-rows  (rows-by %event-id event-id odometers.events)
+    ?~  odometer-rows
+      ~
+    =/  source-unit  (cell-term %unit i.odometer-rows)
+    =/  target  ?~(preference source-unit u.preference)
+    =/  shown
+      %:  convert-distance:render
+          (cell-atom %value-digits i.odometer-rows)
+          (cell-atom %decimal-places i.odometer-rows)
+          source-unit
+          target
+      ==
+    =/  reading
+      (format-distance:render converted-digits.shown converted-places.shown converted-unit.shown converted.shown)
+    ;:  weld
+      "<div><dt>ODOMETER</dt><dd data-event-odometer=\""
+      (escape reading)
+      "\">"
+      (escape reading)
+      "</dd></div>"
+    ==
+  =/  station-line=tape
+    =/  station-rows  (rows-by %event-id event-id stations.events)
+    ?~  station-rows
+      ~
+    ;:  weld
+      "<div><dt>STATION</dt><dd data-event-station=\""
+      (escape (cell-text %station i.station-rows))
+      "\">"
+      (escape (cell-text %station i.station-rows))
+      " - "
+      (escape (cell-text %place i.station-rows))
+      "</dd></div>"
+    ==
+  =/  tag-line=tape
+    =/  tag-rows  (rows-by %event-id event-id tags.events)
+    ?~  tag-rows
+      ~
+    =/  labels=tape
+      =/  remaining=(list vector:ast)  tag-rows
+      |-  ^-  tape
+      ?~  remaining
+        ~
+      %+  weld
+        ;:  weld
+          "<li>"
+          (escape (cell-text %tag i.remaining))
+          "</li>"
+        ==
+      $(remaining t.remaining)
+    ;:  weld
+      "<div><dt>TAGS</dt><dd><ul class=\"event-tags\">"
+      labels
+      "</ul></dd></div>"
+    ==
+  =/  payment-line=tape
+    =/  payment-rows  (rows-by %event-id event-id payments.events)
+    ?~  payment-rows
+      ~
+    ;:  weld
+      "<div><dt>PAYMENT METHOD</dt><dd>"
+      (escape (cell-text %payment-method i.payment-rows))
+      "</dd></div>"
+    ==
+  =/  note-line=tape
+    =/  note-rows  (rows-by %event-id event-id note-texts.events)
+    ?~  note-rows
+      ~
+    ;:  weld
+      "<div><dt>NOTE</dt><dd>"
+      (escape (cell-text %note i.note-rows))
+      "</dd></div>"
+    ==
+  ;:  weld
+    "<article class=\"history-card event\" data-event-kind=\""
+    (escape (scot %tas kind))
+    "\"><header><span>"
+    (cuss (trip (scot %tas kind)))
+    "</span><time>"
+    observed
+    "</time></header><dl>"
+    total-line
+    odometer-line
+    station-line
+    tag-line
+    payment-line
+    note-line
+    "</dl></article>"
+  ==
+::
 ++  history-cards
   |=  $:  rows=(list vector:ast)
           measurements=(list vector:ast)
@@ -1828,12 +1997,17 @@
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
           economy-breaks=(list vector:ast)
+          events=event-rows
+          preference=(unit @tas)
       ==
   ^-  tape
   ?~  rows
     ~
+  =/  is-event  (vector-key:act %event-id i.rows)
   =/  is-fill  (vector-key:act %quantity-milli i.rows)
   =/  card=tape
+    ?^  is-event
+      (event-card i.rows events preference)
     ?^  is-fill
       (fill-card i.rows station-links additive-links subtype-links economy-breaks)
     (charge-card i.rows measurements batteries costs)
@@ -1874,6 +2048,10 @@
     "</nav>"
   ==
 ::
+::  Mixed kinds order by one rule: `observed-start` descending, with the shipped
+::  recorded-at tie-break behind it. An event is a thing that happened to the
+::  vehicle, so it belongs in the same column as a fill, not in a second list
+::  the owner has to cross-read against a date.
 ++  ordered-history
   |=  $:  fills=(list vector:ast)
           charges=(list vector:ast)
@@ -1884,16 +2062,19 @@
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
           economy-breaks=(list vector:ast)
+          events=event-rows
+          preference=(unit @tas)
           history-page=@ud
       ==
   ^-  tape
   =/  history-window-size=@ud  25
   =/  all-ordered
-    (order-vectors:act %observed-start %.y (weld fills charges))
+    %^  order-vectors:act  %observed-start  %.y
+    :(weld fills charges events.events)
   =/  ordered
     (scag history-window-size (slag (mul history-page history-window-size) all-ordered))
   ?:  ?=(~ ordered)
-    "<p class=\"empty\">No acquisition history.</p>"
+    "<p class=\"empty\">No acquisition or event history.</p>"
   ;:  weld
     %:  history-cards
         ordered
@@ -1904,6 +2085,8 @@
         additive-links
         subtype-links
         economy-breaks
+        events
+        preference
     ==
     (pagination-controls history-page (lent all-ordered) 'vehicle-settings-screen')
   ==
@@ -1932,6 +2115,7 @@
           consumable-tank-sizes=(list vector:ast)
           tank-sizes=(list vector:ast)
           refill-reserves=(list vector:ast)
+          events=event-rows
           is-default=?
           history-page=@ud
       ==
@@ -2024,6 +2208,8 @@
         additive-links
         subtype-links
         economy-breaks
+        events(events (rows-for id events.events))
+        preference
         history-page
     ==
   ;:  weld
@@ -2987,6 +3173,19 @@
   =/  refill-reserves  (rows-at commands 38)
   =/  costs=charging-cost-rows
     [(rows-at commands 39) (rows-at commands 40)]
+  =/  events=event-rows
+    :*  (rows-at commands 41)
+        (rows-at commands 42)
+        (rows-at commands 43)
+        (rows-at commands 44)
+        (rows-at commands 45)
+        (rows-at commands 46)
+        (rows-at commands 47)
+        (rows-at commands 48)
+        (rows-at commands 49)
+        (rows-at commands 50)
+        (rows-at commands 51)
+    ==
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -3034,6 +3233,7 @@
           consumable-tank-sizes
           tank-sizes
           refill-reserves
+          events
           ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
           history-page
       ==

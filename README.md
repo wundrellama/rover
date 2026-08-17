@@ -119,6 +119,7 @@ bin/dev-pin-test.sh
 tests/view-linear-test.sh
 bin/schema-test.sh <pier>
 ROVER_DEMO_ONLY=1 bin/ui-test.sh <pier>
+bin/event-test.sh <pier>
 bin/import-test.sh <pier>
 bin/view-performance-test.sh <pier>
 python3 tools/acar-import/test_convert.py
@@ -158,7 +159,7 @@ The copied Obelisk API mold and the pinned upstream mold must have the same SHA-
 | `desk/lib/rover-import.hoon` | Import planning, comparison, and reports |
 | `desk/lib/rover-render.hoon` | Human units and exact value formatting |
 | `desk/lib/rover-view.hoon` | Owner views, history, statistics, and pagination |
-| `docs/schema-m0.sql` | Current 68-relation Obelisk schema |
+| `docs/schema-m0.sql` | Current 79-relation Obelisk schema |
 | `bin/` | Live schema, browser, import, pin, and performance batteries |
 | `tools/` | aCar conversion and Rover import upload tools |
 | `probes/` | Click threads for live inspection and fixture control |
@@ -187,7 +188,10 @@ Rover itself has no published release yet. It does not publish until the Gate 7 
 - Cross-ship sharing and per-field grants.
 - Remote mutation.
 - Browser controls for export.
-- Maintenance, service, insurance, tax, and modification records.
+- Service subtypes, reminders, vehicle specification, and vehicle acquisition
+  and disposal. Service, expense, and note events record now; the rest of M7
+  follows.
+- Insurance, tax, and modification records.
 - Database attachment storage.
 - Permanent charger and connector inventory.
 - A published Rover release. Gate 7 blocks it.

@@ -9,6 +9,13 @@
       station=@ux
       tag=@ux
   ==
++$  event-ids
+  $:  event=@ux
+      odometer=@ux
+      place=@ux
+      station=@ux
+      tag=@ux
+  ==
 +$  charge-ids
   $:  acquisition=@ux
       measurement=@ux
@@ -419,6 +426,225 @@
     odometer-script
   ==
 ::
+::  Everything a vehicle event may reference, by human label. The station, tag,
+::  and payment-method definitions already hold the owner's real data, so a
+::  service visit selects the same rows a fuel fill selects. Only the link rows
+::  are new.
+++  event-lookup
+  |=  vehicle-label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT V.vehicle-id;"
+    " FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.archived, P.label AS place;"
+    " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
+    " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
+  ==
+::
+::  One atomic script for one vehicle event, shaped after +insert-consumable.
+::  Every optional member writes a row only when the owner supplied it: an
+::  absent station, odometer, cost, tag, payment method, or note is an absent
+::  row, never a bunt, a zero, or an empty string.
+++  insert-event
+  |=  $:  ids=event-ids
+          vehicle-id=@ux
+          station-id=(unit @ux)
+          tag-ids=(list @ux)
+          payment-method-id=(unit @ux)
+          input=event-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  event  (scow %ux event.ids)
+  =/  vehicle  (scow %ux vehicle-id)
+  =/  observed-start  (scow %da observed-start.input)
+  =/  observed-end  (scow %da (add observed-start.input (bex 64)))
+  =/  recorded  (scow %da recorded-at)
+  =/  zone  (sql-quote source-zone.input)
+  =/  new-station-rows=tape
+    ?~  new-station.input
+      ~
+    ;:  weld
+      "INSERT INTO places VALUES ("
+      (scow %ux place.ids)
+      ", '"
+      (sql-quote place-label.u.new-station.input)
+      "', N, "
+      recorded
+      "); INSERT INTO stations VALUES ("
+      (scow %ux station.ids)
+      ", "
+      (scow %ux place.ids)
+      ", '"
+      (sql-quote station-label.u.new-station.input)
+      "', "
+      (sql-term station-kind.u.new-station.input)
+      ", N, "
+      recorded
+      "); "
+    ==
+  =/  event-row=tape
+    ;:  weld
+      "INSERT INTO vehicle-events VALUES ("
+      event
+      ", "
+      vehicle
+      ", "
+      observed-start
+      ", "
+      observed-end
+      ", %second, '"
+      zone
+      "', "
+      recorded
+      ");"
+    ==
+  ::  The kind is this row and nothing else. No column repeats it.
+  =/  child-row=tape
+    =/  relation=tape
+      ?-  kind.input
+        %service  "service-events"
+        %expense  "expense-events"
+        %note     "note-events"
+      ==
+    ;:  weld
+      " INSERT INTO "
+      relation
+      " VALUES ("
+      event
+      ");"
+    ==
+  =/  cost-rows=tape
+    ?~  total-mills.input
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-costs VALUES ("
+      event
+      ", %receipt-total-only, "
+      (sql-term currency.input)
+      ", "
+      (sql-ud minor-unit-decimals.input)
+      ", "
+      recorded
+      "); INSERT INTO vehicle-event-cost-totals VALUES ("
+      event
+      ", "
+      (sql-ud u.total-mills.input)
+      ");"
+    ==
+  ::  The reading itself is never copied onto the event. One
+  ::  odometer-observations list per vehicle holds every reading, and the event
+  ::  links to that list.
+  =/  mileage-rows=tape
+    ?~  mileage.input
+      ~
+    =/  odometer  (scow %ux odometer.ids)
+    ;:  weld
+      " INSERT INTO odometer-observations VALUES ("
+      odometer
+      ", "
+      vehicle
+      ", "
+      (sql-ud digits.u.mileage.input)
+      ", "
+      (sql-ud places.u.mileage.input)
+      ", "
+      (sql-term odo-unit.u.mileage.input)
+      ", "
+      observed-start
+      ", "
+      observed-end
+      ", %second, '"
+      zone
+      "', "
+      recorded
+      "); INSERT INTO vehicle-event-odometers VALUES ("
+      event
+      ", "
+      odometer
+      ");"
+    ==
+  =/  effective-station=(unit @ux)
+    ?^  station-id
+      station-id
+    ?^  new-station.input
+      `station.ids
+    ~
+  =/  station-row=tape
+    ?~  effective-station
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-stations VALUES ("
+      event
+      ", "
+      (scow %ux u.effective-station)
+      ");"
+    ==
+  =/  new-tag-rows=tape
+    ?~  new-tag-label.input
+      ~
+    ;:  weld
+      " INSERT INTO tag-definitions VALUES ("
+      (scow %ux tag.ids)
+      ", '"
+      (sql-quote u.new-tag-label.input)
+      "', N, "
+      recorded
+      "); INSERT INTO vehicle-event-tags VALUES ("
+      event
+      ", "
+      (scow %ux tag.ids)
+      ");"
+    ==
+  =/  payment-row=tape
+    ?~  payment-method-id
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-payment-method VALUES ("
+      event
+      ", "
+      (scow %ux u.payment-method-id)
+      ");"
+    ==
+  =/  notes-row=tape
+    ?~  notes.input
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-notes VALUES ("
+      event
+      ", '"
+      (sql-quote u.notes.input)
+      "');"
+    ==
+  ;:  weld
+    new-station-rows
+    event-row
+    child-row
+    cost-rows
+    mileage-rows
+    station-row
+    new-tag-rows
+    (insert-event-tags event.ids tag-ids)
+    payment-row
+    notes-row
+  ==
+::
+++  insert-event-tags
+  |=  [event-id=@ux tag-ids=(list @ux)]
+  ^-  tape
+  ?~  tag-ids
+    ~
+  =/  row
+    ;:  weld
+      " INSERT INTO vehicle-event-tags VALUES ("
+      (scow %ux event-id)
+      ", "
+      (scow %ux i.tag-ids)
+      ");"
+    ==
+  (weld row $(tag-ids t.tag-ids))
+::
 ++  pow-ten
   |=  exponent=@ud
   ^-  @ud
@@ -558,24 +784,91 @@
     "CREATE TABLE rover..acquisition-imports (acquisition-id @ux, source-app @tas, source-record-id @t) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..charging-session-subtype (acquisition-id @ux, subtype-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES charging-sessions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumable-definitions (consumable-id @ux, label @t, quantity-unit @tas, archived @f, recorded-at @da) PRIMARY KEY (consumable-id); "
-    "CREATE TABLE rover..vehicle-consumables (vehicle-id @ux, consumable-id @ux, archived @f) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (consumable-id) REFERENCES consumable-definitions (consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
-    "CREATE TABLE rover..vehicle-consumable-tank-size (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id, consumable-id) REFERENCES vehicle-consumables (vehicle-id, consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumable-acquisitions (consumable-acquisition-id @ux, vehicle-id @ux, consumable-id @ux, observed-start @da, observed-end @da, observed-precision @tas, source-zone @t, recorded-at @da) PRIMARY KEY (consumable-acquisition-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (consumable-id) REFERENCES consumable-definitions (consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumable-purchases (consumable-acquisition-id @ux, quantity-milli @ud, quantity-unit @tas, unit-price-mills @ud, currency @tas, settlement-mode @tas, price-profile @tas, minor-unit-decimals @ud, cash-increment-mills @ud) PRIMARY KEY (consumable-acquisition-id) FOREIGN KEY (consumable-acquisition-id) REFERENCES consumable-acquisitions (consumable-acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumable-acquisition-stations (consumable-acquisition-id @ux, station-id @ux) PRIMARY KEY (consumable-acquisition-id) FOREIGN KEY (consumable-acquisition-id) REFERENCES consumable-acquisitions (consumable-acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (station-id) REFERENCES stations (station-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..consumable-acquisition-odometers (consumable-acquisition-id @ux, odometer-id @ux) PRIMARY KEY (consumable-acquisition-id) FOREIGN KEY (consumable-acquisition-id) REFERENCES consumable-acquisitions (consumable-acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+    (relation-pour def-relations)
   ==
 ::
 ++  display-preference-schema
   ^-  tape
   "CREATE TABLE rover..vehicle-display-preferences (vehicle-id @ux, distance-unit @tas, currency @tas, recorded-at @da) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
 ::
-++  def-schema
-  ^-  tape
-  ;:  weld
-    "CREATE TABLE rover..vehicle-consumables (vehicle-id @ux, consumable-id @ux, archived @f) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (consumable-id) REFERENCES consumable-definitions (consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
-    "CREATE TABLE rover..vehicle-consumable-tank-size (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id, consumable-id) REFERENCES vehicle-consumables (vehicle-id, consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
+::  The definition-layer pour, named relation by relation. `schema-m0` welds the
+::  whole list for a fresh database; `ensure-def-schema` pours only the members
+::  an installed ship is missing. One copy of each statement, so the two paths
+::  cannot drift.
+::
+::  ORDER IS LOAD-BEARING. Obelisk rejects a foreign key to a table that does
+::  not exist yet, so every parent precedes its children here.
+++  def-relations
+  ^-  (list [name=@tas ddl=tape])
+  :~  :-  %vehicle-consumables
+      "CREATE TABLE rover..vehicle-consumables (vehicle-id @ux, consumable-id @ux, archived @f) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (consumable-id) REFERENCES consumable-definitions (consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-consumable-tank-size
+      "CREATE TABLE rover..vehicle-consumable-tank-size (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id, consumable-id) REFERENCES vehicle-consumables (vehicle-id, consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M7 T1. The third event-family parent, beside energy-acquisitions and
+      ::  consumable-acquisitions. It carries the common event header and NO
+      ::  type-specific column: the kind is which typed child row exists.
+      :-  %vehicle-events
+      "CREATE TABLE rover..vehicle-events (event-id @ux, vehicle-id @ux, observed-start @da, observed-end @da, observed-precision @tas, source-zone @t, recorded-at @da) PRIMARY KEY (event-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  Identity only, exactly as charging-sessions carries identity only.
+      ::  Rover's atomic write and reconciliation hold exactly-one-child;
+      ::  Obelisk cannot express a cross-table XOR.
+      :-  %service-events
+      "CREATE TABLE rover..service-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %expense-events
+      "CREATE TABLE rover..expense-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %note-events
+      "CREATE TABLE rover..note-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  Cost evidence, shaped like charging-costs. The state column is what
+      ::  lets a later itemized service invoice attach components without a
+      ::  column on this row. An event with no cost has NO row here.
+      :-  %vehicle-event-costs
+      "CREATE TABLE rover..vehicle-event-costs (event-id @ux, cost-state @tas, currency @tas, minor-unit-decimals @ud, recorded-at @da) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  The entered total, held exactly as charging-cost-source-totals holds
+      ::  a receipt total. A shop invoice has no quantity and no unit price, so
+      ::  there are no operands to multiply and nothing is derived.
+      :-  %vehicle-event-cost-totals
+      "CREATE TABLE rover..vehicle-event-cost-totals (event-id @ux, total-mills @ud) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-event-costs (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  Every association below keys to the PARENT. A link keyed to a typed
+      ::  child leaves every sibling of that child with a hole - the defect
+      ::  fuel-fill-subtype and fuel-fill-odometers each shipped once.
+      :-  %vehicle-event-odometers
+      "CREATE TABLE rover..vehicle-event-odometers (event-id @ux, odometer-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-event-stations
+      "CREATE TABLE rover..vehicle-event-stations (event-id @ux, station-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (station-id) REFERENCES stations (station-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-event-tags
+      "CREATE TABLE rover..vehicle-event-tags (event-id @ux, tag-id @ux) PRIMARY KEY (event-id, tag-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (tag-id) REFERENCES tag-definitions (tag-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-event-payment-method
+      "CREATE TABLE rover..vehicle-event-payment-method (event-id @ux, method-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (method-id) REFERENCES payment-method-definitions (method-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-event-notes
+      "CREATE TABLE rover..vehicle-event-notes (event-id @ux, note @t) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
+::
+++  relation-pour
+  |=  relations=(list [name=@tas ddl=tape])
+  ^-  tape
+  ?~  relations
+    ~
+  (weld ddl.i.relations $(relations t.relations))
+::
+++  def-schema-check
+  ^-  tape
+  "FROM sys.tables WHERE namespace = %dbo SELECT name;"
+::
+::  Obelisk has no CREATE TABLE IF NOT EXISTS, and a multi-command script is
+::  atomic, so one already-poured relation would abort the whole pour. Rover
+::  therefore reads the relation list first and sends only what is absent.
+::  An empty tape means the installed database is already current.
+++  missing-def-schema
+  |=  present=(list @tas)
+  ^-  tape
+  %-  relation-pour
+  %+  skip  def-relations
+  |=  [name=@tas ddl=tape]
+  (lien present |=(had=@tas =(had name)))
 ::
 ++  verify-schema
   ^-  tape
@@ -629,6 +922,28 @@
     " FROM vehicle-refill-reserve R SELECT R.vehicle-id, R.reserve-percent;"
     " FROM charging-cost-components C SELECT C.acquisition-id, C.component, C.quantity, C.quantity-decimals, C.quantity-unit, C.rate-mills, C.amount-mills;"
     " FROM charging-cost-source-totals T SELECT T.acquisition-id, T.total-mills;"
+    ::  M7 T1. The event family reads as a parent plus its typed children plus
+    ::  its parent-keyed links. The three child queries are what tell the view
+    ::  which kind an event is; there is no kind column to read.
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id SELECT V.vehicle-id, E.event-id, E.observed-start, E.observed-end, E.source-zone, E.recorded-at;"
+    " FROM service-events S SELECT S.event-id;"
+    " FROM expense-events X SELECT X.event-id;"
+    ::  The alias is Z, not N. `N` is the boolean false literal, and the parser
+    ::  reads a relation alias `N` as that literal and rejects the script.
+    " FROM note-events Z SELECT Z.event-id;"
+    ::  Cost parent and total stay separate queries. An inner join would drop
+    ::  a cost row that carries a state but no total.
+    " FROM vehicle-event-costs C SELECT C.event-id, C.cost-state, C.currency, C.minor-unit-decimals;"
+    " FROM vehicle-event-cost-totals T SELECT T.event-id, T.total-mills;"
+    " FROM vehicle-event-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.event-id, O.value-digits, O.decimal-places, O.unit;"
+    ::  The link relation is joined LAST on purpose. The pinned engine crashes
+    ::  on a three-way join whose leftmost relation is empty and whose third
+    ::  join keys off the second, which is every fresh install before the first
+    ::  event. Naming places first keeps the shape legal from row zero.
+    " FROM places P JOIN stations S ON P.place-id = S.place-id JOIN vehicle-event-stations L ON S.station-id = L.station-id SELECT L.event-id, S.label AS station, P.label AS place;"
+    " FROM vehicle-event-tags L JOIN tag-definitions T ON L.tag-id = T.tag-id SELECT L.event-id, T.label AS tag;"
+    " FROM vehicle-event-payment-method L JOIN payment-method-definitions P ON L.method-id = P.method-id SELECT L.event-id, P.label AS payment-method;"
+    " FROM vehicle-event-notes X SELECT X.event-id, X.note;"
   ==
 ::
 ++  sql-quote

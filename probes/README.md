@@ -186,6 +186,53 @@ A green run ends with:
 
     import-test: COVERAGE - all 7 defined import fixtures executed
 
+### `event-report.hoon`
+
+M7 T1. Reads the whole vehicle-event family off a live pier: the common header,
+the three typed children, the cost evidence with its entered total, and the
+odometer, station, tag, payment-method, and note links.
+
+Every link query keys on `event-id`, which is the point of the family: no
+association keys to a typed child, so one query shape covers service, expense,
+and note alike. Which child row appears in result sets 2, 3, and 4 is the only
+record of what kind an event is.
+
+Reads only. It writes nothing and takes no argument, so it reports whatever the
+pier holds. `bin/event-test.sh` is the battery; this is for looking.
+
+## PITFALL: `N` and `Y` are literals, not available as relation aliases
+
+`FROM note-events N SELECT N.event-id;` is a **parse error**. `N` is the
+boolean false literal that every `archived @f` insert writes, so the parser
+reads the alias as that literal. `Y` has the same problem. Found 2026-08-16
+while adding the M7 T1 event queries; the clause parsed nowhere, and because a
+`%script` is atomic the whole 52-clause `+ui-view` failed with it. The symptom
+is a `lib/parse` stack, not a message naming the clause.
+
+Use any other letter. `+ui-view` reads `note-events` as `Z`.
+
+## PITFALL: a three-way join crashes when the leftmost relation is empty
+
+    FROM vehicle-event-stations L
+      JOIN stations S ON L.station-id = S.station-id
+      JOIN places  P ON S.place-id = P.place-id     <- keys off the SECOND
+
+With zero rows in `vehicle-event-stations` this crashes inside `lib/utils`
+rather than returning an empty result set. The same shape over a populated
+leftmost relation is fine, which is why the shipped
+`energy-acquisition-stations` clause has never shown it — every pier that runs
+the view has fills.
+
+Name a populated relation first and join the link last:
+
+    FROM places P
+      JOIN stations S ON P.place-id = S.place-id
+      JOIN vehicle-event-stations L ON S.station-id = L.station-id
+
+Verified 2026-08-16 on the pinned `9de6332` engine. `energy-acquisition-stations`
+and `consumable-acquisition-stations` still carry the fragile order, so a fresh
+install with no fill is expected to reproduce it.
+
 ## PITFALL: `;<` bindings need explicit types
 
 `;<  [pour-mark pour-vase]  bind:m  (take-fact wire)` fails with `find pour-mark`. Bare

@@ -250,6 +250,31 @@
       observed-start=@da
       source-zone=@t
   ==
+::  Which typed child of `vehicle-events` a new event creates. The kind is not
+::  a column: it is which child row exists. This term never reaches the
+::  database - it selects the INSERT target and nothing else.
++$  event-kind  ?(%service %expense %note)
+::  One vehicle event as a human entered it (M7 T1). Every optional member is
+::  a unit, and a `~` writes NO row rather than a bunt, a zero, or an empty
+::  string. The total is entered: a shop invoice has no quantity and no unit
+::  price, so there is nothing to multiply.
++$  event-entry
+  $:  vehicle-label=@t
+      kind=event-kind
+      observed-start=@da
+      source-zone=@t
+      total-mills=(unit @ud)
+      total-display=@t
+      currency=currency
+      minor-unit-decimals=@ud
+      mileage=(unit odo-reading)
+      station-label=(unit @t)
+      new-station=(unit new-station-entry)
+      tag-labels=(list @t)
+      new-tag-label=(unit @t)
+      payment-method-label=(unit @t)
+      notes=(unit @t)
+  ==
 +$  preference-entry
   [vehicle-label=@t distance-unit=(unit distance-unit) currency=currency]
 +$  vehicle-label-entry  [vehicle-label=@t]

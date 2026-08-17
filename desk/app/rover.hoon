@@ -645,6 +645,28 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ::  M7 T1. One endpoint for all three event kinds. The kind selects which
+    ::  typed child the write creates; every association attaches to the parent,
+    ::  so the three kinds share one lookup and one insert.
+    ?:  =('/apps/rover/add-event' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  decoded  (decode-event:entry body-text)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  wir=wire  /rover-event-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%script %rover %vector (event-lookup:act vehicle-label.p.decoded)])
+      =/  next
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          fill-body-pending  (~(put by fill-body-pending.sat) wir body-text)
+        ==
+      :_  next
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/add-custom-field' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: custom-field')) sat]
@@ -1067,9 +1089,12 @@
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
         ==
+      ::  Read the relation list first, then pour only what is absent. Obelisk
+      ::  has no CREATE TABLE IF NOT EXISTS and a script is atomic, so a single
+      ::  already-poured relation would abort the whole catch-up.
       %ensure-def-schema
-        =/  wir=path  /rover/(scot %da now.bowl)
-        =/  jon  !>([%script %rover %vector def-schema:act])
+        =/  wir=path  /rover-def-check/(scot %da now.bowl)
+        =/  jon  !>([%script %rover %vector def-schema-check:act])
         :_  this(pending (~(put by pending) wir 'ensure-def-schema'))
         :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
             [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
@@ -1095,6 +1120,34 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-def-check *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        `this(pending (~(del by pending) wire), last `res)
+      =/  present=(list @tas)
+        %+  turn  (rows-at:view p.res 0)
+        |=  row=vector:ast
+        ^-  @tas
+        (cell-term:view %name row)
+      =/  script  (missing-def-schema:act present)
+      ?~  script
+        `this(pending (~(del by pending) wire), last `res)
+      =/  next-wire=path  /rover/(scot %da now.bowl)
+      =/  jon  !>([%script %rover %vector script])
+      :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'))
+      :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-install-probe *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
@@ -1219,6 +1272,141 @@
       :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-event-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
+      =/  decoded  (decode-event:entry u.body)
+      ?:  ?=(%| -.decoded)
+        :_  cleared
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event'))
+      ?.  (gte (lent p.res) 4)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
+      =/  vehicles  (rows-at:view p.res 0)
+      =/  station-rows  (rows-at:view p.res 1)
+      =/  tag-rows  (rows-at:view p.res 2)
+      =/  payment-rows  (rows-at:view p.res 3)
+      ?.  =(1 (lent vehicles))
+        :_  cleared
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.vehicle'))
+      =/  station-id=(unit @ux)
+        ?~  station-label.p.decoded
+          ~
+        =/  found  (row-by-text:view %label u.station-label.p.decoded station-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %station-id u.found)
+      ?:  ?&  ?=(^ station-label.p.decoded)
+              ?=(~ station-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.station'))
+      =/  tag-proof
+        (ids-for-labels:view tag-labels.p.decoded tag-rows %label %tag-id)
+      ?:  ?=(%| -.tag-proof)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.tags'))
+      =/  payment-method-id=(unit @ux)
+        ?~  payment-method-label.p.decoded
+          ~
+        =/  found
+          (row-by-text:view %label u.payment-method-label.p.decoded payment-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %method-id u.found)
+      ?:  ?&  ?=(^ payment-method-label.p.decoded)
+              ?=(~ payment-method-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.payment-method'))
+      ?:  ?&  ?=(^ new-tag-label.p.decoded)
+              ?=(^ (row-by-text:view %label u.new-tag-label.p.decoded tag-rows))
+          ==
+        :_  cleared
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%already-exists: event.new-tag'))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  ids=event-ids:act
+        :*  (fixture-id:act base 9.301)
+            (fixture-id:act base 9.302)
+            (fixture-id:act base 9.303)
+            (fixture-id:act base 9.304)
+            (fixture-id:act base 9.305)
+        ==
+      =/  write-wire=path  /rover-event-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script=tape
+        %:  insert-event:act
+            ids
+            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+            station-id
+            p.tag-proof
+            payment-method-id
+            p.decoded
+            now.bowl
+        ==
+      =/  jon  !>([%script %rover %vector script])
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+      =/  next-body
+        (~(put by (~(del by fill-body-pending) wire)) write-wire u.body)
+      :_  this(http-pending next-http, fill-body-pending next-body)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-event-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      =/  decoded  (decode-event:entry u.body)
+      ?:  ?|  ?=(%.n -.res)
+              ?=(%| -.decoded)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
+      =/  saved=@t
+        =/  head  (cat 3 'Saved ' (cat 3 (scot %tas kind.p.decoded) ' event'))
+        ?~  total-mills.p.decoded
+          head
+        (cat 3 head (cat 3 ' - ' total-display.p.decoded))
+      :_  cleared
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs saved))
     ::
         %kick
       `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))

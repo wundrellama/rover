@@ -1022,6 +1022,154 @@
       mileage
   ==
 ::
+::  A vehicle event as the owner entered it (M7 T1). Every refusal names the
+::  human field, never a column or an id.
+::
+::  The total is OPTIONAL and ENTERED. A blank total writes no cost row at all,
+::  which is how a note without a cost and a zero-cost record stay different
+::  things. It is parsed with +parse-money, not +parse-us-price: an invoice
+::  total has no market third digit to complete.
+++  decode-event
+  |=  body=@t
+  ^-  (each event-entry:rover entry-verdict:rover)
+  =/  object  (json-object body)
+  ?~  object
+    [%| %bad-shape 'event']
+  =/  vehicle  (json-string 'vehicle' u.object)
+  ?~  vehicle
+    [%| %missing-key 'event.vehicle']
+  ?.  (nonempty u.vehicle)
+    [%| %bad-shape 'event.vehicle']
+  =/  kind-text  (json-string 'kind' u.object)
+  ?~  kind-text
+    [%| %missing-key 'event.kind']
+  =/  kind-term  (slaw %tas u.kind-text)
+  ?.  ?&  ?=(^ kind-term)
+          ?=(?(%service %expense %note) u.kind-term)
+      ==
+    [%| %bad-shape 'event.kind']
+  =/  kind=event-kind:rover  ;;(event-kind:rover u.kind-term)
+  =/  observed  (json-string 'observed' u.object)
+  ?~  observed
+    [%| %missing-key 'event.observed']
+  =/  observed-start  (local-da u.observed)
+  ?~  observed-start
+    [%| %bad-shape 'event.observed']
+  =/  zone  (json-string 'zone' u.object)
+  ?~  zone
+    [%| %missing-key 'event.zone']
+  ?.  (nonempty u.zone)
+    [%| %bad-shape 'event.zone']
+  =/  currency-text  (json-string 'currency' u.object)
+  =/  currency=currency:rover
+    ?~  currency-text
+      %usd
+    =/  term  (slaw %tas u.currency-text)
+    ?.  ?&  ?=(^ term)
+            ?=(currency:rover u.term)
+        ==
+      %usd
+    ;;(currency:rover u.term)
+  =/  minor-unit-decimals  (currency-minor-decimals:render currency)
+  =/  total-text  (optional-text 'total' u.object)
+  =/  total-parse
+    ^-  (each [mills=(unit @ud) display=@t] ?(%bad-shape %excess-precision))
+    ?~  total-text
+      [%& [~ '']]
+    =/  parsed  (parse-money:render u.total-text currency minor-unit-decimals)
+    ?:  ?=(%| -.parsed)
+      [%| p.parsed]
+    [%& [`total-mills.p.parsed display.p.parsed]]
+  ?:  ?=(%| -.total-parse)
+    [%| p.total-parse 'event.total']
+  =/  total-mills=(unit @ud)  mills.p.total-parse
+  =/  total-display=@t  display.p.total-parse
+  =/  mileage-text  (optional-text 'mileage' u.object)
+  =/  mileage=(unit odo-reading:rover)
+    ?~  mileage-text
+      ~
+    =/  parsed-mileage  (parse-decimal:render u.mileage-text 3)
+    ?:  ?=(%| -.parsed-mileage)
+      ~
+    =/  mileage-unit  (json-string 'mileageUnit' u.object)
+    ?~  mileage-unit
+      ~
+    =/  unit-term  (slaw %tas u.mileage-unit)
+    ?.  ?&  ?=(^ unit-term)
+            ?|  =(%mi u.unit-term)
+                =(%km u.unit-term)
+            ==
+        ==
+      ~
+    `[digits.p.parsed-mileage places.p.parsed-mileage ;;(distance-unit:rover u.unit-term)]
+  ?:  ?&  ?=(^ mileage-text)
+          ?=(~ mileage)
+      ==
+    [%| %bad-shape 'event.mileage']
+  =/  station  (json-string 'station' u.object)
+  ?~  station
+    [%| %missing-key 'event.station']
+  =/  station-label=(unit @t)
+    ?:  ?|  =('none' u.station)
+            =('new' u.station)
+        ==
+      ~
+    ?.  (nonempty u.station)
+      ~
+    `u.station
+  =/  new-station=(unit new-station-entry:rover)
+    ?.  =('new' u.station)
+      ~
+    =/  station-name  (optional-text 'newStationLabel' u.object)
+    ?~  station-name
+      ~
+    =/  place-name  (optional-text 'newPlaceLabel' u.object)
+    ?~  place-name
+      ~
+    =/  kind-value  (json-string 'newStationKind' u.object)
+    ?~  kind-value
+      ~
+    =/  station-kind-term  (slaw %tas u.kind-value)
+    ?.  ?&  ?=(^ station-kind-term)
+            ?=(station-kind:rover u.station-kind-term)
+        ==
+      ~
+    `[u.place-name u.station-name ;;(station-kind:rover u.station-kind-term) ~ ~]
+  ?:  ?&  =('new' u.station)
+          ?=(~ new-station)
+      ==
+    [%| %bad-shape 'event.station']
+  ?:  ?&  !=('none' u.station)
+          !=('new' u.station)
+          ?=(~ station-label)
+      ==
+    [%| %bad-shape 'event.station']
+  =/  tag-labels  (json-strings 'tags' u.object)
+  =/  tags=(list @t)
+    ?~  tag-labels
+      ~
+    (skim u.tag-labels nonempty)
+  =/  new-tag  (optional-text 'newTag' u.object)
+  =/  payment-method  (optional-text 'paymentMethod' u.object)
+  =/  notes  (optional-text 'notes' u.object)
+  :-  %&
+  :*  u.vehicle
+      kind
+      u.observed-start
+      u.zone
+      total-mills
+      total-display
+      currency
+      minor-unit-decimals
+      mileage
+      station-label
+      new-station
+      tags
+      new-tag
+      payment-method
+      notes
+  ==
+::
 ++  decode-odometer
   |=  body=@t
   ^-  (each odometer-entry:rover entry-verdict:rover)
