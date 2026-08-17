@@ -1,6 +1,3 @@
-::  M7 T4. Reads the disposal-kind family and the keying of the two new typed
-::  children. It runs through click, so it proves a fresh database holds the
-::  starter pack with no page load and no HTTP request of any kind.
 =/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 =/  wire  /rover-disposal-kind-report
