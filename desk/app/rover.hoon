@@ -462,6 +462,7 @@
   =/  consumables  (rows-at:view commands 1)
   =/  additives  (rows-at:view commands 2)
   =/  driving-modes  (rows-at:view commands 3)
+  =/  service-subtypes  (rows-at:view commands 4)
   %:  seed-missing-starters:act
       base
       now
@@ -469,6 +470,7 @@
       ?=(~ consumables)
       ?=(~ additives)
       ?=(~ driving-modes)
+      ?=(~ service-subtypes)
   ==
 ::
 ++  entry-refusal
@@ -1311,13 +1313,14 @@
       ?:  ?=(%| -.decoded)
         :_  cleared
         (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event'))
-      ?.  (gte (lent p.res) 4)
+      ?.  (gte (lent p.res) 5)
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
       =/  vehicles  (rows-at:view p.res 0)
       =/  station-rows  (rows-at:view p.res 1)
       =/  tag-rows  (rows-at:view p.res 2)
       =/  payment-rows  (rows-at:view p.res 3)
+      =/  subtype-rows  (rows-at:view p.res 4)
       ?.  =(1 (lent vehicles))
         :_  cleared
         (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.vehicle'))
@@ -1338,6 +1341,14 @@
       ?:  ?=(%| -.tag-proof)
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.tags'))
+      ::  A subtype the catalog does not hold is a refusal, never a silent
+      ::  create. Only the starter pack and a later T8 endpoint make
+      ::  definitions; an event never invents one.
+      =/  subtype-proof
+        (ids-for-labels:view subtype-labels.p.decoded subtype-rows %label %service-subtype-id)
+      ?:  ?=(%| -.subtype-proof)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.subtypes'))
       =/  payment-method-id=(unit @ux)
         ?~  payment-method-label.p.decoded
           ~
@@ -1371,6 +1382,7 @@
             `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
             station-id
             p.tag-proof
+            p.subtype-proof
             payment-method-id
             p.decoded
             now.bowl

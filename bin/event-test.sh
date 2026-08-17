@@ -72,6 +72,26 @@ EXPENSE_NOTE="Airport parking $STAMP"
 NOTE_NOTE="Rattle over rough pavement $STAMP"
 SERVICE_TOTAL='$412.75'
 EXPENSE_TOTAL='$24.00'
+# M7 T2. Three more service events, one per subtype count the corpus holds:
+# ten at once, exactly one, and none at all.
+MULTI_AT='2026-08-04T09:30'
+SINGLE_AT='2026-08-05T09:30'
+BARE_AT='2026-08-06T09:30'
+MULTI_DA='~2026.08.04..09.30.00'
+SINGLE_DA='~2026.08.05..09.30.00'
+BARE_DA='~2026.08.06..09.30.00'
+MULTI_NOTE="Major service $STAMP"
+SINGLE_NOTE="Oil change only $STAMP"
+BARE_NOTE="Shop visit, work unrecorded $STAMP"
+MULTI_TOTAL='$1,248.10'
+SINGLE_TOTAL='$68.40'
+BARE_TOTAL='$95.00'
+# The owner's real 2026-04-15 record carries ten subtypes at once. These ten
+# are all starter-pack labels, and none is created by the event write.
+MULTI_SUBTYPES='["Engine Oil","Oil Filter","Air Filter","Cabin Air Filter","Fuel Filter","Tire Rotation","Brake Fluid","Windshield Wipers","Battery","Inspection"]'
+# Engine Oil is deliberately shared with the ten-subtype event. Two events
+# naming one subtype must reuse one definition row, never make a second.
+SINGLE_SUBTYPES='["Engine Oil"]'
 
 click_file() {
   local body="$1" file out
@@ -136,6 +156,15 @@ event_payload() {
   # kind observed total mileage station tags newTag payment notes
   printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"%s","paymentMethod":"%s","notes":"%s"}' \
     "$VEHICLE" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+}
+
+# M7 T2. The same body as event_payload, plus the subtype selection. It is a
+# second helper rather than a tenth argument on the first, so the T1 fixtures
+# keep sending exactly the body they sent before.
+event_subtype_payload() {
+  # observed total mileage station tags payment notes subtypes
+  printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"","paymentMethod":"%s","notes":"%s","subtypes":%s}' \
+    "$VEHICLE" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
 }
 
 # The one served event card of this kind that carries this run's unique note.
@@ -381,17 +410,167 @@ grep -q '%kind' <<<"$report" \
 note "fixture 11 PASS - the common header carries no kind column"
 
 # ---------------------------------------------------------------------------
+# fixture 16 - the two T2 relations exist, and the subtype link keys to
+# vehicle-events. A link keyed to service-events would leave every sibling of
+# that child with a hole, which is the defect ruling 11 exists to stop.
+# ---------------------------------------------------------------------------
+report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
+for relation in service-subtype-definitions vehicle-event-service-subtypes; do
+  grep -q "%name %tas %$relation" <<<"$report" \
+    || fail "fixture 16 the pour is missing $relation"
+done
+report="$(rover_report 'FROM sys.foreign-keys WHERE child-table = %vehicle-event-service-subtypes SELECT parent-table, parent-column, child-column, on-delete, on-update;')"
+grep -q '%parent-table %tas %vehicle-events' <<<"$report" \
+  || fail "fixture 16 the subtype link does not key to vehicle-events: $report"
+grep -q '%parent-table %tas %service-subtype-definitions' <<<"$report" \
+  || fail "fixture 16 the subtype link does not key to the definition family: $report"
+for child in service-events expense-events note-events; do
+  grep -q "%parent-table %tas %$child" <<<"$report" \
+    && fail "fixture 16 the subtype link keys to the typed child $child: $report"
+done
+grep -q '%on-delete %tas %restrict' <<<"$report" \
+  || fail "fixture 16 the subtype link is not RESTRICT on delete: $report"
+note "fixture 16 PASS - the subtype link relation keys to vehicle-events and not to a typed child"
+
+# ---------------------------------------------------------------------------
+# fixture 17 - the subtype starter pack. Rover ships ONE catalog, so the three
+# labels aCar carries twice - Car Wash, Insurance, Registration - are seeded
+# once each. A duplicate in the selector cannot be archived away until T8.
+# ---------------------------------------------------------------------------
+subtype_labels() {
+  rover_report 'FROM service-subtype-definitions S SELECT S.label;'
+}
+report="$(subtype_labels)"
+starter_count="$(count_rows "$report" '%label')"
+[ "$starter_count" -ge 60 ] \
+  || fail "fixture 17 the starter pack holds only $starter_count definitions"
+for label in 'Engine Oil' 'Oil Filter' 'Air Filter' 'Cabin Air Filter' \
+  'Fuel Filter' 'Brakes, Front' 'Brakes, Rear' 'Brake Fluid' 'Tire Rotation' \
+  'Wheel Alignment' 'New Tires' 'Battery' 'Belts' 'Spark Plugs' 'Timing Belt' \
+  'Transmission Fluid' 'Differential Fluid' 'Coolant System' \
+  'Engine Antifreeze' 'Diesel Exhaust Fluid' 'Diesel Particulate Filter' \
+  'Windshield Wipers' 'Windshield Washer Fluid' 'Inspection' 'Registration'; do
+  grep -qF "%label 116 '$label'" <<<"$report" \
+    || fail "fixture 17 the starter pack is missing $label"
+done
+for label in 'Car Wash' 'Insurance' 'Registration'; do
+  seen="$(grep -cF "%label 116 '$label'" <<<"$report")"
+  [ "$seen" = 1 ] \
+    || fail "fixture 17 the label $label is seeded $seen times, want 1"
+done
+note "fixture 17 PASS - the subtype starter pack is present, and each duplicated source label is seeded once"
+# The shipping %seed-starters action is a real product surface, and a second
+# run of it must add nothing. This runs on every battery run, on a database
+# that already holds the pack, which is exactly the case that can go wrong.
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s3)
+(pure:m !>(~))' > /dev/null
+report="$(subtype_labels)"
+reseeded_count="$(count_rows "$report" '%label')"
+[ "$reseeded_count" = "$starter_count" ] \
+  || fail "fixture 17 a second seed run grew the catalog from $starter_count to $reseeded_count"
+note "fixture 17 PASS - a second starter seed adds no definition"
+
+subtypes_before="$(count_rows "$(rover_report 'FROM service-subtype-definitions S SELECT S.service-subtype-id;')" '%service-subtype-id')"
+
+# ---------------------------------------------------------------------------
+# fixture 18 - a service event carries TEN subtypes at once and renders all
+# ten. This mirrors the owner's real 2026-04-15 record.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event \
+  "$(event_subtype_payload "$MULTI_AT" "$MULTI_TOTAL" '' none '[]' '' "$MULTI_NOTE" "$MULTI_SUBTYPES")" \
+  "$(printf 'Saved service event - %s\n201' "$MULTI_TOTAL")" 'fixture 18 ten-subtype service event'
+report="$(scoped_rows vehicle-event-service-subtypes L service-subtype-id "$MULTI_DA")"
+link_rows="$(count_rows "$report" '%service-subtype-id')"
+[ "$link_rows" = 10 ] \
+  || fail "fixture 18 the ten-subtype event wrote $link_rows link rows, want 10"
+view="$(eyre_view)"
+card="$(event_card service "$MULTI_NOTE")"
+[ -n "$card" ] || fail "fixture 18 no service card carrying this run's ten-subtype note"
+grep -qF 'data-event-subtype-count="10"' <<<"$card" \
+  || fail "fixture 18 the served card does not report ten subtypes: $card"
+for label in 'Engine Oil' 'Oil Filter' 'Air Filter' 'Cabin Air Filter' \
+  'Fuel Filter' 'Tire Rotation' 'Brake Fluid' 'Windshield Wipers' 'Battery' \
+  'Inspection'; do
+  grep -qF "data-event-subtype=\"$label\"" <<<"$card" \
+    || fail "fixture 18 the served card omits the subtype $label"
+done
+note "fixture 18 PASS - a service event carries ten subtypes at once and renders all ten"
+
+# ---------------------------------------------------------------------------
+# fixture 19 - one subtype, and none. Four of the owner's 39 events carry no
+# subtype, and a zero-subtype event must write no link row and no sentinel.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event \
+  "$(event_subtype_payload "$SINGLE_AT" "$SINGLE_TOTAL" '' none '[]' '' "$SINGLE_NOTE" "$SINGLE_SUBTYPES")" \
+  "$(printf 'Saved service event - %s\n201' "$SINGLE_TOTAL")" 'fixture 19 one-subtype service event'
+eyre_post add-service-event \
+  "$(event_subtype_payload "$BARE_AT" "$BARE_TOTAL" '' none '[]' '' "$BARE_NOTE" '[]')" \
+  "$(printf 'Saved service event - %s\n201' "$BARE_TOTAL")" 'fixture 19 zero-subtype service event'
+report="$(scoped_rows vehicle-event-service-subtypes L service-subtype-id "$SINGLE_DA")"
+link_rows="$(count_rows "$report" '%service-subtype-id')"
+[ "$link_rows" = 1 ] \
+  || fail "fixture 19 the one-subtype event wrote $link_rows link rows, want 1"
+report="$(scoped_rows vehicle-event-service-subtypes L service-subtype-id "$BARE_DA")"
+grep -q '%service-subtype-id' <<<"$report" \
+  && fail "fixture 19 a link row exists for an event that named no subtype: $report"
+view="$(eyre_view)"
+card="$(event_card service "$SINGLE_NOTE")"
+[ -n "$card" ] || fail "fixture 19 no service card carrying this run's one-subtype note"
+grep -qF 'data-event-subtype-count="1"' <<<"$card" \
+  || fail "fixture 19 the served card does not report one subtype: $card"
+grep -qF 'data-event-subtype="Engine Oil"' <<<"$card" \
+  || fail "fixture 19 the served card omits its one subtype: $card"
+card="$(event_card service "$BARE_NOTE")"
+[ -n "$card" ] || fail "fixture 19 no service card carrying this run's zero-subtype note"
+grep -q 'data-event-subtype-count=' <<<"$card" \
+  && fail "fixture 19 the served card shows a subtype line it does not have: $card"
+note "fixture 19 PASS - one subtype reads back, and a zero-subtype event writes no link row and no sentinel"
+
+# ---------------------------------------------------------------------------
+# fixture 20 - two events naming one subtype reuse one definition row
+# ---------------------------------------------------------------------------
+subtypes_after="$(count_rows "$(rover_report 'FROM service-subtype-definitions S SELECT S.service-subtype-id;')" '%service-subtype-id')"
+[ "$subtypes_before" = "$subtypes_after" ] \
+  || fail "fixture 20 the catalog grew from $subtypes_before to $subtypes_after while saving events"
+report="$(rover_report "FROM service-subtype-definitions S WHERE S.label = 'Engine Oil' SELECT S.service-subtype-id;")"
+definitions="$(count_rows "$report" '%service-subtype-id')"
+[ "$definitions" = 1 ] \
+  || fail "fixture 20 Engine Oil has $definitions definition rows, want 1"
+# The event-id is in the projection because the pinned engine returns a SET of
+# vectors: two link rows that project to one identical row come back as one.
+# Selecting only the subtype id would report a single link and hide the reuse
+# this fixture exists to prove.
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-service-subtypes L ON E.event-id = L.event-id JOIN service-subtype-definitions S ON L.service-subtype-id = S.service-subtype-id WHERE V.label = '$VEHICLE' AND S.label = 'Engine Oil' SELECT E.event-id, L.service-subtype-id;")"
+shared="$(count_rows "$report" '%event-id')"
+[ "$shared" -ge 2 ] \
+  || fail "fixture 20 only $shared event links name Engine Oil, want at least 2: $report"
+distinct="$(grep -o '%service-subtype-id [0-9]* 0x[0-9a-f.]*' <<<"$report" | sort -u | wc -l)"
+[ "$distinct" = 1 ] \
+  || fail "fixture 20 the shared subtype resolved to $distinct different definition rows: $report"
+note "fixture 20 PASS - two events naming one subtype reference one definition row"
+
+# ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
+# The pier may be the pane's own process or a child of it. Which one it is
+# depends on how the session was started, and this fixture restarts the pier
+# itself, so the second run of the battery can meet a different shape than the
+# first. Both are searched, and the `urbit work` serf is skipped: it carries
+# the pier path but not the boot arguments.
 pier_session=""
 pier_args=""
 while read -r session pane_pid; do
-  child="$(pgrep -P "$pane_pid" | head -1)"
-  [ -n "$child" ] || continue
-  args="$(ps -o args= -p "$child" 2>/dev/null)"
-  case "$args" in
-    *"$PIER"*) pier_session="$session"; pier_args="$args"; break ;;
-  esac
+  for candidate in "$pane_pid" $(pgrep -P "$pane_pid" 2>/dev/null); do
+    args="$(ps -o args= -p "$candidate" 2>/dev/null)"
+    case "$args" in
+      *'urbit work'*) continue ;;
+      *"$PIER"*) pier_session="$session"; pier_args="$args"; break ;;
+    esac
+  done
+  [ -n "$pier_session" ] && break
 done < <(tmux list-panes -a -F '#{session_name} #{pane_pid}')
 [ -n "$pier_session" ] || fail "fixture 12 cannot find the tmux session running $PIER"
 # The boot command is not the run command. `-B <pill>` and `-c` create a pier
@@ -399,7 +578,7 @@ done < <(tmux list-panes -a -F '#{session_name} #{pane_pid}')
 # port is explicit because a second pier's mesa layer binds port+1, and two
 # neighbouring piers otherwise refuse to start.
 ames_port="$(sed -n 's/.*-p \([0-9]\{1,\}\).*/\1/p' <<<"$pier_args")"
-[ -n "$ames_port" ] || fail "fixture 12 cannot read the Ames port for $PIER"
+[ -n "$ames_port" ] || fail "fixture 12 cannot read the Ames port for $PIER: $pier_args"
 tmux send-keys -t "$pier_session" '|exit' Enter
 for attempt in $(seq 1 60); do
   pgrep -f "snap-dir $PIER" >/dev/null || break
@@ -442,6 +621,29 @@ report="$(scoped_rows vehicle-event-costs C cost-state "$NOTE_DA")"
 grep -q '%cost-state' <<<"$report" \
   && fail "fixture 12 a cost row appeared for the note event after restart"
 note "fixture 12 PASS - every event, total, odometer link, station link, and reading survived a ship restart"
+
+# ---------------------------------------------------------------------------
+# fixture 21 - the subtype catalog and every subtype link survive the restart
+# ---------------------------------------------------------------------------
+report="$(subtype_labels)"
+restart_count="$(count_rows "$report" '%label')"
+[ "$restart_count" = "$reseeded_count" ] \
+  || fail "fixture 21 the catalog changed from $reseeded_count to $restart_count over the restart"
+card="$(event_card service "$MULTI_NOTE")"
+[ -n "$card" ] || fail "fixture 21 the ten-subtype event did not survive the restart"
+grep -qF 'data-event-subtype-count="10"' <<<"$card" \
+  || fail "fixture 21 the ten subtypes did not survive the restart: $card"
+card="$(event_card service "$SINGLE_NOTE")"
+grep -qF 'data-event-subtype-count="1"' <<<"$card" \
+  || fail "fixture 21 the one-subtype event did not survive the restart: $card"
+card="$(event_card service "$BARE_NOTE")"
+[ -n "$card" ] || fail "fixture 21 the zero-subtype event did not survive the restart"
+grep -q 'data-event-subtype-count=' <<<"$card" \
+  && fail "fixture 21 a subtype line appeared on the zero-subtype event after restart: $card"
+report="$(scoped_rows vehicle-event-service-subtypes L service-subtype-id "$BARE_DA")"
+grep -q '%service-subtype-id' <<<"$report" \
+  && fail "fixture 21 a link row appeared for the zero-subtype event after restart: $report"
+note "fixture 21 PASS - the subtype catalog, the ten links, the one link, and the absent link all survived a ship restart"
 
 # ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut
@@ -495,12 +697,13 @@ auth_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
 [ -n "$auth_cookie" ] || fail "fixture 14 has no urbauth cookie to hand the browser"
 BROWSER_NOTE="Browser service $STAMP"
 BROWSER_ODO="$((53000 + STAMP % 1000))"
+BROWSER_SUBTYPES='Engine Oil,Oil Filter,Tire Rotation'
 browser_out="$({
   ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
   ROVER_CHROMIUM="$chromium_binary" \
     node "$REPO/bin/event-browser-fixture.cjs" \
       "$URL" "$auth_cookie_name" "$auth_cookie" "$VEHICLE" "$STATION" "$TAG" \
-      "$PAYMENT" '$88.40' "$BROWSER_ODO" "$BROWSER_NOTE"
+      "$PAYMENT" '$88.40' "$BROWSER_ODO" "$BROWSER_NOTE" "$BROWSER_SUBTYPES"
 } 2>&1)" || fail "fixture 14 the browser could not save an event: $browser_out"
 grep -q 'EVENT_VERDICT=Saved service event - \$88.40' <<<"$browser_out" \
   || fail "fixture 14 the form verdict is wrong: $browser_out"
@@ -510,5 +713,22 @@ report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = 
 grep -qF "$BROWSER_NOTE" <<<"$report" \
   || fail "fixture 14 the browser-entered event is not in the database: $report"
 note "fixture 14 PASS - a person saves a service event from the Add Event form and sees it come back"
+
+# ---------------------------------------------------------------------------
+# fixture 22 - a person selects several subtypes in the browser form and sees
+# them come back on the card. The endpoint battery proves the write; this
+# proves the selection is reachable with a pointer.
+# ---------------------------------------------------------------------------
+grep -q "EVENT_SUBTYPES=$BROWSER_SUBTYPES" <<<"$browser_out" \
+  || fail "fixture 22 the reloaded card does not carry the chosen subtypes: $browser_out"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-notes X ON E.event-id = X.event-id JOIN vehicle-event-service-subtypes L ON E.event-id = L.event-id JOIN service-subtype-definitions S ON L.service-subtype-id = S.service-subtype-id WHERE V.label = '$VEHICLE' AND X.note = '$BROWSER_NOTE' SELECT S.label AS chosen;")"
+chosen_rows="$(count_rows "$report" '%chosen')"
+[ "$chosen_rows" = 3 ] \
+  || fail "fixture 22 the browser event has $chosen_rows subtype links, want 3: $report"
+for label in 'Engine Oil' 'Oil Filter' 'Tire Rotation'; do
+  grep -qF "%chosen 116 '$label'" <<<"$report" \
+    || fail "fixture 22 the browser-chosen subtype $label is not in the database: $report"
+done
+note "fixture 22 PASS - a person selects three subtypes in the browser and sees all three on the saved card"
 
 . "$(dirname "$0")/event-coverage-gate.sh"

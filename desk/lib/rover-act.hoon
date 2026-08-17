@@ -160,7 +160,7 @@
 ++  seed-starters
   |=  [base=@ux now=@da]
   ^-  tape
-  (seed-missing-starters base now %.y %.y %.y %.y)
+  (seed-missing-starters base now %.y %.y %.y %.y %.y)
 ::
 ++  seed-missing-starters
   |=  $:  base=@ux
@@ -169,6 +169,7 @@
           consumables-empty=?
           additives-empty=?
           driving-modes-empty=?
+          service-subtypes-empty=?
       ==
   ^-  tape
   ;:  weld
@@ -183,6 +184,9 @@
     ~
     ?:  driving-modes-empty
       (seed-driving-modes base now)
+    ~
+    ?:  service-subtypes-empty
+      (seed-service-subtypes base now)
     ~
   ==
 ::
@@ -329,13 +333,124 @@
     ");"
   ==
 ::
+::  M7 T2. The service subtype starter pack.
+::
+::  ONE catalog, not two. The owner's aCar export splits its 65 definitions
+::  into a service list and an expense list, and three labels - Car Wash,
+::  Insurance, and Registration - appear in both. Rover keys the subtype link
+::  to `vehicle-events`, so one definition already serves a service event and
+::  an expense event alike. Seeding each of the three twice would put two
+::  identical entries in one selector, and the owner could not archive either
+::  one until T8. Each label is therefore seeded ONCE.
+::
+::  No category column. A category would be a display grouping that the schema
+::  cannot enforce, because the link keys to the event parent and Rover records
+::  what happened rather than what should.
+++  service-subtype-starters
+  ^-  (list tape)
+  :~  ::  Fluids and filters
+      "Engine Oil"
+      "Oil Filter"
+      "Air Filter"
+      "Cabin Air Filter"
+      "Fuel Filter"
+      "Transmission Fluid"
+      "Transmission Filter"
+      "Differential Fluid"
+      "Transfer Case Fluid"
+      "Brake Fluid"
+      "Power Steering Fluid"
+      "Coolant System"
+      "Engine Antifreeze"
+      "Windshield Washer Fluid"
+      "Diesel Exhaust Fluid"
+      ::  Brakes, tires, and suspension
+      "Brakes, Front"
+      "Brakes, Rear"
+      "Brake Rotors"
+      "Tire Rotation"
+      "New Tires"
+      "Tire Repair"
+      "Wheel Alignment"
+      "Wheel Balancing"
+      "Shocks and Struts"
+      "Suspension"
+      ::  Engine and drivetrain
+      "Spark Plugs"
+      "Ignition Coils"
+      "Glow Plugs"
+      "Timing Belt"
+      "Timing Chain"
+      "Belts"
+      "Hoses"
+      "Water Pump"
+      "Thermostat"
+      "Fuel Pump"
+      "Fuel Injectors"
+      "Throttle Body Cleaning"
+      "Valve Adjustment"
+      "Engine Tune-Up"
+      "Turbocharger"
+      "Clutch"
+      ::  Exhaust and emissions
+      "Exhaust System"
+      "Muffler"
+      "Catalytic Converter"
+      "Diesel Particulate Filter"
+      "Oxygen Sensor"
+      "EGR Valve"
+      ::  Electrical
+      "Battery"
+      "Alternator"
+      "Starter Motor"
+      "Headlights"
+      ::  Body, glass, and comfort
+      "Windshield Wipers"
+      "Windshield"
+      "Air Conditioning Service"
+      "Body Work"
+      "Detailing"
+      ::  Compliance, and the labels aCar splits between service and expense
+      "Inspection"
+      "Emissions Test"
+      "Registration"
+      "Insurance"
+      "Car Wash"
+      "Roadside Assistance"
+      "Towing"
+      "Parking"
+      "Tolls"
+      "Diagnostics"
+  ==
+::
+++  seed-service-subtypes
+  |=  [base=@ux now=@da]
+  ^-  tape
+  =/  labels=(list tape)  service-subtype-starters
+  =/  ordinal=@ud  9.401
+  |-  ^-  tape
+  ?~  labels
+    ~
+  %+  weld
+    ;:  weld
+      "INSERT INTO service-subtype-definitions VALUES ("
+      (scow %ux (fixture-id base ordinal))
+      ", '"
+      i.labels
+      "', N, "
+      (scow %da now)
+      "); "
+    ==
+  $(labels t.labels, ordinal +(ordinal))
+::
 ++  starter-check
   ^-  tape
   ;:  weld
     "FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.archived; "
     "FROM consumable-definitions C SELECT C.consumable-id, C.label, C.archived; "
     "FROM additive-definitions A SELECT A.additive-id, A.label, A.archived; "
-    "FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived;"
+    "FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived; "
+    "FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
   ==
 ::
 ++  consumable-lookup
@@ -440,6 +555,7 @@
     " FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.archived, P.label AS place;"
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
     " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
+    " FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
   ==
 ::
 ::  One atomic script for one vehicle event, shaped after +insert-consumable.
@@ -451,6 +567,7 @@
           vehicle-id=@ux
           station-id=(unit @ux)
           tag-ids=(list @ux)
+          subtype-ids=(list @ux)
           payment-method-id=(unit @ux)
           input=event-entry:rover
           recorded-at=@da
@@ -626,6 +743,7 @@
     station-row
     new-tag-rows
     (insert-event-tags event.ids tag-ids)
+    (insert-event-subtypes event.ids subtype-ids)
     payment-row
     notes-row
   ==
@@ -644,6 +762,23 @@
       ");"
     ==
   (weld row $(tag-ids t.tag-ids))
+::
+::  One row per selected subtype, in the same atomic script as the event. An
+::  empty list writes nothing at all - no sentinel, and no `None` definition.
+++  insert-event-subtypes
+  |=  [event-id=@ux subtype-ids=(list @ux)]
+  ^-  tape
+  ?~  subtype-ids
+    ~
+  =/  row
+    ;:  weld
+      " INSERT INTO vehicle-event-service-subtypes VALUES ("
+      (scow %ux event-id)
+      ", "
+      (scow %ux i.subtype-ids)
+      ");"
+    ==
+  (weld row $(subtype-ids t.subtype-ids))
 ::
 ++  pow-ten
   |=  exponent=@ud
@@ -845,6 +980,19 @@
       "CREATE TABLE rover..vehicle-event-payment-method (event-id @ux, method-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (method-id) REFERENCES payment-method-definitions (method-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %vehicle-event-notes
       "CREATE TABLE rover..vehicle-event-notes (event-id @ux, note @t) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M7 T2. An owner-editable name for a kind of service work, shaped
+      ::  exactly like tag-definitions. The primary key is ONE column, so a
+      ::  later child - the T6 default reminder interval - can reference the
+      ::  complete primary key, which is all Obelisk permits a foreign key to
+      ::  reference.
+      :-  %service-subtype-definitions
+      "CREATE TABLE rover..service-subtype-definitions (service-subtype-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (service-subtype-id); "
+      ::  Many-to-many, and keyed to the event PARENT. One real service record
+      ::  in the owner's corpus carries ten subtypes at once, so this is a link
+      ::  relation from the start and never a column. An event with no subtype
+      ::  has no row here.
+      :-  %vehicle-event-service-subtypes
+      "CREATE TABLE rover..vehicle-event-service-subtypes (event-id @ux, service-subtype-id @ux) PRIMARY KEY (event-id, service-subtype-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
 ::
 ++  relation-pour
@@ -944,6 +1092,10 @@
     " FROM vehicle-event-tags L JOIN tag-definitions T ON L.tag-id = T.tag-id SELECT L.event-id, T.label AS tag;"
     " FROM vehicle-event-payment-method L JOIN payment-method-definitions P ON L.method-id = P.method-id SELECT L.event-id, P.label AS payment-method;"
     " FROM vehicle-event-notes X SELECT X.event-id, X.note;"
+    ::  M7 T2. The subtype link and the definition catalog. The link keys to
+    ::  the event parent, so one query serves every kind.
+    " FROM vehicle-event-service-subtypes L JOIN service-subtype-definitions S ON L.service-subtype-id = S.service-subtype-id SELECT L.event-id, S.label AS service-subtype;"
+    " FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
   ==
 ::
 ++  sql-quote

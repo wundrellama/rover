@@ -2068,6 +2068,35 @@
             eventNewStation.hidden = eventStation.value !== 'new';
           });
         }
+        const eventSubtypes = app.querySelector('#event-subtypes');
+        const subtypeToggle = app.querySelector('#event-subtypes-toggle');
+        const subtypePicker = app.querySelector('#event-subtypes-picker');
+        if (subtypeToggle && subtypePicker) {
+          subtypeToggle.addEventListener('click', () => {
+            const open = subtypePicker.hidden;
+            subtypePicker.hidden = !open;
+            subtypeToggle.setAttribute('aria-expanded', String(open));
+          });
+        }
+        // A subtype belongs on a service visit and not on a note. That is a UI
+        // affordance: the link keys to the event parent, so the database never
+        // refuses one. Hiding the picker also clears it, so a selection made
+        // before the kind changed cannot ride along unseen.
+        if (eventSubtypes) {
+          const showSubtypes = () => {
+            const service = eventForm.elements.kind.value === 'service';
+            eventSubtypes.hidden = !service;
+            if (!service) {
+              eventSubtypes
+                .querySelectorAll('input[name="subtypes"]:checked')
+                .forEach((box) => {
+                  box.checked = false;
+                });
+            }
+          };
+          eventForm.elements.kind.addEventListener('change', showSubtypes);
+          showSubtypes();
+        }
         eventForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = app.querySelector('#event-verdict');
@@ -2077,6 +2106,7 @@
             const payload = Object.fromEntries(formData.entries());
             // Checkboxes repeat one name, and fromEntries keeps only the last.
             payload.tags = formData.getAll('tags');
+            payload.subtypes = formData.getAll('subtypes');
             // The kind selects the route. The server reads the kind from the
             // route, never from this body, so the two can never disagree.
             const eventKind = payload.kind;

@@ -35,10 +35,10 @@ source = pathlib.Path(sys.argv[1]).read_text()
 hoon_source = pathlib.Path(sys.argv[2]).read_text()
 ddl = "\n".join(line.split("--", 1)[0] for line in source.splitlines())
 tables = re.findall(r"CREATE TABLE rover\.\.([a-z0-9-]+)", source)
-if len(tables) != 79 or len(set(tables)) != 79:
+if len(tables) != 81 or len(set(tables)) != 81:
     raise SystemExit(
         f"schema-test: FAIL - DDL has {len(tables)} tables, "
-        f"{len(set(tables))} unique (want 79/79)"
+        f"{len(set(tables))} unique (want 81/81)"
     )
 
 # The fresh pour welds +def-relations, so the literal DDL for the
@@ -53,10 +53,10 @@ def_arm = hoon_source.split("++  def-relations", 1)[1].split(
 hoon_tables = re.findall(
     r"CREATE TABLE rover\.\.([a-z0-9-]+)", schema_arm + def_arm
 )
-if len(hoon_tables) != 79 or len(set(hoon_tables)) != 79:
+if len(hoon_tables) != 81 or len(set(hoon_tables)) != 81:
     raise SystemExit(
         f"schema-test: FAIL - Hoon pour has {len(hoon_tables)} tables, "
-        f"{len(set(hoon_tables))} unique (want 79/79)"
+        f"{len(set(hoon_tables))} unique (want 81/81)"
     )
 # Every definition-layer relation must be named in +def-relations, or
 # ensure-def-schema cannot pour it onto an installed ship.
@@ -93,14 +93,14 @@ fk_count = len(re.findall(r"\bREFERENCES [a-z0-9-]+", ddl))
 restrict_count = len(re.findall(
     r"ON DELETE RESTRICT ON UPDATE RESTRICT", ddl
 ))
-if fk_count != 90 or restrict_count != 90:
+if fk_count != 92 or restrict_count != 92:
     raise SystemExit(
         f"schema-test: FAIL - DDL has {fk_count} FKs and "
-        f"{restrict_count} explicit RESTRICT pairs (want 90/90)"
+        f"{restrict_count} explicit RESTRICT pairs (want 92/92)"
     )
 print(
-    "schema-test: PASS - SQL/Hoon parity is 79/79 relations; "
-    "DDL has 90 explicit RESTRICT FKs and zero forward references"
+    "schema-test: PASS - SQL/Hoon parity is 81/81 relations; "
+    "DDL has 92 explicit RESTRICT FKs and zero forward references"
 )
 PY
 
@@ -176,10 +176,10 @@ mapfile -t counts < <(
 )
 [ "${#counts[@]}" -eq 3 ] ||
   fail "could not read table/column/FK counts from live metadata"
-[ "${counts[0]}" -eq 79 ] ||
-  fail "live Obelisk has ${counts[0]} relations (want 79)"
-[ "${counts[2]}" -eq 93 ] ||
-  fail "live Obelisk has ${counts[2]} FK metadata rows (want 93)"
+[ "${counts[0]}" -eq 81 ] ||
+  fail "live Obelisk has ${counts[0]} relations (want 81)"
+[ "${counts[2]}" -eq 95 ] ||
+  fail "live Obelisk has ${counts[2]} FK metadata rows (want 95)"
 
 if grep -Eq '\[%on-(delete|update) %tas %(cascade|set-default)\]' <<<"$live"; then
   fail "live Obelisk metadata contains cascade or set-default"
@@ -187,10 +187,10 @@ fi
 
 restrict_delete="$(grep -o '\[%on-delete %tas %restrict\]' <<<"$live" | wc -l)"
 restrict_update="$(grep -o '\[%on-update %tas %restrict\]' <<<"$live" | wc -l)"
-[ "$restrict_delete" -eq 93 ] ||
-  fail "live metadata has $restrict_delete RESTRICT deletes (want 93)"
-[ "$restrict_update" -eq 93 ] ||
-  fail "live metadata has $restrict_update RESTRICT updates (want 93)"
+[ "$restrict_delete" -eq 95 ] ||
+  fail "live metadata has $restrict_delete RESTRICT deletes (want 95)"
+[ "$restrict_update" -eq 95 ] ||
+  fail "live metadata has $restrict_update RESTRICT updates (want 95)"
 
-pass "fixture 17 - SQL/Hoon parity and isolated live Obelisk each have 79 relations; all 90 FK constraints (93 column rows) are RESTRICT; zero cascade/set-default"
+pass "fixture 17 - SQL/Hoon parity and isolated live Obelisk each have 81 relations; all 92 FK constraints (95 column rows) are RESTRICT; zero cascade/set-default"
 pass "COVERAGE - all 1 defined fixtures executed"

@@ -200,6 +200,34 @@ record of what kind an event is.
 Reads only. It writes nothing and takes no argument, so it reports whatever the
 pier holds. `bin/event-test.sh` is the battery; this is for looking.
 
+### `service-subtype-report.hoon`
+
+M7 T2. Reads the service subtype catalog, every event subtype link with the
+label it resolves to, and the foreign keys of the link relation.
+
+Run it straight after an install and before any page load. A populated catalog
+at that point is the proof that a fresh database gets the starter pack on its
+own. The third result set shows the two parents of the link: `vehicle-events`
+and `service-subtype-definitions`. A typed child in that list is the defect
+ruling 11 exists to stop.
+
+Reads only. It writes nothing and takes no argument.
+
+## PITFALL: identical projected rows come back as one
+
+    FROM vehicle-event-service-subtypes L
+      JOIN service-subtype-definitions S ON ...
+      WHERE S.label = 'Engine Oil'
+      SELECT L.service-subtype-id;                  <- one column, two rows
+
+Two link rows on two different events name one definition. Projected to that
+one column, both rows are identical, and the engine returns a SET: the result
+holds one vector and `%vector-count 1`. The rows are there; the projection hid
+them. Found 2026-08-17 while proving two events reuse one definition.
+
+Put a discriminating column in the projection. Adding `E.event-id` returns both
+rows.
+
 ## PITFALL: `N` and `Y` are literals, not available as relation aliases
 
 `FROM note-events N SELECT N.event-id;` is a **parse error**. `N` is the

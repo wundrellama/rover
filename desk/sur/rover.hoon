@@ -272,6 +272,11 @@
       new-station=(unit new-station-entry)
       tag-labels=(list @t)
       new-tag-label=(unit @t)
+      ::  M7 T2. Several subtypes at once, because the real corpus holds one
+      ::  service record carrying ten. An empty list writes NO link row: the
+      ::  absence of the rows is what "no subtype" means, and there is no
+      ::  `None` definition and no sentinel row.
+      subtype-labels=(list @t)
       payment-method-label=(unit @t)
       notes=(unit @t)
   ==

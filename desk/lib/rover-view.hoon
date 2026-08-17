@@ -33,6 +33,7 @@
       tags=(list vector:ast)
       payments=(list vector:ast)
       note-texts=(list vector:ast)
+      service-subtypes=(list vector:ast)
   ==
 +$  interval-walk
   $:  prior=(unit interval-baseline)
@@ -770,6 +771,28 @@
     rest
   ==
 ::
+::  M7 T2. One checkbox per service subtype, because the corpus proves the
+::  selection is many-to-many. An archived definition leaves the selector and
+::  the historical records that name it still render.
+++  service-subtype-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  =/  rest  (service-subtype-options t.rows)
+  ?:  archived
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<label class=\"check-option\"><input type=\"checkbox\" name=\"subtypes\" value=\""
+    label
+    "\"><span>"
+    label
+    "</span></label>"
+    rest
+  ==
+::
 ++  payment-options
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1343,9 +1366,11 @@
           payment-methods=(list vector:ast)
           consumables=(list vector:ast)
           localities=(list vector:ast)
+          service-subtypes=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
+  =/  service-subtype-html  (service-subtype-options service-subtypes)
   =/  definition-html  (definition-options definitions vehicles)
   =/  station-html  (station-options stations localities)
   =/  additive-html  (additive-options additives)
@@ -1480,7 +1505,15 @@
     vehicle-html
     "</select></label><label>Kind<select name=\"kind\" required><option value=\"service\">Service</option><option value=\"expense\">Expense</option><option value=\"note\">Note</option></select></label><label>Total <span class=\"optional\">optional</span><input name=\"total\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$412.75\"></label><input name=\"currency\" type=\"hidden\" value=\"usd\"><label>Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\"></label><label>Odometer unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><fieldset class=\"station-field\"><legend>Station <span class=\"optional\">optional</span></legend><select id=\"event-station\" name=\"station\"><option value=\"none\">No station recorded</option>"
     station-html
-    "<option value=\"new\">Add new station&hellip;</option></select><div id=\"event-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div></fieldset><fieldset id=\"event-tags\"><legend>Tags <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
+    "<option value=\"new\">Add new station&hellip;</option></select><div id=\"event-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div></fieldset>"
+    ::  M7 T2. The subtype picker. The catalog is long, so it opens behind a
+    ::  toggle the way the fill tag picker does. It shows for a service event
+    ::  and hides for the other two kinds - a UI affordance, not a schema
+    ::  constraint, because the link keys to the event parent.
+    "<fieldset id=\"event-subtypes\" hidden><legend>Service subtypes <span class=\"optional\">optional</span></legend><button type=\"button\" id=\"event-subtypes-toggle\" aria-expanded=\"false\">Choose subtypes</button><div id=\"event-subtypes-picker\" hidden><div class=\"check-grid\">"
+    service-subtype-html
+    "</div></div></fieldset>"
+    "<fieldset id=\"event-tags\"><legend>Tags <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
     tag-html
     "</div><label>New tag<input name=\"newTag\" autocomplete=\"off\"></label></fieldset><label>Payment method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
     payment-html
@@ -1953,6 +1986,42 @@
       labels
       "</ul></dd></div>"
     ==
+  ::  M7 T2. Every selected subtype renders. One real service record carries
+  ::  ten, so the card lists them all rather than naming a first and a count.
+  ::  The count attribute is there so a reader can check the list is whole.
+  =/  subtype-line=tape
+    =/  subtype-rows  (rows-by %event-id event-id service-subtypes.events)
+    ?~  subtype-rows
+      ~
+    ::  Obelisk has no executing ORDER BY, so the rows arrive in storage order.
+    ::  Ten of them in storage order read as a jumble, so Rover sorts by label
+    ::  itself. `aor` compares the two cords as text; `lth` would compare them
+    ::  as little-endian numbers, which is not alphabetical.
+    =/  ordered=(list vector:ast)
+      %+  sort  subtype-rows
+      |=  [a=vector:ast b=vector:ast]
+      (aor (cell-text %service-subtype a) (cell-text %service-subtype b))
+    =/  labels=tape
+      =/  remaining=(list vector:ast)  ordered
+      |-  ^-  tape
+      ?~  remaining
+        ~
+      %+  weld
+        ;:  weld
+          "<li data-event-subtype=\""
+          (escape (cell-text %service-subtype i.remaining))
+          "\">"
+          (escape (cell-text %service-subtype i.remaining))
+          "</li>"
+        ==
+      $(remaining t.remaining)
+    ;:  weld
+      "<div><dt>SUBTYPES</dt><dd data-event-subtype-count=\""
+      (trip (scot %ud (lent subtype-rows)))
+      "\"><ul class=\"event-subtypes\">"
+      labels
+      "</ul></dd></div>"
+    ==
   =/  payment-line=tape
     =/  payment-rows  (rows-by %event-id event-id payments.events)
     ?~  payment-rows
@@ -1982,6 +2051,7 @@
     total-line
     odometer-line
     station-line
+    subtype-line
     tag-line
     payment-line
     note-line
@@ -3185,7 +3255,9 @@
         (rows-at commands 49)
         (rows-at commands 50)
         (rows-at commands 51)
+        (rows-at commands 52)
     ==
+  =/  service-subtypes  (rows-at commands 53)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -3254,7 +3326,7 @@
       "></span>"
       (address-locality-data localities)
       (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills fill-odometers economy-breaks def-purchases def-odometers derivations)
-      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities)
+      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
       "<details class=\"archived-vehicles\"><summary>View archived vehicles</summary><ul class=\"vehicle-list\">"

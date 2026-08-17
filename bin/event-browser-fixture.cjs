@@ -6,8 +6,11 @@
 
 const {chromium} = require(process.env.ROVER_PLAYWRIGHT_MODULE);
 
-const [url, authName, auth, vehicle, station, tag, payment, total, mileage, notes] =
-  process.argv.slice(2);
+const [
+  url, authName, auth, vehicle, station, tag, payment, total, mileage, notes,
+  subtypeList
+] = process.argv.slice(2);
+const subtypes = (subtypeList || '').split(',').filter((name) => name.length > 0);
 const executablePath = process.env.ROVER_CHROMIUM;
 
 function fail(message) {
@@ -31,6 +34,15 @@ function fail(message) {
     await form.locator('[name="mileage"]').fill(mileage);
     await form.locator('[name="station"]').selectOption(station);
     await form.locator(`#event-tags input[value="${tag}"]`).check();
+    // The subtype picker only shows for a service event, and it opens behind a
+    // toggle because the catalog is long. A person has to do both of these.
+    if (subtypes.length > 0) {
+      await form.locator('#event-subtypes').waitFor({state: 'visible'});
+      await form.locator('#event-subtypes-toggle').click();
+      for (const name of subtypes) {
+        await form.locator(`#event-subtypes input[value="${name}"]`).check();
+      }
+    }
     await form.locator('[name="paymentMethod"]').selectOption(payment);
     await form.locator('[name="notes"]').fill(notes);
 
@@ -73,6 +85,19 @@ function fail(message) {
       notes
     );
     console.log(`EVENT_CARDS=${cards}`);
+    const shown = await page.evaluate(
+      (needle) => {
+        const card = Array.from(
+          document.querySelectorAll('[data-event-kind="service"]')
+        ).find((node) => node.textContent.includes(needle));
+        if (!card) return '';
+        return Array.from(card.querySelectorAll('[data-event-subtype]'))
+          .map((node) => node.getAttribute('data-event-subtype'))
+          .join(',');
+      },
+      notes
+    );
+    console.log(`EVENT_SUBTYPES=${shown}`);
   } catch (error) {
     fail(error.stack || error.message);
   } finally {

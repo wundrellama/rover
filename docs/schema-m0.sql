@@ -1,9 +1,11 @@
--- Rover schema — full pour, 79 relations.
+-- Rover schema — full pour, 81 relations.
 -- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
 -- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5),
 --                     +place-address-formatted / place-addresses loses formatted (Q9),
 --                     +vehicle-refill-reserve.
 -- Amended 2026-08-16 (M7 T1): +the eleven-relation vehicle-event family.
+-- Amended 2026-08-17 (M7 T2): +service-subtype-definitions,
+--                     +vehicle-event-service-subtypes.
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -763,4 +765,31 @@ CREATE TABLE rover..vehicle-event-notes
   (event-id @ux, note @t)
   PRIMARY KEY (event-id)
   FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ===========================================================================
+-- M7 T2 - the service subtype catalog
+-- ===========================================================================
+-- An owner-editable name for a kind of service work: "Engine Oil", "Brakes,
+-- Front", "Tire Rotation". The shape copies tag-definitions.
+--
+-- The primary key is ONE column on purpose. A foreign key may reference only
+-- the complete primary key of the referenced table, so a later child - the T6
+-- default reminder interval - can key to a subtype without a wider key.
+CREATE TABLE rover..service-subtype-definitions
+  (service-subtype-id @ux, label @t, archived @f, recorded-at @da)
+  PRIMARY KEY (service-subtype-id);
+
+-- Many-to-many, and keyed to the event PARENT. One real service record in the
+-- owner's corpus carries ten subtypes at once, so this is a link relation from
+-- the start and never a column on the event.
+--
+-- An event with no subtype has NO row here. There is no `None` definition and
+-- no sentinel row.
+CREATE TABLE rover..vehicle-event-service-subtypes
+  (event-id @ux, service-subtype-id @ux)
+  PRIMARY KEY (event-id, service-subtype-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;

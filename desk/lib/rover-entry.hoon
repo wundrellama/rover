@@ -1143,6 +1143,13 @@
       ~
     (skim u.tag-labels nonempty)
   =/  new-tag  (optional-text 'newTag' u.object)
+  ::  M7 T2. Several subtypes at once. An absent key and an empty array mean
+  ::  the same thing, and both write no link row.
+  =/  subtype-labels  (json-strings 'subtypes' u.object)
+  =/  subtypes=(list @t)
+    ?~  subtype-labels
+      ~
+    (skim u.subtype-labels nonempty)
   =/  payment-method  (optional-text 'paymentMethod' u.object)
   =/  notes  (optional-text 'notes' u.object)
   :-  %&
@@ -1159,6 +1166,7 @@
       new-station
       tags
       new-tag
+      subtypes
       payment-method
       notes
   ==
