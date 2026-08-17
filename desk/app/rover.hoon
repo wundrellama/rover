@@ -455,6 +455,60 @@
   =/  rows  (rows-at:view commands 0)
   ?=(^ (row-by-text:view %database 'rover' rows))
 ::
+++  obelisk-script-cards
+  |=  [our=@p wir=wire script=tape]
+  ^-  (list card)
+  =/  jon  !>([%script %rover %vector script])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  row-member
+  |=  [needle=vector:ast rows=(list vector:ast)]
+  ^-  ?
+  ?~  rows
+    %.n
+  ?:  =(needle i.rows)
+    %.y
+  $(rows t.rows)
+::
+::  Compare as sets, not as returned list order. Both projections include the
+::  acquisition primary key, so Obelisk's identical-row collapse cannot make
+::  this count under-report the table.
+++  migration-rows-match
+  |=  [source=(list vector:ast) destination=(list vector:ast)]
+  ^-  ?
+  ?&  =((lent source) (lent destination))
+      %+  levy  source
+      |=  row=vector:ast
+      (row-member row destination)
+  ==
+::
+++  energy-odometer-values
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  acquisition  (cell-atom:view %acquisition-id i.rows)
+  =/  odometer  (cell-atom:view %odometer-id i.rows)
+  ;:  weld
+    "("
+    (scow %ux acquisition)
+    ", "
+    (scow %ux odometer)
+    ")"
+    ?~(t.rows ";" (weld " " (energy-odometer-values t.rows)))
+  ==
+::
+++  energy-odometer-copy-script
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?>  ?=(^ rows)
+  ;:  weld
+    "INSERT INTO energy-acquisition-odometers VALUES "
+    (energy-odometer-values rows)
+  ==
+::
 ++  starter-seed-script
   |=  [commands=(list cmd-result:ast) base=@ux now=@da]
   ^-  tape
@@ -1144,6 +1198,21 @@
         |=  row=vector:ast
         ^-  @tas
         (cell-term:view %name row)
+      =/  old-present
+        (lien present |=(had=@tas =(had %fuel-fill-odometers)))
+      =/  new-present
+        (lien present |=(had=@tas =(had %energy-acquisition-odometers)))
+      ?:  old-present
+        =/  next-wire=path
+          ?:  new-present
+            /rover-energy-odometer-precheck/(scot %da now.bowl)
+          /rover-energy-odometer-create/(scot %da now.bowl)
+        =/  script=tape
+          ?:  new-present
+            energy-odometer-migration-check:act
+          energy-odometer-create:act
+        :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'))
+        (obelisk-script-cards our.bowl next-wire script)
       =/  script  (missing-def-schema:act present)
       ?~  script
         `this(pending (~(del by pending) wire), last `res)
@@ -1153,6 +1222,118 @@
       :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
           [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-energy-odometer-create *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-energy-odometer-create-refused p.res]
+        `this(pending (~(del by pending) wire), last `res)
+      =/  next-wire=path
+        /rover-energy-odometer-precheck-delay/(scot %da now.bowl)
+      :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'), last `res)
+      ~[[%pass next-wire %arvo %b %wait (add now.bowl ~s1)]]
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-energy-odometer-precheck *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-energy-odometer-precheck-refused p.res]
+        `this(pending (~(del by pending) wire), last `res)
+      =/  source  (rows-at:view p.res 0)
+      =/  destination  (rows-at:view p.res 1)
+      ~&  [%rover-energy-odometer-source-count (lent source)]
+      ?:  (migration-rows-match source destination)
+        ~&  [%rover-energy-odometer-preverified (lent source)]
+        =/  next-wire=path
+          /rover-energy-odometer-drop-delay/(scot %da now.bowl)
+        :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'), last `res)
+        ~[[%pass next-wire %arvo %b %wait (add now.bowl ~s1)]]
+      ?^  destination
+        ~&  [%rover-energy-odometer-migration-refused %destination-not-empty (lent source) (lent destination)]
+        `this(pending (~(del by pending) wire), last `res)
+      =/  next-wire=path
+        /rover-energy-odometer-copy/(scot %da now.bowl)
+      :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'), last `res)
+      (obelisk-script-cards our.bowl next-wire (energy-odometer-copy-script source))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-energy-odometer-copy *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-energy-odometer-copy-refused p.res]
+        `this(pending (~(del by pending) wire), last `res)
+      =/  next-wire=path
+        /rover-energy-odometer-verify/(scot %da now.bowl)
+      :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'), last `res)
+      (obelisk-script-cards our.bowl next-wire energy-odometer-migration-check:act)
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-energy-odometer-verify *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-energy-odometer-verify-refused p.res]
+        `this(pending (~(del by pending) wire), last `res)
+      =/  source  (rows-at:view p.res 0)
+      =/  destination  (rows-at:view p.res 1)
+      ?.  (migration-rows-match source destination)
+        ~&  [%rover-energy-odometer-migration-refused %content-mismatch (lent source) (lent destination)]
+        `this(pending (~(del by pending) wire), last `res)
+      ~&  [%rover-energy-odometer-verified (lent source)]
+      =/  next-wire=path
+        /rover-energy-odometer-drop-delay/(scot %da now.bowl)
+      :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'), last `res)
+      ~[[%pass next-wire %arvo %b %wait (add now.bowl ~s1)]]
+    ::
+        %kick
+      `this(pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-energy-odometer-drop *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        ~&  [%rover-energy-odometer-drop-refused p.res]
+        `this(pending (~(del by pending) wire), last `res)
+      =/  next-wire=path  /rover-def-check/(scot %da now.bowl)
+      :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'), last `res)
+      (obelisk-script-cards our.bowl next-wire def-schema-check:act)
     ::
         %kick
       `this(pending (~(del by pending) wire))
@@ -3786,6 +3967,24 @@
 ++  on-arvo
   |=  [=wire =sign-arvo]
   ^-  (quip card _this)
+  ?:  ?=([%rover-energy-odometer-precheck-delay *] wire)
+    ?.  ?=([%behn %wake *] sign-arvo)
+      (on-arvo:def wire sign-arvo)
+    ?^  error.sign-arvo
+      `this(pending (~(del by pending) wire))
+    =/  next-wire=path
+      /rover-energy-odometer-precheck/(scot %da now.bowl)
+    :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'))
+    (obelisk-script-cards our.bowl next-wire energy-odometer-migration-check:act)
+  ?:  ?=([%rover-energy-odometer-drop-delay *] wire)
+    ?.  ?=([%behn %wake *] sign-arvo)
+      (on-arvo:def wire sign-arvo)
+    ?^  error.sign-arvo
+      `this(pending (~(del by pending) wire))
+    =/  next-wire=path
+      /rover-energy-odometer-drop/(scot %da now.bowl)
+    :_  this(pending (~(put by (~(del by pending) wire)) next-wire 'ensure-def-schema'))
+    (obelisk-script-cards our.bowl next-wire energy-odometer-drop-old:act)
   ?:  ?=([%rover-install-delay *] wire)
     ?.  ?=([%behn %wake *] sign-arvo)
       (on-arvo:def wire sign-arvo)

@@ -86,6 +86,9 @@ BARE_NOTE="Shop visit, work unrecorded $STAMP"
 MULTI_TOTAL='$1,248.10'
 SINGLE_TOTAL='$68.40'
 BARE_TOTAL='$95.00'
+CHARGE_AT='2026-08-07T09:30'
+CHARGE_DA='~2026.08.07..09.30.00'
+CHARGE_ODO="$((54000 + STAMP % 1000))"
 # The owner's real 2026-04-15 record carries ten subtypes at once. These ten
 # are all starter-pack labels, and none is created by the event write.
 MULTI_SUBTYPES='["Engine Oil","Oil Filter","Air Filter","Cabin Air Filter","Fuel Filter","Tire Rotation","Brake Fluid","Windshield Wipers","Battery","Inspection"]'
@@ -200,7 +203,8 @@ eyre_login
 # fixture 1 - the owner view serves, which also bootstraps a fresh database
 # ---------------------------------------------------------------------------
 view="$(eyre_view)"
-grep -q 'id="main-hub"' <<<"$view" || fail "fixture 1 the served view has no hub"
+grep -q 'id="main-hub"' <<<"$view" \
+  || fail "fixture 1 the served view has no hub: $view"
 note "fixture 1 PASS - the owner view serves after bootstrap"
 
 # ---------------------------------------------------------------------------
@@ -221,11 +225,13 @@ report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
 for relation in vehicle-events service-events expense-events note-events \
   vehicle-event-costs vehicle-event-cost-totals vehicle-event-odometers \
   vehicle-event-stations vehicle-event-tags vehicle-event-payment-method \
-  vehicle-event-notes; do
+  vehicle-event-notes energy-acquisition-odometers; do
   grep -q "%name %tas %$relation" <<<"$report" \
     || fail "fixture 2 the pour is missing $relation"
 done
-note "fixture 2 PASS - the eleven event relations exist after the definition-layer catch-up"
+grep -q '%name %tas %fuel-fill-odometers' <<<"$report" \
+  && fail "fixture 2 the fresh pour still carries fuel-fill-odometers"
+note "fixture 2 PASS - the event relations and parent-keyed energy odometer link exist after the definition-layer catch-up"
 # A second run must be a no-op rather than an atomic abort on the first
 # already-present relation.
 ensure_def_schema
@@ -241,7 +247,7 @@ note "fixture 2 PASS - a second catch-up run changes nothing"
 curl -s -b "$JAR" -H 'content-type: application/json' \
   --data-raw "$(printf '{"rover-import":1,"source":{"app":"rover-event-test"},"definitions":{"energy":[],"additives":[],"driving-modes":[],"tags":[{"label":"%s"}],"payment-methods":[{"label":"%s"}]},"places":[],"vehicles":[]}' "$TAG" "$PAYMENT")" \
   "$URL/apps/rover/import" > /dev/null
-eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline"}' "$VEHICLE")" \
+eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":["Electricity"]}' "$VEHICLE")" \
   "$(printf 'Added vehicle - %s\n201' "$VEHICLE")" 'fixture 3 event vehicle'
 report="$(rover_report "FROM stations S WHERE S.label = '$STATION' SELECT S.station-id;")"
 if grep -q '%station-id' <<<"$report"; then
@@ -553,6 +559,30 @@ distinct="$(grep -o '%service-subtype-id [0-9]* 0x[0-9a-f.]*' <<<"$report" | sor
 note "fixture 20 PASS - two events naming one subtype reference one definition row"
 
 # ---------------------------------------------------------------------------
+# fixture 23 - a charge records mileage through the parent-keyed energy link,
+# renders it through Eyre, and shares the vehicle's one odometer stream with a
+# fill. The charge is later than every other reading, so it is current.
+# ---------------------------------------------------------------------------
+eyre_post add-charge \
+  "$(printf '{"vehicle":"%s","definition":"Electricity","start":"2026-08-07T09:00","end":"%s","zone":"America/Chicago","energyDelivered":"42.0","energySource":"charger-reported","startBattery":"20","endBattery":"80","mileage":"%s","mileageUnit":"mi","costState":"unknown","currency":"usd"}' "$VEHICLE" "$CHARGE_AT" "$CHARGE_ODO")" \
+  $'Saved charge - Energy delivered 42.0 kWh\n201' 'fixture 23 charge mileage'
+report="$(rover_report "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = '$VEHICLE' AND A.observed-end = $CHARGE_DA SELECT A.acquisition-id, O.value-digits, O.decimal-places, O.unit;")"
+grep -q "%value-digits 25717 $CHARGE_ODO" <<<"$report" \
+  || fail "fixture 23 the charge has no parent-keyed odometer link: $report"
+view="$(eyre_view)"
+charge_odo_display="$(printf '%s' "$CHARGE_ODO" | sed 's/\([0-9]\{2\}\)\([0-9]\{3\}\)$/\1,\2/')"
+grep -qF "data-charge-odometer=\"$charge_odo_display mi\"" <<<"$view" \
+  || fail "fixture 23 the charge mileage does not render through Eyre"
+report="$(rover_report "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = '$VEHICLE' SELECT O.odometer-id, O.value-digits;")"
+grep -q '%value-digits 25717 52000' <<<"$report" \
+  || fail "fixture 23 the fill mileage left the vehicle odometer stream: $report"
+grep -q "%value-digits 25717 $CHARGE_ODO" <<<"$report" \
+  || fail "fixture 23 the charge mileage is absent from the vehicle odometer stream: $report"
+grep -qF "CURRENT ODOMETER - DERIVED</span><strong>$charge_odo_display mi" <<<"$view" \
+  || fail "fixture 23 the charge reading is not the derived current odometer"
+note "fixture 23 PASS - fill and charge mileage share the parent-keyed link and one odometer stream"
+
+# ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
 # The pier may be the pane's own process or a child of it. Which one it is
@@ -644,6 +674,19 @@ report="$(scoped_rows vehicle-event-service-subtypes L service-subtype-id "$BARE
 grep -q '%service-subtype-id' <<<"$report" \
   && fail "fixture 21 a link row appeared for the zero-subtype event after restart: $report"
 note "fixture 21 PASS - the subtype catalog, the ten links, the one link, and the absent link all survived a ship restart"
+
+# ---------------------------------------------------------------------------
+# fixture 24 - the charge mileage link, Eyre rendering, and derived current
+# odometer survive the same real ship restart.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE V.label = '$VEHICLE' AND A.observed-end = $CHARGE_DA SELECT A.acquisition-id, O.value-digits, O.decimal-places, O.unit;")"
+grep -q "%value-digits 25717 $CHARGE_ODO" <<<"$report" \
+  || fail "fixture 24 the charge odometer link did not survive the restart: $report"
+grep -qF "data-charge-odometer=\"$charge_odo_display mi\"" <<<"$view" \
+  || fail "fixture 24 the restarted Eyre view omits charge mileage"
+grep -qF "CURRENT ODOMETER - DERIVED</span><strong>$charge_odo_display mi" <<<"$view" \
+  || fail "fixture 24 the restarted current odometer does not derive from the charge"
+note "fixture 24 PASS - charge mileage and the derived current odometer survive restart"
 
 # ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut

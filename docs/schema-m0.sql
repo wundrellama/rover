@@ -191,11 +191,11 @@ CREATE TABLE rover..vehicle-default-energy-subtype
 -- GROUP C — fills, mileage, economy, additives (4)
 -- ============================================================
 
--- Optional mileage link. Absence = mileage not supplied.
-CREATE TABLE rover..fuel-fill-odometers
+-- Optional mileage link for the energy event family. Absence = mileage not supplied.
+CREATE TABLE rover..energy-acquisition-odometers
   (acquisition-id @ux, odometer-id @ux)
   PRIMARY KEY (acquisition-id)
-  FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id)
+  FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   (odometer-id) REFERENCES odometer-observations (odometer-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
@@ -676,7 +676,8 @@ CREATE TABLE rover..vehicle-consumable-tank-size
 --
 -- EVERY association below keys to this parent. A link keyed to a typed child
 -- leaves every sibling of that child with a hole, which is the defect
--- fuel-fill-subtype and fuel-fill-odometers each shipped once.
+-- fuel-fill-subtype and fuel-fill-odometers each shipped once. M7 T3 repairs
+-- the latter with energy-acquisition-odometers.
 CREATE TABLE rover..vehicle-events
   (event-id @ux, vehicle-id @ux, observed-start @da, observed-end @da,
    observed-precision @tas, source-zone @t, recorded-at @da)

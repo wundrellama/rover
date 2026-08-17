@@ -1835,6 +1835,8 @@
           measurements=(list vector:ast)
           batteries=(list vector:ast)
           costs=charging-cost-rows
+          odometers=(list vector:ast)
+          preference=(unit @tas)
       ==
   ^-  tape
   =/  acquisition-id  (cell-atom %acquisition-id row)
@@ -1859,6 +1861,28 @@
       (escape (cell-text %source-zone row))
       ")"
     ==
+  =/  odometer-line=tape
+    =/  odometer-rows  (rows-by %acquisition-id acquisition-id odometers)
+    ?~  odometer-rows
+      ~
+    =/  source-unit  (cell-term %unit i.odometer-rows)
+    =/  target  ?~(preference source-unit u.preference)
+    =/  shown
+      %:  convert-distance:render
+          (cell-atom %value-digits i.odometer-rows)
+          (cell-atom %decimal-places i.odometer-rows)
+          source-unit
+          target
+      ==
+    =/  reading
+      (format-distance:render converted-digits.shown converted-places.shown converted-unit.shown converted.shown)
+    ;:  weld
+      "<div><dt>ODOMETER</dt><dd data-charge-odometer=\""
+      (escape reading)
+      "\">"
+      (escape reading)
+      "</dd></div>"
+    ==
   ;:  weld
     "<article class=\"history-card charge\"><header><span>CHARGE</span><time>"
     observed
@@ -1871,7 +1895,9 @@
     (battery-at %start battery-rows)
     "</dd></div><div><dt>END BATTERY</dt><dd>"
     (battery-at %end battery-rows)
-    "</dd></div><div><dt>COST STATE</dt><dd data-cost-state=\""
+    "</dd></div>"
+    odometer-line
+    "<div><dt>COST STATE</dt><dd data-cost-state=\""
     (escape (scot %tas (cell-term %cost-state row)))
     "\">"
     (escape (scot %tas (cell-term %cost-state row)))
@@ -2063,6 +2089,7 @@
           measurements=(list vector:ast)
           batteries=(list vector:ast)
           costs=charging-cost-rows
+          odometers=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
@@ -2080,7 +2107,7 @@
       (event-card i.rows events preference)
     ?^  is-fill
       (fill-card i.rows station-links additive-links subtype-links economy-breaks)
-    (charge-card i.rows measurements batteries costs)
+    (charge-card i.rows measurements batteries costs odometers preference)
   (weld card $(rows t.rows))
 ::
 ++  pagination-controls
@@ -2128,6 +2155,7 @@
           measurements=(list vector:ast)
           batteries=(list vector:ast)
           costs=charging-cost-rows
+          odometers=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
@@ -2151,6 +2179,7 @@
         measurements
         batteries
         costs
+        odometers
         station-links
         additive-links
         subtype-links
@@ -2171,6 +2200,7 @@
           measurements=(list vector:ast)
           batteries=(list vector:ast)
           costs=charging-cost-rows
+          energy-odometers=(list vector:ast)
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           preferences=(list vector:ast)
@@ -2274,6 +2304,7 @@
         measurements
         batteries
         costs
+        energy-odometers
         station-links
         additive-links
         subtype-links
@@ -3224,7 +3255,7 @@
   =/  economy-breaks  (rows-at commands 19)
   =/  app-default  (rows-at commands 20)
   =/  tank-sizes  (rows-at commands 21)
-  =/  fill-odometers  (rows-at commands 22)
+  =/  energy-odometers  (rows-at commands 22)
   =/  starter-definitions  (rows-at commands 23)
   =/  fill-driving-modes  (rows-at commands 24)
   =/  fill-average-speeds  (rows-at commands 25)
@@ -3275,7 +3306,7 @@
     =/  defaults  (rows-by %vehicle-id (cell-atom %vehicle-id i.app-default) vehicles)
     ?~(defaults ~ `i.defaults)
   =/  derivations
-    (derive-fill-series fills fill-odometers economy-breaks)
+    (derive-fill-series fills energy-odometers economy-breaks)
   =/  cards=tape
     |-
     ?~  vehicles
@@ -3291,6 +3322,7 @@
           measurements
           batteries
           costs
+          energy-odometers
           station-links
           additive-links
           preferences
@@ -3325,7 +3357,7 @@
       ==
       "></span>"
       (address-locality-data localities)
-      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills fill-odometers economy-breaks def-purchases def-odometers derivations)
+      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations)
       (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
@@ -3345,7 +3377,7 @@
       "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
-      (history-screen vehicles fills fill-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
+      (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
       (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations selected-vehicle history-page)
       (settings-screen custom-definitions)
       import-screen

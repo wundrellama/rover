@@ -867,7 +867,6 @@
     "CREATE TABLE rover..energy-subtype-blend (subtype-id @ux, blend-kind @tas, percent-digits @ud, percent-decimals @ud) PRIMARY KEY (subtype-id, blend-kind) FOREIGN KEY (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..energy-subtype-grade-code (subtype-id @ux, code @t) PRIMARY KEY (subtype-id) FOREIGN KEY (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..vehicle-default-energy-subtype (vehicle-id @ux, subtype-id @ux, recorded-at @da) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (subtype-id) REFERENCES energy-definition-subtypes (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
-    "CREATE TABLE rover..fuel-fill-odometers (acquisition-id @ux, odometer-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..additive-definitions (additive-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (additive-id); "
     "CREATE TABLE rover..fuel-fill-additives (acquisition-id @ux, additive-id @ux) PRIMARY KEY (acquisition-id, additive-id) FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (additive-id) REFERENCES additive-definitions (additive-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
     "CREATE TABLE rover..economy-breaks (acquisition-id @ux, reason @tas, recorded-at @da) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES fuel-fills (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
@@ -939,7 +938,11 @@
 ::  not exist yet, so every parent precedes its children here.
 ++  def-relations
   ^-  (list [name=@tas ddl=tape])
-  :~  :-  %vehicle-consumables
+  :~  ::  M7 T3. The link keys to the energy event-family parent, so fuel fills
+      ::  and charging sessions share one optional odometer association.
+      :-  %energy-acquisition-odometers
+      "CREATE TABLE rover..energy-acquisition-odometers (acquisition-id @ux, odometer-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-consumables
       "CREATE TABLE rover..vehicle-consumables (vehicle-id @ux, consumable-id @ux, archived @f) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (consumable-id) REFERENCES consumable-definitions (consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %vehicle-consumable-tank-size
       "CREATE TABLE rover..vehicle-consumable-tank-size (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id, consumable-id) REFERENCES vehicle-consumables (vehicle-id, consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
@@ -969,7 +972,8 @@
       "CREATE TABLE rover..vehicle-event-cost-totals (event-id @ux, total-mills @ud) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-event-costs (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       ::  Every association below keys to the PARENT. A link keyed to a typed
       ::  child leaves every sibling of that child with a hole - the defect
-      ::  fuel-fill-subtype and fuel-fill-odometers each shipped once.
+      ::  fuel-fill-subtype and fuel-fill-odometers each shipped once. M7 T3
+      ::  repairs the latter with energy-acquisition-odometers.
       :-  %vehicle-event-odometers
       "CREATE TABLE rover..vehicle-event-odometers (event-id @ux, odometer-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %vehicle-event-stations
@@ -1018,6 +1022,24 @@
   |=  [name=@tas ddl=tape]
   (lien present |=(had=@tas =(had name)))
 ::
+::  M7 T3 populated-data migration. Each arm is deliberately one phase:
+::  Gall records the source rows before the atomic multi-row copy, reads both
+::  relations after it, and only then asks Obelisk to drop the old relation.
+++  energy-odometer-create
+  ^-  tape
+  "CREATE TABLE rover..energy-acquisition-odometers (acquisition-id @ux, odometer-id @ux) PRIMARY KEY (acquisition-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (odometer-id) REFERENCES odometer-observations (odometer-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
+::
+++  energy-odometer-migration-check
+  ^-  tape
+  ;:  weld
+    "FROM fuel-fill-odometers F SELECT F.acquisition-id, F.odometer-id; "
+    "FROM energy-acquisition-odometers L SELECT L.acquisition-id, L.odometer-id;"
+  ==
+::
+++  energy-odometer-drop-old
+  ^-  tape
+  "DROP TABLE FORCE fuel-fill-odometers;"
+::
 ++  verify-schema
   ^-  tape
   ;:  weld
@@ -1051,7 +1073,7 @@
     " FROM economy-breaks B SELECT B.acquisition-id, B.reason;"
     " FROM app-default-vehicle A JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE A.scope = %app SELECT V.vehicle-id, V.label, A.recorded-at;"
     " FROM vehicle-tank-size T SELECT T.vehicle-id, T.digits, T.decimals, T.size-unit;"
-    " FROM fuel-fill-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.acquisition-id, O.value-digits, O.decimal-places, O.unit;"
+    " FROM energy-acquisition-odometers L JOIN odometer-observations O ON L.odometer-id = O.odometer-id SELECT L.acquisition-id, O.value-digits, O.decimal-places, O.unit;"
     " FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.physical-kind, E.quantity-unit, E.archived;"
     " FROM fuel-fill-driving-mode L JOIN driving-mode-definitions D ON L.mode-id = D.mode-id SELECT L.acquisition-id, D.label AS driving-mode;"
     " FROM fuel-fill-average-speed S SELECT S.acquisition-id, S.digits, S.decimals, S.speed-unit;"
@@ -1172,7 +1194,7 @@
     "' SELECT D.mode-id, D.label, D.archived AS mode-archived, L.archived AS link-archived; "
     "FROM tag-definitions T SELECT T.tag-id, T.label, T.archived; "
     "FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived; "
-    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fill-odometers L ON A.acquisition-id = L.acquisition-id WHERE V.label = '"
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id WHERE V.label = '"
     (sql-quote vehicle-label)
     "' AND A.observed-start = "
     (scow %da observed-start)
@@ -1325,7 +1347,7 @@
       (sql-quote source-zone.input)
       "', "
       (scow %da recorded-at)
-      "); INSERT INTO fuel-fill-odometers VALUES ("
+      "); INSERT INTO energy-acquisition-odometers VALUES ("
       acquisition
       ", "
       (scow %ux new-odometer-id)
@@ -2191,7 +2213,7 @@
       zone
       "', "
       recorded
-      "); INSERT INTO fuel-fill-odometers VALUES ("
+      "); INSERT INTO energy-acquisition-odometers VALUES ("
       acquisition
       ", "
       odometer
@@ -2556,7 +2578,14 @@
       ~
     =/  odo-input=odometer-entry:rover
       [vehicle-label.input u.mileage.input observed-end.input source-zone.input]
-    (insert-odometer odometer.ids vehicle-id odo-input recorded-at)
+    ;:  weld
+      (insert-odometer odometer.ids vehicle-id odo-input recorded-at)
+      " INSERT INTO energy-acquisition-odometers VALUES ("
+      acquisition
+      ", "
+      (scow %ux odometer.ids)
+      ");"
+    ==
   =/  component-rows=tape
     (insert-charge-components components.ids acquisition.ids components.input)
   ::  Absence of this row means no total. A zero row would claim the source
