@@ -1,12 +1,13 @@
--- Rover schema — full pour, 79 relations.
+-- Rover schema — full pour, 81 relations.
 -- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
 -- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5),
 --                     +place-address-formatted / place-addresses loses formatted (Q9),
 --                     +vehicle-refill-reserve.
 -- Amended 2026-08-16 (M7 T1): +the eleven-relation vehicle-event family.
+-- Amended 2026-08-17 (M7 T2): +service subtype definitions and event links.
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
--- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
+-- SYNTAX NOTES (verified against pinned Obelisk master @ 9de6332, zuse 408):
 --   * Multi-FK continuation: FOREIGN KEY (a) REFERENCES t (a) ON ..., (b) REFERENCES u (b) ON ...
 --     Do NOT repeat the FOREIGN KEY keyword after the comma — the parser rejects it.
 --   * Every FK carries explicit ON DELETE RESTRICT ON UPDATE RESTRICT.
@@ -666,8 +667,14 @@ CREATE TABLE rover..vehicle-consumable-tank-size
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- ===========================================================================
--- M7 T1 - the vehicle-event family
+-- M7 T1-T2 - the vehicle-event family and service subtype catalog
 -- ===========================================================================
+-- Owner property: a stable definition identity can be renamed or archived
+-- later without changing the event links or T6 reminder references.
+CREATE TABLE rover..service-subtype-definitions
+  (subtype-id @ux, label @t, archived @f, recorded-at @da)
+  PRIMARY KEY (subtype-id);
+
 -- The third event-family parent, beside energy-acquisitions and
 -- consumable-acquisitions. It carries the common event header and no
 -- type-specific column at all: the kind is which typed child row exists.
@@ -749,6 +756,16 @@ CREATE TABLE rover..vehicle-event-tags
   FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   (tag-id) REFERENCES tag-definitions (tag-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Several kinds of work may happen in one visit. Zero links means the owner
+-- recorded no subtype; there is no None definition or sentinel link.
+CREATE TABLE rover..vehicle-event-service-subtypes
+  (event-id @ux, subtype-id @ux)
+  PRIMARY KEY (event-id, subtype-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (subtype-id) REFERENCES service-subtype-definitions (subtype-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 CREATE TABLE rover..vehicle-event-payment-method

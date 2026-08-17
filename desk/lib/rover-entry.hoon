@@ -1143,6 +1143,14 @@
       ~
     (skim u.tag-labels nonempty)
   =/  new-tag  (optional-text 'newTag' u.object)
+  =/  service-subtype-labels
+    (json-strings 'serviceSubtypes' u.object)
+  ?~  service-subtype-labels
+    [%| %missing-key 'event.service-subtypes']
+  ?.  =((lent u.service-subtype-labels) (lent (skim u.service-subtype-labels nonempty)))
+    [%| %bad-shape 'event.service-subtypes']
+  =/  new-service-subtype
+    (optional-text 'newServiceSubtype' u.object)
   =/  payment-method  (optional-text 'paymentMethod' u.object)
   =/  notes  (optional-text 'notes' u.object)
   :-  %&
@@ -1159,6 +1167,8 @@
       new-station
       tags
       new-tag
+      u.service-subtype-labels
+      new-service-subtype
       payment-method
       notes
   ==

@@ -15,6 +15,7 @@
       place=@ux
       station=@ux
       tag=@ux
+      service-subtype=@ux
   ==
 +$  charge-ids
   $:  acquisition=@ux
@@ -160,7 +161,7 @@
 ++  seed-starters
   |=  [base=@ux now=@da]
   ^-  tape
-  (seed-missing-starters base now %.y %.y %.y %.y)
+  (seed-missing-starters base now %.y %.y %.y %.y %.y)
 ::
 ++  seed-missing-starters
   |=  $:  base=@ux
@@ -169,6 +170,7 @@
           consumables-empty=?
           additives-empty=?
           driving-modes-empty=?
+          service-subtypes-empty=?
       ==
   ^-  tape
   ;:  weld
@@ -183,6 +185,9 @@
     ~
     ?:  driving-modes-empty
       (seed-driving-modes base now)
+    ~
+    ?:  service-subtypes-empty
+      (seed-service-subtypes base now)
     ~
   ==
 ::
@@ -329,13 +334,95 @@
     ");"
   ==
 ::
+++  starter-service-subtype
+  |=  [base=@ux ordinal=@ud label=tape now=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO service-subtype-definitions VALUES ("
+    (scow %ux (fixture-id base ordinal))
+    ", '"
+    label
+    "', N, "
+    (scow %da now)
+    "); "
+  ==
+::
+++  seed-service-subtypes
+  |=  [base=@ux now=@da]
+  ^-  tape
+  ;:  weld
+    (starter-service-subtype base 10.001 "A/C System" now)
+    (starter-service-subtype base 10.002 "Air Filter" now)
+    (starter-service-subtype base 10.003 "Battery" now)
+    (starter-service-subtype base 10.004 "Belts" now)
+    (starter-service-subtype base 10.005 "Body/Chassis" now)
+    (starter-service-subtype base 10.006 "Brake Fluid" now)
+    (starter-service-subtype base 10.007 "Brakes, Front" now)
+    (starter-service-subtype base 10.008 "Brakes, Rear" now)
+    (starter-service-subtype base 10.009 "Cabin Air Filter" now)
+    (starter-service-subtype base 10.010 "Car Wash" now)
+    (starter-service-subtype base 10.011 "Clutch Hydraulic Fluid" now)
+    (starter-service-subtype base 10.012 "Clutch Hydraulic System" now)
+    (starter-service-subtype base 10.013 "Cooling System" now)
+    (starter-service-subtype base 10.014 "Diesel Exhaust Fluid" now)
+    (starter-service-subtype base 10.015 "Diesel Particulate Filter" now)
+    (starter-service-subtype base 10.016 "Differential Fluid" now)
+    (starter-service-subtype base 10.017 "Doors" now)
+    (starter-service-subtype base 10.018 "Engine Antifreeze" now)
+    (starter-service-subtype base 10.019 "Engine Oil" now)
+    (starter-service-subtype base 10.020 "Exhaust System" now)
+    (starter-service-subtype base 10.021 "Fine" now)
+    (starter-service-subtype base 10.022 "Fuel Filter" now)
+    (starter-service-subtype base 10.023 "Fuel Lines & Pipes" now)
+    (starter-service-subtype base 10.024 "Fuel Pump" now)
+    (starter-service-subtype base 10.025 "Fuel System" now)
+    (starter-service-subtype base 10.026 "Glass/Mirrors" now)
+    (starter-service-subtype base 10.027 "Heating System" now)
+    (starter-service-subtype base 10.028 "Horns" now)
+    (starter-service-subtype base 10.029 "Inspection" now)
+    (starter-service-subtype base 10.030 "Insurance" now)
+    (starter-service-subtype base 10.031 "Lights" now)
+    (starter-service-subtype base 10.032 "Lubricate Chain" now)
+    (starter-service-subtype base 10.033 "MOT" now)
+    (starter-service-subtype base 10.034 "New Tires" now)
+    (starter-service-subtype base 10.035 "Oil Filter" now)
+    (starter-service-subtype base 10.036 "Parking" now)
+    (starter-service-subtype base 10.037 "Payment" now)
+    (starter-service-subtype base 10.038 "Power Steering Fluid" now)
+    (starter-service-subtype base 10.039 "Radiator" now)
+    (starter-service-subtype base 10.040 "Recall" now)
+    (starter-service-subtype base 10.041 "Registration" now)
+    (starter-service-subtype base 10.042 "Rust Module" now)
+    (starter-service-subtype base 10.043 "Safety Devices" now)
+    (starter-service-subtype base 10.044 "Spark Plugs" now)
+    (starter-service-subtype base 10.045 "Steering System" now)
+    (starter-service-subtype base 10.046 "Suspension System" now)
+    (starter-service-subtype base 10.047 "Tax" now)
+    (starter-service-subtype base 10.048 "Timing Belt" now)
+    (starter-service-subtype base 10.049 "Tire A" now)
+    (starter-service-subtype base 10.050 "Tire B" now)
+    (starter-service-subtype base 10.051 "Tire C" now)
+    (starter-service-subtype base 10.052 "Tire D" now)
+    (starter-service-subtype base 10.053 "Tire Pressure" now)
+    (starter-service-subtype base 10.054 "Tire Rotation" now)
+    (starter-service-subtype base 10.055 "Tire Spare" now)
+    (starter-service-subtype base 10.056 "Toll" now)
+    (starter-service-subtype base 10.057 "Tow" now)
+    (starter-service-subtype base 10.058 "Transmission Fluid" now)
+    (starter-service-subtype base 10.059 "Water Pump" now)
+    (starter-service-subtype base 10.060 "Wheel Alignment" now)
+    (starter-service-subtype base 10.061 "Windshield Washer Fluid" now)
+    (starter-service-subtype base 10.062 "Windshield Wipers" now)
+  ==
+::
 ++  starter-check
   ^-  tape
   ;:  weld
     "FROM energy-definitions E SELECT E.energy-definition-id, E.label, E.archived; "
     "FROM consumable-definitions C SELECT C.consumable-id, C.label, C.archived; "
     "FROM additive-definitions A SELECT A.additive-id, A.label, A.archived; "
-    "FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived;"
+    "FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived; "
+    "FROM service-subtype-definitions S SELECT S.subtype-id, S.label, S.archived;"
   ==
 ::
 ++  consumable-lookup
@@ -440,6 +527,7 @@
     " FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.archived, P.label AS place;"
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
     " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
+    " FROM service-subtype-definitions S SELECT S.subtype-id, S.label, S.archived, S.recorded-at;"
   ==
 ::
 ::  One atomic script for one vehicle event, shaped after +insert-consumable.
@@ -451,6 +539,7 @@
           vehicle-id=@ux
           station-id=(unit @ux)
           tag-ids=(list @ux)
+          service-subtype-ids=(list @ux)
           payment-method-id=(unit @ux)
           input=event-entry:rover
           recorded-at=@da
@@ -597,6 +686,22 @@
       (scow %ux tag.ids)
       ");"
     ==
+  =/  new-service-subtype-rows=tape
+    ?~  new-service-subtype-label.input
+      ~
+    ;:  weld
+      " INSERT INTO service-subtype-definitions VALUES ("
+      (scow %ux service-subtype.ids)
+      ", '"
+      (sql-quote u.new-service-subtype-label.input)
+      "', N, "
+      recorded
+      "); INSERT INTO vehicle-event-service-subtypes VALUES ("
+      event
+      ", "
+      (scow %ux service-subtype.ids)
+      ");"
+    ==
   =/  payment-row=tape
     ?~  payment-method-id
       ~
@@ -626,6 +731,8 @@
     station-row
     new-tag-rows
     (insert-event-tags event.ids tag-ids)
+    new-service-subtype-rows
+    (insert-event-service-subtypes event.ids service-subtype-ids)
     payment-row
     notes-row
   ==
@@ -644,6 +751,21 @@
       ");"
     ==
   (weld row $(tag-ids t.tag-ids))
+::
+++  insert-event-service-subtypes
+  |=  [event-id=@ux subtype-ids=(list @ux)]
+  ^-  tape
+  ?~  subtype-ids
+    ~
+  =/  row
+    ;:  weld
+      " INSERT INTO vehicle-event-service-subtypes VALUES ("
+      (scow %ux event-id)
+      ", "
+      (scow %ux i.subtype-ids)
+      ");"
+    ==
+  (weld row $(subtype-ids t.subtype-ids))
 ::
 ++  pow-ten
   |=  exponent=@ud
@@ -808,6 +930,8 @@
       "CREATE TABLE rover..vehicle-consumables (vehicle-id @ux, consumable-id @ux, archived @f) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (consumable-id) REFERENCES consumable-definitions (consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %vehicle-consumable-tank-size
       "CREATE TABLE rover..vehicle-consumable-tank-size (vehicle-id @ux, consumable-id @ux, digits @ud, decimals @ud, unit @tas) PRIMARY KEY (vehicle-id, consumable-id) FOREIGN KEY (vehicle-id, consumable-id) REFERENCES vehicle-consumables (vehicle-id, consumable-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %service-subtype-definitions
+      "CREATE TABLE rover..service-subtype-definitions (subtype-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (subtype-id); "
       ::  M7 T1. The third event-family parent, beside energy-acquisitions and
       ::  consumable-acquisitions. It carries the common event header and NO
       ::  type-specific column: the kind is which typed child row exists.
@@ -841,6 +965,8 @@
       "CREATE TABLE rover..vehicle-event-stations (event-id @ux, station-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (station-id) REFERENCES stations (station-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %vehicle-event-tags
       "CREATE TABLE rover..vehicle-event-tags (event-id @ux, tag-id @ux) PRIMARY KEY (event-id, tag-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (tag-id) REFERENCES tag-definitions (tag-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-event-service-subtypes
+      "CREATE TABLE rover..vehicle-event-service-subtypes (event-id @ux, subtype-id @ux) PRIMARY KEY (event-id, subtype-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (subtype-id) REFERENCES service-subtype-definitions (subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %vehicle-event-payment-method
       "CREATE TABLE rover..vehicle-event-payment-method (event-id @ux, method-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (method-id) REFERENCES payment-method-definitions (method-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %vehicle-event-notes
@@ -944,6 +1070,8 @@
     " FROM vehicle-event-tags L JOIN tag-definitions T ON L.tag-id = T.tag-id SELECT L.event-id, T.label AS tag;"
     " FROM vehicle-event-payment-method L JOIN payment-method-definitions P ON L.method-id = P.method-id SELECT L.event-id, P.label AS payment-method;"
     " FROM vehicle-event-notes X SELECT X.event-id, X.note;"
+    " FROM service-subtype-definitions S SELECT S.subtype-id, S.label, S.archived, S.recorded-at;"
+    " FROM vehicle-event-service-subtypes L JOIN service-subtype-definitions S ON L.subtype-id = S.subtype-id SELECT L.event-id, S.label AS service-subtype;"
   ==
 ::
 ++  sql-quote

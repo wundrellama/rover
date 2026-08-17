@@ -30,6 +30,11 @@ function fail(message) {
     await form.locator('[name="total"]').fill(total);
     await form.locator('[name="mileage"]').fill(mileage);
     await form.locator('[name="station"]').selectOption(station);
+    for (const subtype of ['Engine Oil', 'Brake Fluid', 'Tire Rotation']) {
+      await form
+        .locator(`#event-service-subtypes input[value="${subtype}"]`)
+        .check();
+    }
     await form.locator(`#event-tags input[value="${tag}"]`).check();
     await form.locator('[name="paymentMethod"]').selectOption(payment);
     await form.locator('[name="notes"]').fill(notes);
@@ -73,6 +78,16 @@ function fail(message) {
       notes
     );
     console.log(`EVENT_CARDS=${cards}`);
+    const subtypeCount = await page.evaluate(
+      (needle) => {
+        const card = Array.from(
+          document.querySelectorAll('[data-event-kind="service"]')
+        ).find((item) => item.textContent.includes(needle));
+        return card?.querySelectorAll('[data-event-subtype]').length || 0;
+      },
+      notes
+    );
+    console.log(`EVENT_SUBTYPES=${subtypeCount}`);
   } catch (error) {
     fail(error.stack || error.message);
   } finally {

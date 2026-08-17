@@ -272,6 +272,8 @@
       new-station=(unit new-station-entry)
       tag-labels=(list @t)
       new-tag-label=(unit @t)
+      service-subtype-labels=(list @t)
+      new-service-subtype-label=(unit @t)
       payment-method-label=(unit @t)
       notes=(unit @t)
   ==

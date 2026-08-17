@@ -462,6 +462,7 @@
   =/  consumables  (rows-at:view commands 1)
   =/  additives  (rows-at:view commands 2)
   =/  driving-modes  (rows-at:view commands 3)
+  =/  service-subtypes  (rows-at:view commands 4)
   %:  seed-missing-starters:act
       base
       now
@@ -469,6 +470,7 @@
       ?=(~ consumables)
       ?=(~ additives)
       ?=(~ driving-modes)
+      ?=(~ service-subtypes)
   ==
 ::
 ++  entry-refusal
@@ -1311,13 +1313,14 @@
       ?:  ?=(%| -.decoded)
         :_  cleared
         (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event'))
-      ?.  (gte (lent p.res) 4)
+      ?.  (gte (lent p.res) 5)
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
       =/  vehicles  (rows-at:view p.res 0)
       =/  station-rows  (rows-at:view p.res 1)
       =/  tag-rows  (rows-at:view p.res 2)
       =/  payment-rows  (rows-at:view p.res 3)
+      =/  service-subtype-rows  (rows-at:view p.res 4)
       ?.  =(1 (lent vehicles))
         :_  cleared
         (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.vehicle'))
@@ -1338,6 +1341,16 @@
       ?:  ?=(%| -.tag-proof)
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.tags'))
+      =/  service-subtype-proof
+        %-  ids-for-labels:view
+        :*  service-subtype-labels.p.decoded
+            service-subtype-rows
+            %label
+            %subtype-id
+        ==
+      ?:  ?=(%| -.service-subtype-proof)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.service-subtypes'))
       =/  payment-method-id=(unit @ux)
         ?~  payment-method-label.p.decoded
           ~
@@ -1356,6 +1369,11 @@
           ==
         :_  cleared
         (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%already-exists: event.new-tag'))
+      ?:  ?&  ?=(^ new-service-subtype-label.p.decoded)
+              ?=(^ (row-by-text:view %label u.new-service-subtype-label.p.decoded service-subtype-rows))
+          ==
+        :_  cleared
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%already-exists: event.new-service-subtype'))
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  ids=event-ids:act
         :*  (fixture-id:act base 9.301)
@@ -1363,6 +1381,7 @@
             (fixture-id:act base 9.303)
             (fixture-id:act base 9.304)
             (fixture-id:act base 9.305)
+            (fixture-id:act base 9.306)
         ==
       =/  write-wire=path  /rover-event-write/[i.t.wire]/(scot %da now.bowl)/[u.eyre-id]
       =/  script=tape
@@ -1371,6 +1390,7 @@
             `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
             station-id
             p.tag-proof
+            p.service-subtype-proof
             payment-method-id
             p.decoded
             now.bowl

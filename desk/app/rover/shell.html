@@ -2068,6 +2068,18 @@
             eventNewStation.hidden = eventStation.value !== 'new';
           });
         }
+        const eventKind = eventForm.elements.kind;
+        const serviceSubtypeField = app.querySelector('#event-service-subtypes');
+        const syncServiceSubtypeField = () => {
+          if (!eventKind || !serviceSubtypeField) return;
+          const service = eventKind.value === 'service';
+          serviceSubtypeField.hidden = !service;
+          serviceSubtypeField.querySelectorAll('input').forEach((input) => {
+            input.disabled = !service;
+          });
+        };
+        if (eventKind) eventKind.addEventListener('change', syncServiceSubtypeField);
+        syncServiceSubtypeField();
         eventForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = app.querySelector('#event-verdict');
@@ -2077,6 +2089,7 @@
             const payload = Object.fromEntries(formData.entries());
             // Checkboxes repeat one name, and fromEntries keeps only the last.
             payload.tags = formData.getAll('tags');
+            payload.serviceSubtypes = formData.getAll('serviceSubtypes');
             // The kind selects the route. The server reads the kind from the
             // route, never from this body, so the two can never disagree.
             const eventKind = payload.kind;

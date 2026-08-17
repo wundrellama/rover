@@ -61,17 +61,27 @@ PAYMENT='Event Card'
 SERVICE_AT='2026-08-01T09:30'
 EXPENSE_AT='2026-08-02T09:30'
 NOTE_AT='2026-08-03T09:30'
+ONE_SUBTYPE_AT='2026-08-04T09:30'
+ZERO_SUBTYPE_AT='2026-08-05T09:30'
+CUSTOM_SUBTYPE_AT='2026-08-06T09:30'
 SERVICE_DA='~2026.08.01..09.30.00'
 EXPENSE_DA='~2026.08.02..09.30.00'
 NOTE_DA='~2026.08.03..09.30.00'
+ONE_SUBTYPE_DA='~2026.08.04..09.30.00'
+ZERO_SUBTYPE_DA='~2026.08.05..09.30.00'
 # Values the served view is asserted on. Each one carries the run stamp, so a
 # card left behind by an earlier run can never satisfy this run's assertion.
 SERVICE_ODO="$((52000 + STAMP % 1000))"
 SERVICE_NOTE="Front brakes and rotors $STAMP"
 EXPENSE_NOTE="Airport parking $STAMP"
 NOTE_NOTE="Rattle over rough pavement $STAMP"
+ONE_SUBTYPE_NOTE="One service subtype $STAMP"
+ZERO_SUBTYPE_NOTE="Zero service subtypes $STAMP"
+CUSTOM_SUBTYPE_NOTE="Owner service subtype $STAMP"
+CUSTOM_SUBTYPE="Owner Service $STAMP"
 SERVICE_TOTAL='$412.75'
 EXPENSE_TOTAL='$24.00'
+SERVICE_SUBTYPES_JSON='["Engine Oil","Oil Filter","Air Filter","Cabin Air Filter","Fuel Filter","Brakes, Front","Brakes, Rear","Brake Fluid","Tire Rotation","Wheel Alignment"]'
 
 click_file() {
   local body="$1" file out
@@ -133,9 +143,9 @@ eyre_view() {
 }
 
 event_payload() {
-  # kind observed total mileage station tags newTag payment notes
-  printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"%s","paymentMethod":"%s","notes":"%s"}' \
-    "$VEHICLE" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+  # kind observed total mileage station tags newTag payment notes serviceSubtypes
+  printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"%s","paymentMethod":"%s","notes":"%s","serviceSubtypes":%s}' \
+    "$VEHICLE" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}"
 }
 
 # The one served event card of this kind that carries this run's unique note.
@@ -168,6 +178,42 @@ scoped_rows() {
 eyre_login
 
 # ---------------------------------------------------------------------------
+# fixture 16 - a fresh install seeds the owner service catalog before any Rover
+# page is requested. This query is deliberately before the first /view call.
+# The source catalog has 65 rows and three duplicate labels; Rover collapses
+# each collision to one owner definition, so the starter pack has 62 rows.
+# ---------------------------------------------------------------------------
+report="$(rover_report 'FROM service-subtype-definitions D SELECT D.subtype-id, D.label, D.archived;')"
+starter_count="$(count_rows "$report" '%subtype-id')"
+[ "$starter_count" -ge 62 ] \
+  || fail "fixture 16 the pre-page-load catalog has $starter_count rows, want at least 62 starters: $report"
+starter_subtypes=(
+  'A/C System' 'Air Filter' 'Battery' 'Belts' 'Body/Chassis'
+  'Brake Fluid' 'Brakes, Front' 'Brakes, Rear' 'Cabin Air Filter' 'Car Wash'
+  'Clutch Hydraulic Fluid' 'Clutch Hydraulic System' 'Cooling System'
+  'Diesel Exhaust Fluid' 'Diesel Particulate Filter' 'Differential Fluid'
+  'Doors' 'Engine Antifreeze' 'Engine Oil' 'Exhaust System' 'Fine' 'Fuel Filter'
+  'Fuel Lines & Pipes' 'Fuel Pump' 'Fuel System' 'Glass/Mirrors' 'Heating System'
+  'Horns' 'Inspection' 'Insurance' 'Lights' 'Lubricate Chain' 'MOT' 'New Tires'
+  'Oil Filter' 'Parking' 'Payment' 'Power Steering Fluid' 'Radiator' 'Recall'
+  'Registration' 'Rust Module' 'Safety Devices' 'Spark Plugs' 'Steering System'
+  'Suspension System' 'Tax' 'Timing Belt' 'Tire A' 'Tire B' 'Tire C' 'Tire D'
+  'Tire Pressure' 'Tire Rotation' 'Tire Spare' 'Toll' 'Tow'
+  'Transmission Fluid' 'Water Pump' 'Wheel Alignment' 'Windshield Washer Fluid'
+  'Windshield Wipers'
+)
+[ "${#starter_subtypes[@]}" = 62 ] || fail "fixture 16 defines the wrong starter assertion count"
+for subtype in "${starter_subtypes[@]}"; do
+  [ "$(grep -oF "'$subtype'" <<<"$report" | wc -l)" = 1 ] \
+    || fail "fixture 16 the starter catalog does not contain exactly one $subtype: $report"
+done
+for collision in 'Car Wash' 'Insurance' 'Registration'; do
+  [ "$(grep -o "'$collision'" <<<"$report" | wc -l)" = 1 ] \
+    || fail "fixture 16 the starter catalog does not collapse $collision to one label: $report"
+done
+note "fixture 16 PASS - the database has all 62 unique service subtype starters before a Rover page load"
+
+# ---------------------------------------------------------------------------
 # fixture 1 - the owner view serves, which also bootstraps a fresh database
 # ---------------------------------------------------------------------------
 view="$(eyre_view)"
@@ -192,11 +238,12 @@ report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
 for relation in vehicle-events service-events expense-events note-events \
   vehicle-event-costs vehicle-event-cost-totals vehicle-event-odometers \
   vehicle-event-stations vehicle-event-tags vehicle-event-payment-method \
-  vehicle-event-notes; do
+  vehicle-event-notes service-subtype-definitions \
+  vehicle-event-service-subtypes; do
   grep -q "%name %tas %$relation" <<<"$report" \
     || fail "fixture 2 the pour is missing $relation"
 done
-note "fixture 2 PASS - the eleven event relations exist after the definition-layer catch-up"
+note "fixture 2 PASS - the event and service-subtype relations exist after the definition-layer catch-up"
 # A second run must be a no-op rather than an atomic abort on the first
 # already-present relation.
 ensure_def_schema
@@ -240,7 +287,7 @@ stations_before="$(count_rows "$(rover_report 'FROM stations S SELECT S.station-
 # station the fill already uses, a tag, a payment method, and a note
 # ---------------------------------------------------------------------------
 eyre_post add-service-event \
-  "$(event_payload service "$SERVICE_AT" "$SERVICE_TOTAL" "$SERVICE_ODO" "$STATION" "[\"$TAG\"]" '' "$PAYMENT" "$SERVICE_NOTE")" \
+  "$(event_payload service "$SERVICE_AT" "$SERVICE_TOTAL" "$SERVICE_ODO" "$STATION" "[\"$TAG\"]" '' "$PAYMENT" "$SERVICE_NOTE" "$SERVICE_SUBTYPES_JSON")" \
   "$(printf 'Saved service event - %s\n201' "$SERVICE_TOTAL")" 'fixture 4 service event'
 note "fixture 4 PASS - the service endpoint accepted an entered total"
 
@@ -261,7 +308,13 @@ grep -qF "data-event-station=\"$STATION\"" <<<"$card" \
 grep -qF "$TAG" <<<"$card" || fail "fixture 5 the served service card carries no tag"
 grep -qF "$PAYMENT" <<<"$card" \
   || fail "fixture 5 the served service card carries no payment method"
-note "fixture 5 PASS - the service event, its entered total, its odometer, its station, its tag, and its payment method read back through Eyre"
+for subtype in 'Engine Oil' 'Oil Filter' 'Air Filter' 'Cabin Air Filter' \
+  'Fuel Filter' 'Brakes, Front' 'Brakes, Rear' 'Brake Fluid' \
+  'Tire Rotation' 'Wheel Alignment'; do
+  grep -qF "$subtype" <<<"$card" \
+    || fail "fixture 5 the served service card is missing subtype $subtype: $card"
+done
+note "fixture 5 PASS - the service event and all 10 selected subtypes read back through Eyre"
 
 # ---------------------------------------------------------------------------
 # fixture 6 - the service reading joins the vehicle's one odometer list
@@ -283,7 +336,7 @@ note "fixture 6 PASS - the event links to that reading through vehicle-event-odo
 # row and no odometer row
 # ---------------------------------------------------------------------------
 eyre_post add-expense-event \
-  "$(event_payload expense "$EXPENSE_AT" "$EXPENSE_TOTAL" '' none '[]' '' '' "$EXPENSE_NOTE")" \
+  "$(event_payload expense "$EXPENSE_AT" "$EXPENSE_TOTAL" '' none '[]' '' '' "$EXPENSE_NOTE" '[]')" \
   "$(printf 'Saved expense event - %s\n201' "$EXPENSE_TOTAL")" 'fixture 7 expense event'
 view="$(eyre_view)"
 card="$(event_card expense "$EXPENSE_NOTE")"
@@ -304,7 +357,7 @@ note "fixture 7 PASS - the expense event reads back and wrote no sentinel statio
 # fixture 8 - a note event with no cost writes no zero-cost row
 # ---------------------------------------------------------------------------
 eyre_post add-note-event \
-  "$(event_payload note "$NOTE_AT" '' '' none '[]' '' '' "$NOTE_NOTE")" \
+  "$(event_payload note "$NOTE_AT" '' '' none '[]' '' '' "$NOTE_NOTE" '[]')" \
   $'Saved note event\n201' 'fixture 8 note event'
 view="$(eyre_view)"
 card="$(event_card note "$NOTE_NOTE")"
@@ -381,11 +434,82 @@ grep -q '%kind' <<<"$report" \
 note "fixture 11 PASS - the common header carries no kind column"
 
 # ---------------------------------------------------------------------------
+# fixture 17 - one service event carries one subtype, and it reuses the same
+# Engine Oil definition that the 10-subtype event references.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event \
+  "$(event_payload service "$ONE_SUBTYPE_AT" '' '' none '[]' '' '' "$ONE_SUBTYPE_NOTE" '["Engine Oil"]')" \
+  $'Saved service event\n201' 'fixture 17 one-subtype service event'
+report="$(scoped_rows vehicle-event-service-subtypes L subtype-id "$ONE_SUBTYPE_DA")"
+[ "$(count_rows "$report" '%subtype-id')" = 1 ] \
+  || fail "fixture 17 the one-subtype event did not write exactly one link: $report"
+report="$(rover_report "FROM service-subtype-definitions D WHERE D.label = 'Engine Oil' SELECT D.subtype-id, D.label;")"
+[ "$(count_rows "$report" '%subtype-id')" = 1 ] \
+  || fail "fixture 17 Engine Oil has duplicate definitions: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-service-subtypes L ON E.event-id = L.event-id JOIN service-subtype-definitions D ON L.subtype-id = D.subtype-id WHERE V.label = '$VEHICLE' AND D.label = 'Engine Oil' SELECT L.event-id, D.label;")"
+[ "$(count_rows "$report" '%event-id')" = 2 ] \
+  || fail "fixture 17 two events do not share the Engine Oil definition: $report"
+note "fixture 17 PASS - one subtype writes one link and two events share one owner definition"
+
+# ---------------------------------------------------------------------------
+# fixture 18 - zero selections write zero link rows and no None definition.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event \
+  "$(event_payload service "$ZERO_SUBTYPE_AT" '' '' none '[]' '' '' "$ZERO_SUBTYPE_NOTE" '[]')" \
+  $'Saved service event\n201' 'fixture 18 zero-subtype service event'
+report="$(scoped_rows vehicle-event-service-subtypes L subtype-id "$ZERO_SUBTYPE_DA")"
+grep -q '%subtype-id' <<<"$report" \
+  && fail "fixture 18 the zero-subtype event wrote a link row: $report"
+report="$(rover_report "FROM service-subtype-definitions D WHERE D.label = 'None' SELECT D.subtype-id;")"
+grep -q '%subtype-id' <<<"$report" \
+  && fail "fixture 18 the catalog contains a None sentinel: $report"
+note "fixture 18 PASS - zero selections write no link row and no sentinel definition"
+
+# ---------------------------------------------------------------------------
+# fixture 20 - the owner may add a definition while recording an event. The
+# new definition and its link are one atomic write, and the card reads it back.
+# ---------------------------------------------------------------------------
+custom_payload="$(printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"","currency":"usd","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"%s","serviceSubtypes":[],"newServiceSubtype":"%s"}' \
+  "$VEHICLE" "$CUSTOM_SUBTYPE_AT" "$CUSTOM_SUBTYPE_NOTE" "$CUSTOM_SUBTYPE")"
+eyre_post add-service-event "$custom_payload" $'Saved service event\n201' \
+  'fixture 20 owner-created service subtype'
+report="$(rover_report "FROM service-subtype-definitions D WHERE D.label = '$CUSTOM_SUBTYPE' SELECT D.subtype-id, D.label;")"
+[ "$(count_rows "$report" '%subtype-id')" = 1 ] \
+  || fail "fixture 20 the owner-created definition is missing or duplicated: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-service-subtypes L ON E.event-id = L.event-id JOIN service-subtype-definitions D ON L.subtype-id = D.subtype-id WHERE V.label = '$VEHICLE' AND D.label = '$CUSTOM_SUBTYPE' SELECT E.event-id, D.label;")"
+[ "$(count_rows "$report" '%event-id')" = 1 ] \
+  || fail "fixture 20 the new definition is not linked to its event: $report"
+view="$(eyre_view)"
+card="$(event_card service "$CUSTOM_SUBTYPE_NOTE")"
+grep -qF "$CUSTOM_SUBTYPE" <<<"$card" \
+  || fail "fixture 20 the owner-created subtype is absent from its event card"
+note "fixture 20 PASS - an owner-created subtype writes atomically and renders on its event card"
+
+# ---------------------------------------------------------------------------
+# fixture 19 - the link references the event family parent, never its service
+# child. Both foreign-key actions remain RESTRICT.
+# ---------------------------------------------------------------------------
+report="$(rover_report 'FROM sys.foreign-keys F WHERE F.child-table = %vehicle-event-service-subtypes SELECT F.parent-table, F.child-table, F.parent-column, F.child-column, F.on-delete, F.on-update;')"
+grep -q '%parent-table %tas %vehicle-events' <<<"$report" \
+  || fail "fixture 19 the subtype link does not reference vehicle-events: $report"
+grep -q '%parent-table %tas %service-events' <<<"$report" \
+  && fail "fixture 19 the subtype link references the typed child: $report"
+[ "$(grep -o '%on-delete %tas %restrict' <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 19 a subtype-link delete action is not RESTRICT: $report"
+[ "$(grep -o '%on-update %tas %restrict' <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 19 a subtype-link update action is not RESTRICT: $report"
+note "fixture 19 PASS - subtype links key to vehicle-events with RESTRICT foreign keys"
+
+# ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
 pier_session=""
 pier_args=""
 while read -r session pane_pid; do
+  args="$(ps -o args= -p "$pane_pid" 2>/dev/null)"
+  case "$args" in
+    *"$PIER"*) pier_session="$session"; pier_args="$args"; break ;;
+  esac
   child="$(pgrep -P "$pane_pid" | head -1)"
   [ -n "$child" ] || continue
   args="$(ps -o args= -p "$child" 2>/dev/null)"
@@ -464,7 +588,7 @@ note "fixture 13 PASS - the shipping action union still has five arms"
 # ---------------------------------------------------------------------------
 FORGE_NOTE="Forged kind $STAMP"
 FORGE_AT="2026-08-01T13:00"
-forge_payload="$(printf '{"vehicle":"%s","kind":"service","observed":"%s","zone":"America/Chicago","total":"","currency":"usd","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"%s"}' \
+forge_payload="$(printf '{"vehicle":"%s","kind":"service","observed":"%s","zone":"America/Chicago","total":"","currency":"usd","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"%s","serviceSubtypes":[]}' \
   "$VEHICLE" "$FORGE_AT" "$FORGE_NOTE")"
 eyre_post add-note-event "$forge_payload" $'Saved note event\n201' \
   'fixture 15 forged-kind note event'
@@ -506,6 +630,8 @@ grep -q 'EVENT_VERDICT=Saved service event - \$88.40' <<<"$browser_out" \
   || fail "fixture 14 the form verdict is wrong: $browser_out"
 grep -q 'EVENT_CARDS=1' <<<"$browser_out" \
   || fail "fixture 14 the saved event did not appear in the reloaded view: $browser_out"
+grep -q 'EVENT_SUBTYPES=3' <<<"$browser_out" \
+  || fail "fixture 14 the browser did not select and render three subtypes: $browser_out"
 report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-notes X ON E.event-id = X.event-id WHERE V.label = '$VEHICLE' SELECT X.note;")"
 grep -qF "$BROWSER_NOTE" <<<"$report" \
   || fail "fixture 14 the browser-entered event is not in the database: $report"

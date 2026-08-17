@@ -31,6 +31,7 @@
       odometers=(list vector:ast)
       stations=(list vector:ast)
       tags=(list vector:ast)
+      service-subtypes=(list vector:ast)
       payments=(list vector:ast)
       note-texts=(list vector:ast)
   ==
@@ -770,6 +771,24 @@
     rest
   ==
 ::
+++  service-subtype-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  $(rows t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<label class=\"check-option\"><input type=\"checkbox\" name=\"serviceSubtypes\" value=\""
+    label
+    "\"><span>"
+    label
+    "</span></label>"
+    rest
+  ==
+::
 ++  payment-options
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1343,6 +1362,7 @@
           payment-methods=(list vector:ast)
           consumables=(list vector:ast)
           localities=(list vector:ast)
+          service-subtype-definitions=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
@@ -1356,6 +1376,9 @@
   =/  custom-field-html  (custom-field-controls custom-definitions)
   =/  payment-html  (payment-options payment-methods)
   =/  consumable-html  (consumable-options consumables)
+  =/  service-subtype-html
+    %-  service-subtype-options
+    (order-vectors:act %label %.n service-subtype-definitions)
   ;:  weld
     (odometer-series-data odometers vehicles)
     "<section id=\"add-fill\" class=\"entry-screen app-screen\" hidden>"
@@ -1480,7 +1503,9 @@
     vehicle-html
     "</select></label><label>Kind<select name=\"kind\" required><option value=\"service\">Service</option><option value=\"expense\">Expense</option><option value=\"note\">Note</option></select></label><label>Total <span class=\"optional\">optional</span><input name=\"total\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$412.75\"></label><input name=\"currency\" type=\"hidden\" value=\"usd\"><label>Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\"></label><label>Odometer unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><fieldset class=\"station-field\"><legend>Station <span class=\"optional\">optional</span></legend><select id=\"event-station\" name=\"station\"><option value=\"none\">No station recorded</option>"
     station-html
-    "<option value=\"new\">Add new station&hellip;</option></select><div id=\"event-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div></fieldset><fieldset id=\"event-tags\"><legend>Tags <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
+    "<option value=\"new\">Add new station&hellip;</option></select><div id=\"event-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div></fieldset><fieldset id=\"event-service-subtypes\"><legend>Service work <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
+    service-subtype-html
+    "</div><label>New service item<input name=\"newServiceSubtype\" autocomplete=\"off\"></label></fieldset><fieldset id=\"event-tags\"><legend>Tags <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
     tag-html
     "</div><label>New tag<input name=\"newTag\" autocomplete=\"off\"></label></fieldset><label>Payment method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
     payment-html
@@ -1953,6 +1978,29 @@
       labels
       "</ul></dd></div>"
     ==
+  =/  service-subtype-line=tape
+    =/  subtype-rows
+      (rows-by %event-id event-id service-subtypes.events)
+    ?~  subtype-rows
+      ~
+    =/  ordered  (order-vectors:act %service-subtype %.n subtype-rows)
+    =/  labels=tape
+      =/  remaining=(list vector:ast)  ordered
+      |-  ^-  tape
+      ?~  remaining
+        ~
+      %+  weld
+        ;:  weld
+          "<li data-event-subtype>"
+          (escape (cell-text %service-subtype i.remaining))
+          "</li>"
+        ==
+      $(remaining t.remaining)
+    ;:  weld
+      "<div><dt>SERVICE WORK</dt><dd><ul class=\"event-service-subtypes\">"
+      labels
+      "</ul></dd></div>"
+    ==
   =/  payment-line=tape
     =/  payment-rows  (rows-by %event-id event-id payments.events)
     ?~  payment-rows
@@ -1982,6 +2030,7 @@
     total-line
     odometer-line
     station-line
+    service-subtype-line
     tag-line
     payment-line
     note-line
@@ -3183,9 +3232,11 @@
         (rows-at commands 47)
         (rows-at commands 48)
         (rows-at commands 49)
+        (rows-at commands 53)
         (rows-at commands 50)
         (rows-at commands 51)
     ==
+  =/  service-subtype-definitions  (rows-at commands 52)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -3254,7 +3305,7 @@
       "></span>"
       (address-locality-data localities)
       (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills fill-odometers economy-breaks def-purchases def-odometers derivations)
-      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities)
+      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtype-definitions)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
       "<details class=\"archived-vehicles\"><summary>View archived vehicles</summary><ul class=\"vehicle-list\">"
