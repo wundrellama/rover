@@ -188,14 +188,14 @@ A green run ends with:
 
 ### `event-report.hoon`
 
-M7 T1. Reads the whole vehicle-event family off a live pier: the common header,
-the three typed children, the cost evidence with its entered total, and the
-odometer, station, tag, payment-method, and note links.
+Reads the whole vehicle-event family off a live pier: the common header, all
+five typed children, the intrinsic disposal-kind label, the cost evidence with
+its entered total, and the odometer, station, tag, payment-method, and note
+links.
 
 Every link query keys on `event-id`, which is the point of the family: no
-association keys to a typed child, so one query shape covers service, expense,
-and note alike. Which child row appears in result sets 2, 3, and 4 is the only
-record of what kind an event is.
+association keys to a typed child, so one query shape covers all five kinds.
+Which child result set holds a row is the only record of the event kind.
 
 Reads only. It writes nothing and takes no argument, so it reports whatever the
 pier holds. `bin/event-test.sh` is the battery; this is for looking.
@@ -210,6 +210,16 @@ at that point is the proof that a fresh database gets the starter pack on its
 own. The third result set shows the two parents of the link: `vehicle-events`
 and `service-subtype-definitions`. A typed child in that list is the defect
 ruling 11 exists to stop.
+
+Reads only. It writes nothing and takes no argument.
+
+### `disposal-kind-report.hoon`
+
+M7 T4. Reads the six disposal-kind definitions and both foreign keys of
+`vehicle-disposals`. Run it after a fresh Rover install and before any page
+load to prove the starter catalog arrived through agent initialization. The
+foreign-key result shows that the kind is intrinsic to the disposal child and
+that the child still keys to the common event parent.
 
 Reads only. It writes nothing and takes no argument.
 

@@ -2097,6 +2097,18 @@
           eventForm.elements.kind.addEventListener('change', showSubtypes);
           showSubtypes();
         }
+        const eventDisposalKind = app.querySelector('#event-disposal-kind');
+        if (eventDisposalKind) {
+          const disposalKind = eventForm.elements.disposalKind;
+          const showDisposalKind = () => {
+            const disposal = eventForm.elements.kind.value === 'disposal';
+            eventDisposalKind.hidden = !disposal;
+            disposalKind.required = disposal;
+            if (!disposal) disposalKind.value = '';
+          };
+          eventForm.elements.kind.addEventListener('change', showDisposalKind);
+          showDisposalKind();
+        }
         eventForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = app.querySelector('#event-verdict');

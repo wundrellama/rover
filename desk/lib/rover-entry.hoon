@@ -1143,6 +1143,19 @@
       ~
     (skim u.tag-labels nonempty)
   =/  new-tag  (optional-text 'newTag' u.object)
+  ::  M7 T4. The route still decides the event kind. A disposal additionally
+  ::  names the mandatory definition its typed child references; every other
+  ::  route ignores this body member, so it cannot smuggle disposal meaning
+  ::  onto an unrelated child.
+  =/  disposal-kind-entered  (optional-text 'disposalKind' u.object)
+  =/  disposal-kind=(unit @t)
+    ?:  =(%disposal kind)
+      disposal-kind-entered
+    ~
+  ?:  ?&  =(%disposal kind)
+          ?=(~ disposal-kind)
+      ==
+    [%| %missing-key 'event.disposal-kind']
   ::  M7 T2. Several subtypes at once. An absent key and an empty array mean
   ::  the same thing, and both write no link row.
   =/  subtype-labels  (json-strings 'subtypes' u.object)
@@ -1166,6 +1179,7 @@
       new-station
       tags
       new-tag
+      disposal-kind
       subtypes
       payment-method
       notes

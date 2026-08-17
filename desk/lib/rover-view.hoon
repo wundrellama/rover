@@ -20,7 +20,7 @@
   [components=(list vector:ast) source-totals=(list vector:ast)]
 ::  The vehicle-event family travels through the history render as one name.
 ::  Every member after `events` is keyed by `event-id` - by the family PARENT,
-::  never by a typed child - so one lookup shape serves all three kinds.
+::  never by a typed child - so one lookup shape serves all five kinds.
 +$  event-rows
   $:  events=(list vector:ast)
       services=(list vector:ast)
@@ -34,6 +34,8 @@
       payments=(list vector:ast)
       note-texts=(list vector:ast)
       service-subtypes=(list vector:ast)
+      acquisitions=(list vector:ast)
+      disposals=(list vector:ast)
   ==
 +$  interval-walk
   $:  prior=(unit interval-baseline)
@@ -793,6 +795,24 @@
     rest
   ==
 ::
+++  disposal-kind-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  (disposal-kind-options t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\">"
+    label
+    "</option>"
+    rest
+  ==
+::
 ++  payment-options
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1367,10 +1387,12 @@
           consumables=(list vector:ast)
           localities=(list vector:ast)
           service-subtypes=(list vector:ast)
+          disposal-kinds=(list vector:ast)
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
   =/  service-subtype-html  (service-subtype-options service-subtypes)
+  =/  disposal-kind-html  (disposal-kind-options disposal-kinds)
   =/  definition-html  (definition-options definitions vehicles)
   =/  station-html  (station-options stations localities)
   =/  additive-html  (additive-options additives)
@@ -1497,18 +1519,20 @@
     "</select></label><label>Consumable<select name=\"consumable\" required>"
     consumable-html
     "</select></label><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" required></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" required></label><input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\"><label>Settlement<select name=\"settlement\"><option value=\"standard\">Standard</option><option value=\"cash\">Cash</option></select></label><label>Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\"></label><label>Odometer unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save purchase</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"consumable-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
-    ::  M7 T1. One form for all three kinds. Total, odometer, station, tags,
+    ::  One form for all five kinds. Total, odometer, station, tags,
     ::  payment method, and note are every one optional: a blank field writes
     ::  no row, which is how a parking fee with no station and a note with no
     ::  cost stay distinct from a zero.
     "<section id=\"add-event\" class=\"entry-screen app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header><p class=\"eyebrow\">NEW EVENT</p><h2>Add event</h2></header><form id=\"event-form\"><label>Vehicle<select name=\"vehicle\" required>"
     vehicle-html
-    "</select></label><label>Kind<select name=\"kind\" required><option value=\"service\">Service</option><option value=\"expense\">Expense</option><option value=\"note\">Note</option></select></label><label>Total <span class=\"optional\">optional</span><input name=\"total\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$412.75\"></label><input name=\"currency\" type=\"hidden\" value=\"usd\"><label>Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\"></label><label>Odometer unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><fieldset class=\"station-field\"><legend>Station <span class=\"optional\">optional</span></legend><select id=\"event-station\" name=\"station\"><option value=\"none\">No station recorded</option>"
+    "</select></label><label>Kind<select name=\"kind\" required><option value=\"service\">Service</option><option value=\"expense\">Expense</option><option value=\"note\">Note</option><option value=\"acquisition\">Acquisition</option><option value=\"disposal\">Disposal</option></select></label><label id=\"event-disposal-kind\" hidden>Disposal kind<select name=\"disposalKind\"><option value=\"\">Choose a kind</option>"
+    disposal-kind-html
+    "</select></label><label>Total <span class=\"optional\">optional</span><input name=\"total\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"$412.75\"></label><input name=\"currency\" type=\"hidden\" value=\"usd\"><label>Odometer <span class=\"optional\">optional</span><input name=\"mileage\" inputmode=\"decimal\" autocomplete=\"off\"></label><label>Odometer unit<select name=\"mileageUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label><fieldset class=\"station-field\"><legend>Location / counterparty <span class=\"optional\">optional</span></legend><select id=\"event-station\" name=\"station\"><option value=\"none\">No location recorded</option>"
     station-html
     "<option value=\"new\">Add new station&hellip;</option></select><div id=\"event-new-station\" hidden><label>Station label<input name=\"newStationLabel\" autocomplete=\"off\"></label><label>Place label<input name=\"newPlaceLabel\" autocomplete=\"off\"></label><label>Station kind<select name=\"newStationKind\"><option value=\"private\">Private</option><option value=\"fuel\">Fuel</option><option value=\"charging\">Charging</option><option value=\"mixed\">Mixed</option></select></label></div></fieldset>"
     ::  M7 T2. The subtype picker. The catalog is long, so it opens behind a
     ::  toggle the way the fill tag picker does. It shows for a service event
-    ::  and hides for the other two kinds - a UI affordance, not a schema
+    ::  and hides for the other four kinds - a UI affordance, not a schema
     ::  constraint, because the link keys to the event parent.
     "<fieldset id=\"event-subtypes\" hidden><legend>Service subtypes <span class=\"optional\">optional</span></legend><button type=\"button\" id=\"event-subtypes-toggle\" aria-expanded=\"false\">Choose subtypes</button><div id=\"event-subtypes-picker\" hidden><div class=\"check-grid\">"
     service-subtype-html
@@ -1920,6 +1944,10 @@
     %expense
   ?^  (rows-by %event-id event-id notes.events)
     %note
+  ?^  (rows-by %event-id event-id acquisitions.events)
+    %acquisition
+  ?^  (rows-by %event-id event-id disposals.events)
+    %disposal
   %unknown
 ::
 ::  An absent member renders NO line. The absence of the row is the value, so
@@ -1929,6 +1957,11 @@
   ^-  tape
   =/  event-id  (cell-atom %event-id row)
   =/  kind  (event-kind-of event-id events)
+  =/  disposal-rows  (rows-by %event-id event-id disposals.events)
+  =/  disposal-kind=(unit @t)
+    ?~  disposal-rows
+      ~
+    `(cell-text %disposal-kind i.disposal-rows)
   =/  observed=tape
     ;:  weld
       (trip (format-da:render `@da`(cell-atom %observed-start row)))
@@ -2066,10 +2099,26 @@
       (escape (cell-text %note i.note-rows))
       "</dd></div>"
     ==
+  =/  disposal-kind-line=tape
+    ?~  disposal-kind
+      ~
+    ;:  weld
+      "<div><dt>DISPOSAL KIND</dt><dd>"
+      (escape u.disposal-kind)
+      "</dd></div>"
+    ==
   ;:  weld
     "<article class=\"history-card event\" data-event-kind=\""
     (escape (scot %tas kind))
-    "\"><header><span>"
+    "\""
+    ?~  disposal-kind
+      ~
+    ;:  weld
+      " data-disposal-kind=\""
+      (escape u.disposal-kind)
+      "\""
+    ==
+    "><header><span>"
     (cuss (trip (scot %tas kind)))
     "</span><time>"
     observed
@@ -2077,6 +2126,7 @@
     total-line
     odometer-line
     station-line
+    disposal-kind-line
     subtype-line
     tag-line
     payment-line
@@ -3287,8 +3337,11 @@
         (rows-at commands 50)
         (rows-at commands 51)
         (rows-at commands 52)
+        (rows-at commands 54)
+        (rows-at commands 55)
     ==
   =/  service-subtypes  (rows-at commands 53)
+  =/  disposal-kinds  (rows-at commands 56)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -3358,7 +3411,7 @@
       "></span>"
       (address-locality-data localities)
       (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations)
-      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes)
+      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes disposal-kinds)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
       "<details class=\"archived-vehicles\"><summary>View archived vehicles</summary><ul class=\"vehicle-list\">"

@@ -1,4 +1,4 @@
--- Rover schema — full pour, 81 relations.
+-- Rover schema — full pour, 84 relations.
 -- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
 -- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5),
 --                     +place-address-formatted / place-addresses loses formatted (Q9),
@@ -6,9 +6,11 @@
 -- Amended 2026-08-16 (M7 T1): +the eleven-relation vehicle-event family.
 -- Amended 2026-08-17 (M7 T2): +service-subtype-definitions,
 --                     +vehicle-event-service-subtypes.
+-- Amended 2026-08-17 (M7 T4): +vehicle-acquisitions,
+--                     +disposal-kind-definitions, +vehicle-disposals.
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
--- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
+-- SYNTAX NOTES (verified against pinned Obelisk master @ 9de6332, zuse 408):
 --   * Multi-FK continuation: FOREIGN KEY (a) REFERENCES t (a) ON ..., (b) REFERENCES u (b) ON ...
 --     Do NOT repeat the FOREIGN KEY keyword after the comma — the parser rejects it.
 --   * Every FK carries explicit ON DELETE RESTRICT ON UPDATE RESTRICT.
@@ -685,6 +687,16 @@ CREATE TABLE rover..vehicle-events
   FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
+-- The acquisition child is identity only. Purchase price, odometer,
+-- counterparty location, payment method, tags, and notes are all associations
+-- of the event parent. T4 adds no acquisition-kind catalog: acquisition is the
+-- ownership-opening fact, while leases remain outside Rover's scope.
+CREATE TABLE rover..vehicle-acquisitions
+  (event-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
 -- Identity only, as charging-sessions carries identity only. Exactly one child
 -- per event is a Rover invariant: Obelisk cannot express a cross-table XOR.
 CREATE TABLE rover..service-events
@@ -703,6 +715,21 @@ CREATE TABLE rover..note-events
   (event-id @ux)
   PRIMARY KEY (event-id)
   FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Disposal kind is mandatory and intrinsic to a disposal. It belongs on the
+-- typed child, rather than in an association that could attach a
+-- disposal-only value to a service, expense, note, or acquisition.
+CREATE TABLE rover..disposal-kind-definitions
+  (disposal-kind-id @ux, label @t, archived @f, recorded-at @da)
+  PRIMARY KEY (disposal-kind-id);
+
+CREATE TABLE rover..vehicle-disposals
+  (event-id @ux, disposal-kind-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (disposal-kind-id) REFERENCES disposal-kind-definitions (disposal-kind-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- Cost evidence, shaped like charging-costs. An event with no cost has no row

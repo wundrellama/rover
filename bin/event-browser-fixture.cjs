@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 
-// Drives the M7 T1 "Add event" form in a real browser. The endpoint battery
-// proves the write; this proves a person can reach it.
+// Drives the shared "Add event" form in a real browser. The endpoint battery
+// proves the writes; this proves a person can reach every event-family path.
 
 const {chromium} = require(process.env.ROVER_PLAYWRIGHT_MODULE);
 
 const [
   url, authName, auth, vehicle, station, tag, payment, total, mileage, notes,
-  subtypeList
+  subtypeList, acquisitionNote, disposalNote
 ] = process.argv.slice(2);
 const subtypes = (subtypeList || '').split(',').filter((name) => name.length > 0);
 const executablePath = process.env.ROVER_CHROMIUM;
@@ -98,6 +98,68 @@ function fail(message) {
       notes
     );
     console.log(`EVENT_SUBTYPES=${shown}`);
+
+    const saveOwnership = async (kind, amount, reading, note, disposalKind) => {
+      await page.locator('[data-open-screen="add-event"]').first().click();
+      await form.waitFor({state: 'visible'});
+      await form.locator('[name="vehicle"]').selectOption(vehicle);
+      await form.locator('[name="kind"]').selectOption(kind);
+      if (kind === 'disposal') {
+        const kindControl = form.locator('[name="disposalKind"]');
+        await kindControl.waitFor({state: 'visible'});
+        await kindControl.selectOption({label: disposalKind});
+      }
+      await form.locator('[name="total"]').fill(amount);
+      await form.locator('[name="mileage"]').fill(reading);
+      await form.locator('[name="notes"]').fill(note);
+
+      await form.locator('button[type="submit"]').click();
+      await page.waitForFunction(
+        () => {
+          const value = document.querySelector('#event-verdict')?.value || '';
+          return value.length > 0 && value !== 'Saving…';
+        },
+        null,
+        {timeout: 30000}
+      );
+      const ownershipVerdict = await form
+        .locator('#event-verdict')
+        .evaluate((node) => node.value);
+      console.log(`${kind.toUpperCase()}_VERDICT=${ownershipVerdict}`);
+      await page.waitForFunction(
+        ({eventKind, needle}) =>
+          Array.from(
+            document.querySelectorAll(`[data-event-kind="${eventKind}"]`)
+          ).some((card) => card.textContent.includes(needle)),
+        {eventKind: kind, needle: note},
+        {timeout: 30000}
+      );
+    };
+
+    if (acquisitionNote && disposalNote) {
+      await saveOwnership(
+        'acquisition', '$22,000.00', '56000', acquisitionNote, ''
+      );
+      await saveOwnership(
+        'disposal', '$19,000.00', '56100', disposalNote, 'Gifted'
+      );
+      const ownershipCards = await page.evaluate(
+        ({acquisitionNeedle, disposalNeedle}) => {
+          const cards = Array.from(document.querySelectorAll('.history-card.event'));
+          return cards.filter(
+            (card) =>
+              card.textContent.includes(acquisitionNeedle) ||
+              card.textContent.includes(disposalNeedle)
+          ).length;
+        },
+        {acquisitionNeedle: acquisitionNote, disposalNeedle: disposalNote}
+      );
+      console.log(`OWNERSHIP_CARDS=${ownershipCards}`);
+      const gifted = await page.locator(
+        `[data-event-kind="disposal"][data-disposal-kind="Gifted"]`
+      ).filter({hasText: disposalNote}).count();
+      console.log(`GIFTED_CARDS=${gifted}`);
+    }
   } catch (error) {
     fail(error.stack || error.message);
   } finally {

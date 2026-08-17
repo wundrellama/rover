@@ -253,7 +253,7 @@
 ::  Which typed child of `vehicle-events` a new event creates. The kind is not
 ::  a column: it is which child row exists. This term never reaches the
 ::  database - it selects the INSERT target and nothing else.
-+$  event-kind  ?(%service %expense %note)
++$  event-kind  ?(%service %expense %note %acquisition %disposal)
 ::  One vehicle event as a human entered it (M7 T1). Every optional member is
 ::  a unit, and a `~` writes NO row rather than a bunt, a zero, or an empty
 ::  string. The total is entered: a shop invoice has no quantity and no unit
@@ -272,6 +272,9 @@
       new-station=(unit new-station-entry)
       tag-labels=(list @t)
       new-tag-label=(unit @t)
+      ::  M7 T4. Mandatory only for a disposal and intrinsic to its typed
+      ::  child. Acquisition needs no kind family in this milestone.
+      disposal-kind-label=(unit @t)
       ::  M7 T2. Several subtypes at once, because the real corpus holds one
       ::  service record carrying ten. An empty list writes NO link row: the
       ::  absence of the rows is what "no subtype" means, and there is no

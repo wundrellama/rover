@@ -160,7 +160,7 @@
 ++  seed-starters
   |=  [base=@ux now=@da]
   ^-  tape
-  (seed-missing-starters base now %.y %.y %.y %.y %.y)
+  (seed-missing-starters base now %.y %.y %.y %.y %.y %.y)
 ::
 ++  seed-missing-starters
   |=  $:  base=@ux
@@ -170,6 +170,7 @@
           additives-empty=?
           driving-modes-empty=?
           service-subtypes-empty=?
+          disposal-kinds-empty=?
       ==
   ^-  tape
   ;:  weld
@@ -187,6 +188,9 @@
     ~
     ?:  service-subtypes-empty
       (seed-service-subtypes base now)
+    ~
+    ?:  disposal-kinds-empty
+      (seed-disposal-kinds base now)
     ~
   ==
 ::
@@ -443,6 +447,36 @@
     ==
   $(labels t.labels, ordinal +(ordinal))
 ::
+++  disposal-kind-starters
+  ^-  (list tape)
+  :~  "Sold"
+      "Traded in"
+      "Totaled"
+      "Scrapped"
+      "Gifted"
+      "Stolen"
+  ==
+::
+++  seed-disposal-kinds
+  |=  [base=@ux now=@da]
+  ^-  tape
+  =/  labels=(list tape)  disposal-kind-starters
+  =/  ordinal=@ud  9.501
+  |-  ^-  tape
+  ?~  labels
+    ~
+  %+  weld
+    ;:  weld
+      "INSERT INTO disposal-kind-definitions VALUES ("
+      (scow %ux (fixture-id base ordinal))
+      ", '"
+      i.labels
+      "', N, "
+      (scow %da now)
+      "); "
+    ==
+  $(labels t.labels, ordinal +(ordinal))
+::
 ++  starter-check
   ^-  tape
   ;:  weld
@@ -450,7 +484,8 @@
     "FROM consumable-definitions C SELECT C.consumable-id, C.label, C.archived; "
     "FROM additive-definitions A SELECT A.additive-id, A.label, A.archived; "
     "FROM driving-mode-definitions D SELECT D.mode-id, D.label, D.archived; "
-    "FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
+    "FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived; "
+    "FROM disposal-kind-definitions D SELECT D.disposal-kind-id, D.label, D.archived;"
   ==
 ::
 ++  consumable-lookup
@@ -556,6 +591,7 @@
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
     " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
     " FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
+    " FROM disposal-kind-definitions D SELECT D.disposal-kind-id, D.label, D.archived;"
   ==
 ::
 ::  One atomic script for one vehicle event, shaped after +insert-consumable.
@@ -569,6 +605,7 @@
           tag-ids=(list @ux)
           subtype-ids=(list @ux)
           payment-method-id=(unit @ux)
+          disposal-kind-id=(unit @ux)
           input=event-entry:rover
           recorded-at=@da
       ==
@@ -619,18 +656,23 @@
     ==
   ::  The kind is this row and nothing else. No column repeats it.
   =/  child-row=tape
-    =/  relation=tape
-      ?-  kind.input
-        %service  "service-events"
-        %expense  "expense-events"
-        %note     "note-events"
-      ==
-    ;:  weld
-      " INSERT INTO "
-      relation
-      " VALUES ("
-      event
-      ");"
+    ?-  kind.input
+      %service
+        (weld " INSERT INTO service-events VALUES (" (weld event ");"))
+      %expense
+        (weld " INSERT INTO expense-events VALUES (" (weld event ");"))
+      %note
+        (weld " INSERT INTO note-events VALUES (" (weld event ");"))
+      %acquisition
+        (weld " INSERT INTO vehicle-acquisitions VALUES (" (weld event ");"))
+      %disposal
+        ;:  weld
+          " INSERT INTO vehicle-disposals VALUES ("
+          event
+          ", "
+          (scow %ux (need disposal-kind-id))
+          ");"
+        ==
     ==
   =/  cost-rows=tape
     ?~  total-mills.input
@@ -951,6 +993,11 @@
       ::  type-specific column: the kind is which typed child row exists.
       :-  %vehicle-events
       "CREATE TABLE rover..vehicle-events (event-id @ux, vehicle-id @ux, observed-start @da, observed-end @da, observed-precision @tas, source-zone @t, recorded-at @da) PRIMARY KEY (event-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M7 T4. Buying a vehicle is an event-family child. Its price,
+      ::  odometer, counterparty, payment method, tags, and notes all use the
+      ::  parent-keyed associations below, so the typed child is identity only.
+      :-  %vehicle-acquisitions
+      "CREATE TABLE rover..vehicle-acquisitions (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       ::  Identity only, exactly as charging-sessions carries identity only.
       ::  Rover's atomic write and reconciliation hold exactly-one-child;
       ::  Obelisk cannot express a cross-table XOR.
@@ -960,6 +1007,13 @@
       "CREATE TABLE rover..expense-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %note-events
       "CREATE TABLE rover..note-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  Disposal kind is mandatory and intrinsic to disposing of a vehicle.
+      ::  It therefore lives on the typed child, not in an association that
+      ::  could attach a disposal-only value to an unrelated event kind.
+      :-  %disposal-kind-definitions
+      "CREATE TABLE rover..disposal-kind-definitions (disposal-kind-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (disposal-kind-id); "
+      :-  %vehicle-disposals
+      "CREATE TABLE rover..vehicle-disposals (event-id @ux, disposal-kind-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (disposal-kind-id) REFERENCES disposal-kind-definitions (disposal-kind-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       ::  Cost evidence, shaped like charging-costs. The state column is what
       ::  lets a later itemized service invoice attach components without a
       ::  column on this row. An event with no cost has NO row here.
@@ -1092,9 +1146,9 @@
     " FROM vehicle-refill-reserve R SELECT R.vehicle-id, R.reserve-percent;"
     " FROM charging-cost-components C SELECT C.acquisition-id, C.component, C.quantity, C.quantity-decimals, C.quantity-unit, C.rate-mills, C.amount-mills;"
     " FROM charging-cost-source-totals T SELECT T.acquisition-id, T.total-mills;"
-    ::  M7 T1. The event family reads as a parent plus its typed children plus
-    ::  its parent-keyed links. The three child queries are what tell the view
-    ::  which kind an event is; there is no kind column to read.
+    ::  The event family reads as a parent plus its typed children plus its
+    ::  parent-keyed links. The child queries are what tell the view which kind
+    ::  an event is; there is no kind column to read.
     " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id SELECT V.vehicle-id, E.event-id, E.observed-start, E.observed-end, E.source-zone, E.recorded-at;"
     " FROM service-events S SELECT S.event-id;"
     " FROM expense-events X SELECT X.event-id;"
@@ -1118,6 +1172,11 @@
     ::  the event parent, so one query serves every kind.
     " FROM vehicle-event-service-subtypes L JOIN service-subtype-definitions S ON L.service-subtype-id = S.service-subtype-id SELECT L.event-id, S.label AS service-subtype;"
     " FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
+    ::  M7 T4 appends its queries so every shipped positional result above
+    ::  keeps its index. The disposal join exposes a human label, never its id.
+    " FROM vehicle-acquisitions A SELECT A.event-id;"
+    " FROM vehicle-disposals D JOIN disposal-kind-definitions K ON D.disposal-kind-id = K.disposal-kind-id SELECT D.event-id, K.label AS disposal-kind;"
+    " FROM disposal-kind-definitions D SELECT D.disposal-kind-id, D.label, D.archived;"
   ==
 ::
 ++  sql-quote

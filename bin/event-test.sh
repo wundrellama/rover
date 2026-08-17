@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rover M7 T1 event-family battery. Real Eyre, real pinned Obelisk, real pier.
+# Rover M7 event-family battery. Real Eyre, real pinned Obelisk, real pier.
 #
 # Every write goes through the product endpoint a browser calls. Every read is
 # either the served view or a urQL query that %obelisk answers. Nothing here
@@ -89,6 +89,28 @@ BARE_TOTAL='$95.00'
 CHARGE_AT='2026-08-07T09:30'
 CHARGE_DA='~2026.08.07..09.30.00'
 CHARGE_ODO="$((54000 + STAMP % 1000))"
+# M7 T4. The buy-sell-rebuy sequence predates the fill, so the existing
+# current-odometer fixture remains a control rather than changing meaning.
+ACQUISITION_AT='2026-06-01T09:30'
+DISPOSAL_AT='2026-06-10T09:30'
+REACQUISITION_AT='2026-06-20T09:30'
+ACQUISITION_DA='~2026.06.01..09.30.00'
+DISPOSAL_DA='~2026.06.10..09.30.00'
+REACQUISITION_DA='~2026.06.20..09.30.00'
+ACQUISITION_ODO="$((50000 + STAMP % 100))"
+DISPOSAL_ODO="$((50100 + STAMP % 100))"
+REACQUISITION_ODO="$((50200 + STAMP % 100))"
+ACQUISITION_TOTAL='$18,500.00'
+DISPOSAL_TOTAL='$14,250.00'
+REACQUISITION_TOTAL='$15,000.00'
+ACQUISITION_NOTE="Bought from original owner $STAMP"
+DISPOSAL_NOTE="Sold to second owner $STAMP"
+REACQUISITION_NOTE="Bought back from second owner $STAMP"
+TRADE_OLD="Trade Old $STAMP"
+TRADE_NEW="Trade New $STAMP"
+TRADE_DISPOSAL_NOTE="Trade allowance $STAMP"
+TRADE_ACQUISITION_NOTE="Replacement purchase $STAMP"
+ARCHIVE_ONLY="Archive Only $STAMP"
 # The owner's real 2026-04-15 record carries ten subtypes at once. These ten
 # are all starter-pack labels, and none is created by the event write.
 MULTI_SUBTYPES='["Engine Oil","Oil Filter","Air Filter","Cabin Air Filter","Fuel Filter","Tire Rotation","Brake Fluid","Windshield Wipers","Battery","Inspection"]'
@@ -170,6 +192,12 @@ event_subtype_payload() {
     "$VEHICLE" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
 }
 
+ownership_payload() {
+  # vehicle observed total mileage station tags payment notes disposal-kind
+  printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"","paymentMethod":"%s","notes":"%s","disposalKind":"%s"}' \
+    "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+}
+
 # The one served event card of this kind that carries this run's unique note.
 # An empty result means the card this run wrote is not in the document.
 event_card() {
@@ -239,6 +267,40 @@ report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
 grep -q '%name %tas %vehicle-events' <<<"$report" \
   || fail "fixture 2 a second catch-up run damaged the pour"
 note "fixture 2 PASS - a second catch-up run changes nothing"
+
+# ---------------------------------------------------------------------------
+# fixture 25 - the two ownership children and disposal-kind definition family
+# arrive through the post-publish relation pour. The kind is intrinsic to the
+# disposal child, and every foreign key remains RESTRICT.
+# ---------------------------------------------------------------------------
+report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
+for relation in vehicle-acquisitions vehicle-disposals disposal-kind-definitions; do
+  grep -q "%name %tas %$relation" <<<"$report" \
+    || fail "fixture 25 the pour is missing $relation"
+done
+grep -q '%name %tas %vehicle-event-disposal-kinds' <<<"$report" \
+  && fail "fixture 25 the pour added a disposal-kind association relation"
+report="$(rover_report 'FROM sys.foreign-keys WHERE child-table = %vehicle-disposals SELECT parent-table, parent-column, child-column, on-delete, on-update;')"
+grep -q '%parent-table %tas %vehicle-events' <<<"$report" \
+  || fail "fixture 25 vehicle-disposals does not key to vehicle-events: $report"
+grep -q '%parent-table %tas %disposal-kind-definitions' <<<"$report" \
+  || fail "fixture 25 disposal-kind-id is not intrinsic to vehicle-disposals: $report"
+[ "$(grep -o '%on-delete %tas %restrict' <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 25 a vehicle-disposals foreign key is not RESTRICT on delete: $report"
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s3)
+(pure:m !>(~))' > /dev/null
+report="$(rover_report 'FROM disposal-kind-definitions D SELECT D.disposal-kind-id, D.label, D.archived;')"
+for label in 'Sold' 'Traded in' 'Totaled' 'Scrapped' 'Gifted' 'Stolen'; do
+  grep -qF "%label 116 '$label'" <<<"$report" \
+    || fail "fixture 25 the disposal-kind starter pack is missing $label: $report"
+done
+kind_rows="$(count_rows "$report" '%disposal-kind-id')"
+[ "$kind_rows" = 6 ] \
+  || fail "fixture 25 the disposal-kind starter pack has $kind_rows rows, want 6"
+note "fixture 25 PASS - ownership children and the six disposal kinds use the ratified relation shape"
 
 # ---------------------------------------------------------------------------
 # fixture 3 - baseline state a real owner already has: a vehicle, a fill at a
@@ -583,6 +645,142 @@ grep -qF "CURRENT ODOMETER - DERIVED</span><strong>$charge_odo_display mi" <<<"$
 note "fixture 23 PASS - fill and charge mileage share the parent-keyed link and one odometer stream"
 
 # ---------------------------------------------------------------------------
+# fixture 26 - an acquisition uses the existing parent-keyed cost, odometer,
+# station, tag, payment-method, and note relations, and renders through Eyre.
+# ---------------------------------------------------------------------------
+eyre_post add-acquisition-event \
+  "$(ownership_payload "$VEHICLE" "$ACQUISITION_AT" "$ACQUISITION_TOTAL" "$ACQUISITION_ODO" "$STATION" "[\"$TAG\"]" "$PAYMENT" "$ACQUISITION_NOTE" '')" \
+  "$(printf 'Saved acquisition event - %s\n201' "$ACQUISITION_TOTAL")" \
+  'fixture 26 acquisition event'
+view="$(eyre_view)"
+card="$(event_card acquisition "$ACQUISITION_NOTE")"
+[ -n "$card" ] || fail "fixture 26 no acquisition card carrying this run's note"
+grep -qF "data-event-total=\"$ACQUISITION_TOTAL\"" <<<"$card" \
+  || fail "fixture 26 the acquisition card carries no entered total: $card"
+acquisition_odo_display="$(printf '%s' "$ACQUISITION_ODO" | sed 's/\([0-9]\{2\}\)\([0-9]\{3\}\)$/\1,\2/')"
+grep -qF "data-event-odometer=\"$acquisition_odo_display mi\"" <<<"$card" \
+  || fail "fixture 26 the acquisition card carries no linked odometer: $card"
+grep -qF "data-event-station=\"$STATION\"" <<<"$card" \
+  || fail "fixture 26 the acquisition card carries no counterparty location: $card"
+grep -qF "$TAG" <<<"$card" || fail "fixture 26 the acquisition card carries no tag"
+grep -qF "$PAYMENT" <<<"$card" \
+  || fail "fixture 26 the acquisition card carries no payment method"
+report="$(scoped_rows vehicle-acquisitions A event-id "$ACQUISITION_DA")"
+grep -q '%event-id' <<<"$report" \
+  || fail "fixture 26 the acquisition typed child is absent: $report"
+note "fixture 26 PASS - an acquisition saves with its entered total and parent-keyed associations and reads through Eyre"
+
+# ---------------------------------------------------------------------------
+# fixture 27 - a disposal requires one intrinsic definition id, while its
+# entered amount and odometer remain associations of the event parent.
+# ---------------------------------------------------------------------------
+eyre_post add-disposal-event \
+  "$(ownership_payload "$VEHICLE" "$DISPOSAL_AT" "$DISPOSAL_TOTAL" "$DISPOSAL_ODO" none '[]' '' "$DISPOSAL_NOTE" 'Sold')" \
+  "$(printf 'Saved disposal event - %s\n201' "$DISPOSAL_TOTAL")" \
+  'fixture 27 disposal event'
+view="$(eyre_view)"
+card="$(event_card disposal "$DISPOSAL_NOTE")"
+[ -n "$card" ] || fail "fixture 27 no disposal card carrying this run's note"
+grep -qF "data-event-total=\"$DISPOSAL_TOTAL\"" <<<"$card" \
+  || fail "fixture 27 the disposal card carries no entered total: $card"
+disposal_odo_display="$(printf '%s' "$DISPOSAL_ODO" | sed 's/\([0-9]\{2\}\)\([0-9]\{3\}\)$/\1,\2/')"
+grep -qF "data-event-odometer=\"$disposal_odo_display mi\"" <<<"$card" \
+  || fail "fixture 27 the disposal card carries no linked odometer: $card"
+grep -qF 'data-disposal-kind="Sold"' <<<"$card" \
+  || fail "fixture 27 the disposal card carries no kind: $card"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-disposals D ON E.event-id = D.event-id JOIN disposal-kind-definitions K ON D.disposal-kind-id = K.disposal-kind-id WHERE V.label = '$VEHICLE' AND E.observed-start = $DISPOSAL_DA SELECT D.event-id, K.label AS disposal-kind;")"
+grep -q "%disposal-kind 116 'Sold'" <<<"$report" \
+  || fail "fixture 27 the disposal child does not hold Sold: $report"
+report="$(rover_report "FROM vehicles V WHERE V.label = '$VEHICLE' AND V.archived = N SELECT V.vehicle-id;")"
+grep -q '%vehicle-id' <<<"$report" \
+  || fail "fixture 27 selling the vehicle archived it"
+note "fixture 27 PASS - a disposal saves with an entered total, intrinsic kind, and linked odometer without archiving the vehicle"
+
+# ---------------------------------------------------------------------------
+# fixture 28 - the same vehicle can be bought, sold, and bought again. The
+# served history orders all three facts by observed time, newest first.
+# ---------------------------------------------------------------------------
+eyre_post add-acquisition-event \
+  "$(ownership_payload "$VEHICLE" "$REACQUISITION_AT" "$REACQUISITION_TOTAL" "$REACQUISITION_ODO" none '[]' '' "$REACQUISITION_NOTE" '')" \
+  "$(printf 'Saved acquisition event - %s\n201' "$REACQUISITION_TOTAL")" \
+  'fixture 28 reacquisition event'
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-acquisitions A ON E.event-id = A.event-id WHERE V.label = '$VEHICLE' SELECT A.event-id;")"
+[ "$(count_rows "$report" '%event-id')" = 2 ] \
+  || fail "fixture 28 the vehicle does not have two acquisition children: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-disposals D ON E.event-id = D.event-id WHERE V.label = '$VEHICLE' SELECT D.event-id;")"
+[ "$(count_rows "$report" '%event-id')" = 1 ] \
+  || fail "fixture 28 the vehicle does not have one disposal child: $report"
+view="$(eyre_view)"
+ownership_order="$(python3 -c '
+import sys
+document = sys.stdin.read()
+needles = sys.argv[1:]
+positions = [document.find(needle) for needle in needles]
+print("ok" if all(position >= 0 for position in positions) and positions == sorted(positions) else positions)
+' "$REACQUISITION_NOTE" "$DISPOSAL_NOTE" "$ACQUISITION_NOTE" <<<"$view")"
+[ "$ownership_order" = ok ] \
+  || fail "fixture 28 the buy-sell-rebuy cards are absent or out of order: $ownership_order"
+note "fixture 28 PASS - one vehicle carries acquisition, disposal, and reacquisition events in history order"
+
+# ---------------------------------------------------------------------------
+# fixture 29 - a trade-in is two self-contained ledgers: a traded-in disposal
+# on the old vehicle and an ordinary acquisition on the replacement vehicle.
+# No child relation joins either typed child to the other.
+# ---------------------------------------------------------------------------
+eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$TRADE_OLD")" \
+  "$(printf 'Added vehicle - %s\n201' "$TRADE_OLD")" 'fixture 29 old trade vehicle'
+eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$TRADE_NEW")" \
+  "$(printf 'Added vehicle - %s\n201' "$TRADE_NEW")" 'fixture 29 replacement vehicle'
+eyre_post add-disposal-event \
+  "$(ownership_payload "$TRADE_OLD" '2026-06-21T09:30' '$5,000.00' '75000' none '[]' '' "$TRADE_DISPOSAL_NOTE" 'Traded in')" \
+  $'Saved disposal event - $5,000.00\n201' 'fixture 29 traded-in disposal'
+eyre_post add-acquisition-event \
+  "$(ownership_payload "$TRADE_NEW" '2026-06-21T10:30' '$30,000.00' '10' none '[]' '' "$TRADE_ACQUISITION_NOTE" '')" \
+  $'Saved acquisition event - $30,000.00\n201' 'fixture 29 replacement acquisition'
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-disposals D ON E.event-id = D.event-id JOIN disposal-kind-definitions K ON D.disposal-kind-id = K.disposal-kind-id WHERE V.label = '$TRADE_OLD' SELECT K.label AS disposal-kind; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-acquisitions A ON E.event-id = A.event-id WHERE V.label = '$TRADE_NEW' SELECT A.event-id;")"
+grep -q "%disposal-kind 116 'Traded in'" <<<"$report" \
+  || fail "fixture 29 the old vehicle has no traded-in disposal: $report"
+grep -q '%event-id' <<<"$report" \
+  || fail "fixture 29 the replacement vehicle has no independent acquisition: $report"
+report="$(rover_report 'FROM sys.foreign-keys WHERE parent-table = %vehicle-acquisitions OR parent-table = %vehicle-disposals SELECT child-table, parent-table;')"
+grep -q '%child-table' <<<"$report" \
+  && fail "fixture 29 a relation joins an acquisition or disposal typed child: $report"
+report="$(rover_report 'FROM sys.columns WHERE namespace = %dbo SELECT name, col-name;')"
+grep -Eq '%col-name %tas %(acquisition-event-id|disposal-event-id|trade-in-event-id)' <<<"$report" \
+  && fail "fixture 29 the schema carries a trade-in join column: $report"
+note "fixture 29 PASS - trade-in disposal and replacement acquisition are independent, with no relation joining them"
+
+# ---------------------------------------------------------------------------
+# fixture 30 - purchase and sale mileage is in the same vehicle odometer list
+# as fill and charge mileage; the links copy no reading values.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = '$VEHICLE' SELECT O.value-digits;")"
+for reading in 52000 "$CHARGE_ODO" "$ACQUISITION_ODO" "$DISPOSAL_ODO" "$REACQUISITION_ODO"; do
+  grep -q "%value-digits 25717 $reading" <<<"$report" \
+    || fail "fixture 30 the vehicle odometer stream is missing $reading: $report"
+done
+report="$(rover_report 'FROM sys.columns WHERE name = %vehicle-event-odometers SELECT col-name;')"
+[ "$(count_rows "$report" '%col-name')" = 2 ] \
+  || fail "fixture 30 vehicle-event-odometers copies a reading instead of only linking ids: $report"
+note "fixture 30 PASS - acquisition, disposal, fill, and charge readings share one odometer-observations stream"
+
+# ---------------------------------------------------------------------------
+# fixture 31 - archiving is independent in the other direction too: hiding a
+# vehicle creates no disposal fact.
+# ---------------------------------------------------------------------------
+eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$ARCHIVE_ONLY")" \
+  "$(printf 'Added vehicle - %s\n201' "$ARCHIVE_ONLY")" 'fixture 31 archive-only vehicle'
+eyre_post remove-vehicle "$(printf '{"vehicle":"%s"}' "$ARCHIVE_ONLY")" \
+  $'Archived vehicle\n201' 'fixture 31 archive-only action'
+report="$(rover_report "FROM vehicles V WHERE V.label = '$ARCHIVE_ONLY' AND V.archived = Y SELECT V.vehicle-id;")"
+grep -q '%vehicle-id' <<<"$report" \
+  || fail "fixture 31 the archive action did not archive its vehicle: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-disposals D ON E.event-id = D.event-id WHERE V.label = '$ARCHIVE_ONLY' SELECT D.event-id;")"
+grep -q '%event-id' <<<"$report" \
+  && fail "fixture 31 archiving the vehicle wrote a disposal: $report"
+note "fixture 31 PASS - archiving writes no disposal, and selling writes no archive flag"
+
+# ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
 # The pier may be the pane's own process or a child of it. Which one it is
@@ -689,6 +887,30 @@ grep -qF "CURRENT ODOMETER - DERIVED</span><strong>$charge_odo_display mi" <<<"$
 note "fixture 24 PASS - charge mileage and the derived current odometer survive restart"
 
 # ---------------------------------------------------------------------------
+# fixture 32 - both ownership child kinds, their intrinsic disposal kind, and
+# the buy-sell-rebuy sequence survive the same real ship restart.
+# ---------------------------------------------------------------------------
+card="$(event_card acquisition "$ACQUISITION_NOTE")"
+[ -n "$card" ] || fail "fixture 32 the acquisition did not survive restart"
+grep -qF "data-event-total=\"$ACQUISITION_TOTAL\"" <<<"$card" \
+  || fail "fixture 32 the acquisition total did not survive restart: $card"
+card="$(event_card disposal "$DISPOSAL_NOTE")"
+[ -n "$card" ] || fail "fixture 32 the disposal did not survive restart"
+grep -qF 'data-disposal-kind="Sold"' <<<"$card" \
+  || fail "fixture 32 the disposal kind did not survive restart: $card"
+card="$(event_card acquisition "$REACQUISITION_NOTE")"
+[ -n "$card" ] || fail "fixture 32 the reacquisition did not survive restart"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-acquisitions A ON E.event-id = A.event-id WHERE V.label = '$VEHICLE' SELECT A.event-id;")"
+[ "$(count_rows "$report" '%event-id')" = 2 ] \
+  || fail "fixture 32 both acquisition children did not survive restart: $report"
+report="$(rover_report "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = '$VEHICLE' SELECT O.value-digits;")"
+for reading in "$ACQUISITION_ODO" "$DISPOSAL_ODO" "$REACQUISITION_ODO"; do
+  grep -q "%value-digits 25717 $reading" <<<"$report" \
+    || fail "fixture 32 ownership odometer $reading did not survive restart: $report"
+done
+note "fixture 32 PASS - acquisition, disposal, reacquisition, kind, totals, and odometers survive restart"
+
+# ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut
 # ---------------------------------------------------------------------------
 arms="$(python3 - "$REPO/desk/sur/rover.hoon" <<'PY'
@@ -741,12 +963,15 @@ auth_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
 BROWSER_NOTE="Browser service $STAMP"
 BROWSER_ODO="$((53000 + STAMP % 1000))"
 BROWSER_SUBTYPES='Engine Oil,Oil Filter,Tire Rotation'
+BROWSER_ACQUISITION_NOTE="Browser acquisition $STAMP"
+BROWSER_DISPOSAL_NOTE="Browser disposal $STAMP"
 browser_out="$({
   ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
   ROVER_CHROMIUM="$chromium_binary" \
     node "$REPO/bin/event-browser-fixture.cjs" \
       "$URL" "$auth_cookie_name" "$auth_cookie" "$VEHICLE" "$STATION" "$TAG" \
-      "$PAYMENT" '$88.40' "$BROWSER_ODO" "$BROWSER_NOTE" "$BROWSER_SUBTYPES"
+      "$PAYMENT" '$88.40' "$BROWSER_ODO" "$BROWSER_NOTE" "$BROWSER_SUBTYPES" \
+      "$BROWSER_ACQUISITION_NOTE" "$BROWSER_DISPOSAL_NOTE"
 } 2>&1)" || fail "fixture 14 the browser could not save an event: $browser_out"
 grep -q 'EVENT_VERDICT=Saved service event - \$88.40' <<<"$browser_out" \
   || fail "fixture 14 the form verdict is wrong: $browser_out"
@@ -773,5 +998,24 @@ for label in 'Engine Oil' 'Oil Filter' 'Tire Rotation'; do
     || fail "fixture 22 the browser-chosen subtype $label is not in the database: $report"
 done
 note "fixture 22 PASS - a person selects three subtypes in the browser and sees all three on the saved card"
+
+# ---------------------------------------------------------------------------
+# fixture 33 - the same browser form exposes both ownership kinds. A person
+# records a purchase and a disposal kind and sees both cards after reload.
+# ---------------------------------------------------------------------------
+grep -q 'ACQUISITION_VERDICT=Saved acquisition event - \$22,000.00' <<<"$browser_out" \
+  || fail "fixture 33 the acquisition form verdict is wrong: $browser_out"
+grep -q 'DISPOSAL_VERDICT=Saved disposal event - \$19,000.00' <<<"$browser_out" \
+  || fail "fixture 33 the disposal form verdict is wrong: $browser_out"
+grep -q 'OWNERSHIP_CARDS=2' <<<"$browser_out" \
+  || fail "fixture 33 both ownership cards did not appear after browser reload: $browser_out"
+grep -q 'GIFTED_CARDS=1' <<<"$browser_out" \
+  || fail "fixture 33 the browser-selected disposal kind did not render: $browser_out"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-notes X ON E.event-id = X.event-id WHERE V.label = '$VEHICLE' SELECT X.note;")"
+grep -qF "$BROWSER_ACQUISITION_NOTE" <<<"$report" \
+  || fail "fixture 33 the browser acquisition is absent from the database: $report"
+grep -qF "$BROWSER_DISPOSAL_NOTE" <<<"$report" \
+  || fail "fixture 33 the browser disposal is absent from the database: $report"
+note "fixture 33 PASS - a person records an acquisition and a disposal with kind in the shared browser form"
 
 . "$(dirname "$0")/event-coverage-gate.sh"

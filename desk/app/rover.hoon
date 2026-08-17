@@ -517,6 +517,7 @@
   =/  additives  (rows-at:view commands 2)
   =/  driving-modes  (rows-at:view commands 3)
   =/  service-subtypes  (rows-at:view commands 4)
+  =/  disposal-kinds  (rows-at:view commands 5)
   %:  seed-missing-starters:act
       base
       now
@@ -525,6 +526,7 @@
       ?=(~ additives)
       ?=(~ driving-modes)
       ?=(~ service-subtypes)
+      ?=(~ disposal-kinds)
   ==
 ::
 ++  entry-refusal
@@ -701,19 +703,23 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
-    ::  M7 T1. One endpoint for all three event kinds. The kind selects which
+    ::  One endpoint for all five event kinds. The kind selects which
     ::  typed child the write creates; every association attaches to the parent,
-    ::  so the three kinds share one lookup and one insert.
+    ::  so all five kinds share one lookup and one insert.
     ?:  ?|  =('/apps/rover/add-service-event' url.request.req)
             =('/apps/rover/add-expense-event' url.request.req)
             =('/apps/rover/add-note-event' url.request.req)
+            =('/apps/rover/add-acquisition-event' url.request.req)
+            =('/apps/rover/add-disposal-event' url.request.req)
         ==
-      ::  One handler, three routes. The route selects the kind, so a client
+      ::  One handler, five routes. The route selects the kind, so a client
       ::  cannot send a kind that disagrees with the typed child it gets.
-      =/  kind=?(%service %expense %note)
+      =/  kind=event-kind:rover
         ?:  =('/apps/rover/add-service-event' url.request.req)  %service
         ?:  =('/apps/rover/add-expense-event' url.request.req)  %expense
-        %note
+        ?:  =('/apps/rover/add-note-event' url.request.req)  %note
+        ?:  =('/apps/rover/add-acquisition-event' url.request.req)  %acquisition
+        %disposal
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event')) sat]
       =/  body-text=@t  `@t`q.u.body.request.req
@@ -1474,7 +1480,7 @@
       `this
     ==
   ::
-      [%rover-event-lookup ?(%service %expense %note) *]
+      [%rover-event-lookup ?(%service %expense %note %acquisition %disposal) *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -1494,7 +1500,7 @@
       ?:  ?=(%| -.decoded)
         :_  cleared
         (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event'))
-      ?.  (gte (lent p.res) 5)
+      ?.  (gte (lent p.res) 6)
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
       =/  vehicles  (rows-at:view p.res 0)
@@ -1502,6 +1508,7 @@
       =/  tag-rows  (rows-at:view p.res 2)
       =/  payment-rows  (rows-at:view p.res 3)
       =/  subtype-rows  (rows-at:view p.res 4)
+      =/  disposal-kind-rows  (rows-at:view p.res 5)
       ?.  =(1 (lent vehicles))
         :_  cleared
         (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.vehicle'))
@@ -1530,6 +1537,19 @@
       ?:  ?=(%| -.subtype-proof)
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.subtypes'))
+      =/  disposal-kind-id=(unit @ux)
+        ?~  disposal-kind-label.p.decoded
+          ~
+        =/  found
+          (row-by-text:view %label u.disposal-kind-label.p.decoded disposal-kind-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %disposal-kind-id u.found)
+      ?:  ?&  =(%disposal kind.p.decoded)
+              ?=(~ disposal-kind-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.disposal-kind'))
       =/  payment-method-id=(unit @ux)
         ?~  payment-method-label.p.decoded
           ~
@@ -1565,6 +1585,7 @@
             p.tag-proof
             p.subtype-proof
             payment-method-id
+            disposal-kind-id
             p.decoded
             now.bowl
         ==
@@ -1585,7 +1606,7 @@
       `this
     ==
   ::
-      [%rover-event-write ?(%service %expense %note) *]
+      [%rover-event-write ?(%service %expense %note %acquisition %disposal) *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
