@@ -216,6 +216,21 @@ for attempt in $(seq 1 90); do
 done
 pgrep -f "snap-dir $PIER" >/dev/null && fail "the pier did not stop for backup"
 tmux kill-session -t "$pier_session" 2>/dev/null || true
+# The serf exits first. The king keeps running and removes conn.sock,
+# .vere.lock, and .http.ports on its way out, so a tar started here races
+# the teardown and fails on files that vanish mid-read. Wait for the urbit
+# processes only: a bare path match also matches this script's own command
+# line, which never exits.
+for attempt in $(seq 1 90); do
+  pgrep -x urbit -a 2>/dev/null | grep -qF "$PIER" || break
+  sleep 1
+done
+pgrep -x urbit -a 2>/dev/null | grep -qF "$PIER" \
+  && fail "an urbit process still holds $PIER after shutdown"
+for attempt in $(seq 1 30); do
+  [ -e "$PIER/.vere.lock" ] || break
+  sleep 1
+done
 BACKUP="$HOME/piers/$(basename "$PIER")-before-energy-odometer-migration-$STAMP.tar.zst"
 tar --zstd -cf "$BACKUP" -C "$(dirname "$PIER")" "$(basename "$PIER")" \
   || fail "full-pier backup failed"
