@@ -869,6 +869,48 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ::  M7 T8. The definition lifecycle. One handler, three routes, nine
+    ::  families. The route selects the operation and the body names the
+    ::  family, the same split the five event routes use: a client cannot ask
+    ::  for an operation the endpoint it called does not perform.
+    ::
+    ::  The write is two phases, like every other label-addressed write here.
+    ::  The first phase finds the definition and, for a rename, whatever else
+    ::  already carries the new label. The second phase writes.
+    ?:  ?|  =('/apps/rover/rename-definition' url.request.req)
+            =('/apps/rover/archive-definition' url.request.req)
+            =('/apps/rover/restore-definition' url.request.req)
+        ==
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  operation=@tas
+        ?:  =('/apps/rover/rename-definition' url.request.req)  %rename
+        ?:  =('/apps/rover/archive-definition' url.request.req)  %archive
+        %restore
+      =/  decoded  (decode-definition-lifecycle:entry body-text =(%rename operation))
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  fam  (definition-family-of:act family.p.decoded)
+      ?~  fam
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%unknown-family: definition.family')) sat]
+      ::  The second lookup probes the new label on a rename and the current
+      ::  label otherwise, so the script keeps one shape for all three routes.
+      =/  probe=@t
+        ?:(=(%rename operation) new-label.p.decoded label.p.decoded)
+      =/  wir=wire
+        /rover-definition-lookup/[operation]/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%script %rover %vector (definition-lookup:act u.fam label.p.decoded probe)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir body-text)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/edit-fill' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-fill')) sat]
@@ -2325,6 +2367,104 @@
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
       =/  message  ?:(=(%archive operation-term) 'Archived custom field' 'Changed custom field type')
       :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs message))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+  ::  M7 T8. Phase one of the definition lifecycle. The lookup answered; decide
+  ::  whether the write may happen, and build it.
+      [%rover-definition-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  operation-term=@tas
+        ?~  t.wire
+          %unknown
+        `@tas`i.t.wire
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by pending) wire)
+      ?~  eyre-id
+        `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: definition'))
+      =/  decoded
+        (decode-definition-lifecycle:entry u.body =(%rename operation-term))
+      ?:  ?=(%| -.decoded)
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded)))
+      =/  fam  (definition-family-of:act family.p.decoded)
+      ?~  fam
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%unknown-family: definition.family'))
+      =/  definitions  (rows-at:view p.res 0)
+      ?.  =(1 (lent definitions))
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: definition'))
+      ::  A rename may not put two rows of one family under one label. The
+      ::  label is how every Rover surface names a definition, so a collision
+      ::  would leave both rows unaddressable — including the one just renamed.
+      ::  Nothing here compares the meaning of the two labels: the app does not
+      ::  police whether a rename is a correction or a repurpose.
+      ?:  ?&  =(%rename operation-term)
+              ?=(^ (rows-at:view p.res 1))
+          ==
+        :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%duplicate-label: definition'))
+      =/  definition-id=@ux
+        `@ux`(cell-atom:view `@tas`id-column.u.fam (snag 0 definitions))
+      =/  script=tape
+        ?:  =(%rename operation-term)
+          (rename-definition:act u.fam definition-id new-label.p.decoded)
+        (set-definition-archived:act u.fam definition-id =(%archive operation-term))
+      =/  write-wire=path
+        /rover-definition-write/[operation-term]/(scot %da now.bowl)/[u.eyre-id]
+      =/  jon  !>([%script %rover %vector script])
+      =/  new-state
+        %_  state
+          pending  (~(put by (~(del by pending) wire)) write-wire u.body)
+          http-pending
+            (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+        ==
+      :_  this(state new-state)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-definition-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  operation-term=@tas
+        ?~  t.wire
+          %unknown
+        `@tas`i.t.wire
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: definition'))
+      =/  message=@t
+        ?:  =(%rename operation-term)   'Renamed definition'
+        ?:  =(%archive operation-term)  'Archived definition'
+        'Restored definition'
+      :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
       (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs message))
     ::
         %kick

@@ -1891,4 +1891,40 @@
   ?.  (nonempty u.label)
     [%| %bad-shape 'custom-field.label']
   [%& u.label]
+::
+::  M7 T8. One body for rename, archive and restore. The operation is NOT in
+::  the body: the route carries it, so a request cannot ask for an operation
+::  its endpoint does not perform.
+::
+::  `newLabel` is read only when the caller says the request needs it. Archive
+::  and restore carry no second label, and a body that sends one anyway is not
+::  refused for it, because the route decides what happens.
+++  decode-definition-lifecycle
+  |=  [body=@t needs-new-label=?]
+  ^-  (each definition-lifecycle-entry:rover entry-verdict:rover)
+  =/  parsed  (de:json:html body)
+  ?~  parsed
+    [%| %bad-shape 'definition']
+  ?.  ?=(%o -.u.parsed)
+    [%| %bad-shape 'definition']
+  =/  object=(map @t json)  +.u.parsed
+  =/  family-text  (json-string 'family' object)
+  ?~  family-text
+    [%| %missing-key 'definition.family']
+  =/  family  (slaw %tas u.family-text)
+  ?~  family
+    [%| %bad-shape 'definition.family']
+  =/  label  (json-string 'label' object)
+  ?~  label
+    [%| %missing-key 'definition.label']
+  ?.  (nonempty u.label)
+    [%| %bad-shape 'definition.label']
+  ?.  needs-new-label
+    [%& u.family u.label '']
+  =/  new-label  (json-string 'newLabel' object)
+  ?~  new-label
+    [%| %missing-key 'definition.new-label']
+  ?.  (nonempty u.new-label)
+    [%| %bad-shape 'definition.new-label']
+  [%& u.family u.label u.new-label]
 --

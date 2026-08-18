@@ -379,6 +379,26 @@
 +$  custom-field-change-entry
   [label=@t content-type=@tas]
 +$  custom-field-label-entry  [label=@t]
+::  M7 T8. The definition lifecycle. One shape serves rename, archive and
+::  restore, because all three address one definition the same way: the family
+::  it belongs to, then its label. `new-label` is empty for archive and for
+::  restore, which carry no second label.
+::
+::  The label is the address. Rover has no other handle on a definition at the
+::  Eyre boundary, because a raw machine ID never crosses it.
++$  definition-operation  ?(%rename %archive %restore)
++$  definition-lifecycle-entry
+  $:  family=@tas
+      label=@t
+      new-label=@t
+  ==
+::  A definition family, as the write path needs it: the term a request names,
+::  the relation the rows live in, and the column that keys them.
++$  definition-family
+  $:  family=@tas
+      relation=@t
+      id-column=@t
+  ==
 +$  price-preview
   $:  currency=currency
       profile=price-profile

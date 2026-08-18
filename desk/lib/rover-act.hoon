@@ -2348,6 +2348,106 @@
     ";"
   ==
 ::
+::  M7 T8. The definition lifecycle, for every owner-editable definition family.
+::
+::  Every family here holds a `label` and an `archived @f`, so rename is one
+::  UPDATE of the label and archive is one UPDATE of the flag. No relation and
+::  no column is added: the post-publish rule forbids a column on a populated
+::  relation, and none is needed, because `archived` was written on the first
+::  pour of each family and every selector already reads it.
+::
+::  The list below is the ONLY place a family is named. A tenth family costs
+::  one entry here and one line in the settings render.
+++  definition-families
+  ^-  (list definition-family:rover)
+  :~  [%energy 'energy-definitions' 'energy-definition-id']
+      [%driving-mode 'driving-mode-definitions' 'mode-id']
+      [%consumable 'consumable-definitions' 'consumable-id']
+      [%service-subtype 'service-subtype-definitions' 'service-subtype-id']
+      [%disposal-kind 'disposal-kind-definitions' 'disposal-kind-id']
+      [%additive 'additive-definitions' 'additive-id']
+      [%tag 'tag-definitions' 'tag-id']
+      [%payment-method 'payment-method-definitions' 'method-id']
+      [%custom-field 'custom-field-definitions' 'field-id']
+  ==
+::
+++  definition-family-of
+  |=  family=@tas
+  ^-  (unit definition-family:rover)
+  =/  families  definition-families
+  |-
+  ^-  (unit definition-family:rover)
+  ?~  families
+    ~
+  ?:  =(family family.i.families)
+    `i.families
+  $(families t.families)
+::
+::  Two commands, always the same shape. The first finds the definition the
+::  request names. The second finds whatever already carries `probe`, which is
+::  the new label on a rename and the current label otherwise; only a rename
+::  reads it.
+::
+::  A label is the address of a definition at every Rover boundary, so two rows
+::  carrying one label inside one family make both of them unreachable. The
+::  second command is what lets the write path refuse that before it happens.
+++  definition-lookup
+  |=  [fam=definition-family:rover label=@t probe=@t]
+  ^-  tape
+  ;:  weld
+    "FROM "
+    (trip relation.fam)
+    " D WHERE D.label = '"
+    (sql-quote label)
+    "' SELECT D."
+    (trip id-column.fam)
+    ", D.label, D.archived; "
+    "FROM "
+    (trip relation.fam)
+    " D WHERE D.label = '"
+    (sql-quote probe)
+    "' SELECT D."
+    (trip id-column.fam)
+    ";"
+  ==
+::
+::  A rename corrects a label. It never repurposes a definition, and Rover does
+::  not try to tell a correction from a repurpose: the standing rule is a rule
+::  for the person, not a constraint the app can check.
+++  rename-definition
+  |=  [fam=definition-family:rover id=@ux new-label=@t]
+  ^-  tape
+  ;:  weld
+    "UPDATE "
+    (trip relation.fam)
+    " SET label = '"
+    (sql-quote new-label)
+    "' WHERE "
+    (trip id-column.fam)
+    " = "
+    (scow %ux id)
+    ";"
+  ==
+::
+::  Archive is not delete. Nothing leaves the relation, so every historical
+::  record that names this definition still renders it, and every foreign key
+::  that targets it still resolves. `Y` is archived and `N` is active, because
+::  the `@f` bunt is `%.y`.
+++  set-definition-archived
+  |=  [fam=definition-family:rover id=@ux archive=?]
+  ^-  tape
+  ;:  weld
+    "UPDATE "
+    (trip relation.fam)
+    " SET archived = "
+    ?:(archive "Y" "N")
+    " WHERE "
+    (trip id-column.fam)
+    " = "
+    (scow %ux id)
+    ";"
+  ==
+::
 ++  insert-custom-number
   |=  [field-id=@ux parent-id=@ux digits=@ud decimals=@ud]
   ^-  tape
