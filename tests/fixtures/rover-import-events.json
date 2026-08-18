@@ -20,7 +20,11 @@
         ]
       }
     ],
-    "additives": [],
+    "additives": [
+      {
+        "label": "T9 Cetane Booster @@STAMP@@"
+      }
+    ],
     "driving-modes": [
       {
         "label": "T9 Normal @@STAMP@@"
@@ -133,11 +137,16 @@
           "mileageUnit": "mi",
           "station": "T9 Fuel Stop @@STAMP@@",
           "drivingMode": "T9 Normal @@STAMP@@",
-          "additives": [],
-          "tags": [],
+          "additives": [
+            "T9 Cetane Booster @@STAMP@@"
+          ],
+          "tags": [
+            "T9 Scheduled Maintenance @@STAMP@@"
+          ],
           "sourceApp": "acar",
           "sourceRecordId": "t9-fill-1-@@STAMP@@",
-          "sourceTotal": "70.00"
+          "sourceTotal": "70.00",
+          "paymentMethod": "T9 Card @@STAMP@@"
         },
         {
           "vehicle": "T9 Import Vehicle @@STAMP@@",
@@ -156,10 +165,13 @@
           "station": "T9 Fuel Stop @@STAMP@@",
           "drivingMode": "T9 Normal @@STAMP@@",
           "additives": [],
-          "tags": [],
+          "tags": [
+            "T9 Scheduled Maintenance @@STAMP@@"
+          ],
           "sourceApp": "acar",
           "sourceRecordId": "t9-fill-2-@@STAMP@@",
-          "sourceTotal": "35.00"
+          "sourceTotal": "35.00",
+          "paymentMethod": "T9 Card @@STAMP@@"
         }
       ],
       "serviceEvents": [

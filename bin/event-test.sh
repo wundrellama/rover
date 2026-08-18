@@ -2586,6 +2586,19 @@ t9_vehicle_rows() {
   rover_report "FROM vehicles V JOIN $relation $alias ON V.vehicle-id = $alias.vehicle-id WHERE V.label = '$vehicle' SELECT $alias.$column;"
 }
 
+# Obelisk prints a @ud in decimal up to a threshold and in hex above it. Both
+# forms mean the same number, so an assertion accepts either.
+t9_ud() {
+  printf '(%s|0x%x)' "$1" "$1"
+}
+
+# A @tas comes back either as the term or as the cord behind it. Both name the
+# same value, so an assertion accepts either.
+t9_term() {
+  printf '(%%%s|%s)' "$1" \
+    "$(python3 -c 'import sys; print(int.from_bytes(sys.argv[1].encode(), "little"))' "$1")"
+}
+
 t9_reminder_rows() {
   local relation="$1" alias="$2" column="$3" vehicle="$4" subtype="$5"
   rover_report "FROM service-reminders R JOIN vehicles V ON R.vehicle-id = V.vehicle-id JOIN service-subtype-definitions S ON R.service-subtype-id = S.service-subtype-id JOIN $relation $alias ON R.reminder-id = $alias.reminder-id WHERE V.label = '$vehicle' AND S.label = '$subtype' SELECT $alias.$column;"
@@ -2655,7 +2668,7 @@ report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = 
 # A note that carries money keeps its total and stays a note. The importer
 # reports the record; it does not reclassify it as an expense.
 report="$(t9_event_rows vehicle-event-cost-totals T total-mills "$T9_VEHICLE" "$T9_NOTE_DA")"
-grep -q '%total-mills 25717 811.880' <<<"$report" \
+grep -qE "%total-mills 25717 $(t9_ud 811880)" <<<"$report" \
   || fail "fixture 79 the note record lost the money it carries: $report"
 report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events C ON E.event-id = C.event-id WHERE V.label = '$T9_VEHICLE' SELECT C.event-id;")"
 grep -q '%event-id' <<<"$report" \
@@ -2675,12 +2688,24 @@ note "fixture 79 PASS - the widened document imports whole, the counts match, an
 # ---------------------------------------------------------------------------
 grep -q 'Not imported, and why' <<<"$t9_report" \
   || fail "fixture 80 the report has no unmapped section: $t9_report"
-python3 - "$T9_DOCUMENT" <<'PY' <<<"$t9_report" || fail "fixture 80 an unmapped kind is missing a count or a reason"
+T9_REPORT_FILE="$(mktemp /tmp/rover-t9-report.XXXXXX.txt)"
+printf '%s\n' "$t9_report" > "$T9_REPORT_FILE"
+T9_NOTICE_CHECK="$(mktemp /tmp/rover-t9-notices.XXXXXX.py)"
+cat > "$T9_NOTICE_CHECK" <<'PY'
 import json, re, sys
-report = sys.stdin.read()
+report = open(sys.argv[2], encoding="utf-8").read()
 document = json.load(open(sys.argv[1]))
 tail = report.split("Not imported, and why", 1)[1]
-lines = [line.strip() for line in tail.splitlines() if line.strip()]
+lines = []
+for line in tail.splitlines():
+    line = line.strip()
+    if not line:
+        continue
+    #  A per-record detail line is not a notice. The notices end where the
+    #  details begin.
+    if line.startswith("Detail:"):
+        break
+    lines.append(line)
 if not lines:
     raise SystemExit("the unmapped section is empty")
 for notice in document["notices"]:
@@ -2699,6 +2724,9 @@ for line in lines:
     if re.search(r"[a-z]+-[a-z]+-id\b", kind) and "Source field" not in kind:
         raise SystemExit("a notice names a raw machine value: %s" % line)
 PY
+python3 "$T9_NOTICE_CHECK" "$T9_DOCUMENT" "$T9_REPORT_FILE" \
+  || fail "fixture 80 an unmapped kind is missing a count or a reason"
+rm -f "$T9_NOTICE_CHECK" "$T9_REPORT_FILE"
 note "fixture 80 PASS - every unmapped kind in the report carries a count and a reason a person can read"
 
 # ---------------------------------------------------------------------------
@@ -2754,9 +2782,9 @@ T9_HAND_AT='2026-05-07T09:30'
 T9_HAND_DA='~2026.05.07..09.30.00'
 T9_HAND_NOTE="Hand-entered beside an import $STAMP"
 eyre_post add-service-event \
-  "$(printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"412.75","currency":"usd","mileage":"70400.0","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":["%s"],"newTag":"","paymentMethod":"%s","notes":"%s","subtypes":["Engine Oil","Oil Filter","%s"]}' \
+  "$(printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"412.75","currency":"usd","mileage":"70400.0","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":["%s","%s"],"newTag":"","paymentMethod":"%s","notes":"%s","subtypes":["Engine Oil","Oil Filter","%s"]}' \
     "$T9_VEHICLE" "$T9_HAND_AT" "$T9_GARAGE" "T9 Scheduled Maintenance $STAMP" \
-    "T9 Card $STAMP" "$T9_HAND_NOTE" "$T9_CUSTOM_SUBTYPE")" \
+    "T9 Warranty $STAMP" "T9 Card $STAMP" "$T9_HAND_NOTE" "$T9_CUSTOM_SUBTYPE")" \
   $'Saved service event - $412.75\n201' 'fixture 82 the hand-entered event was refused'
 for pair in \
   'service-events:C:event-id' \
@@ -2767,7 +2795,7 @@ for pair in \
   'vehicle-event-tags:L:tag-id' \
   'vehicle-event-service-subtypes:L:service-subtype-id' \
   'vehicle-event-payment-method:L:method-id' \
-  'vehicle-event-notes:N:note'; do
+  'vehicle-event-notes:Q:note'; do
   IFS=: read -r relation alias column <<<"$pair"
   imported="$(t9_event_rows "$relation" "$alias" "$column" "$T9_VEHICLE" "$T9_SERVICE_DA")"
   handmade="$(t9_event_rows "$relation" "$alias" "$column" "$T9_VEHICLE" "$T9_HAND_DA")"
@@ -2783,7 +2811,7 @@ report="$(rover_report "FROM vehicles V JOIN odometer-observations O ON V.vehicl
   || fail "fixture 82 the vehicle's one odometer list does not hold every reading: $report"
 # The one difference, and it is the ratified one: provenance.
 report="$(rover_report "FROM vehicle-events E JOIN vehicles V ON E.vehicle-id = V.vehicle-id JOIN event-imports I ON E.event-id = I.event-id WHERE V.label = '$T9_VEHICLE' AND E.observed-start = $T9_SERVICE_DA SELECT I.source-app, I.source-record-id;")"
-grep -q '%source-app %tas %acar' <<<"$report" \
+grep -qE "%source-app %tas $(t9_term acar)" <<<"$report" \
   || fail "fixture 82 the imported event carries no provenance: $report"
 report="$(rover_report "FROM vehicle-events E JOIN vehicles V ON E.vehicle-id = V.vehicle-id JOIN event-imports I ON E.event-id = I.event-id WHERE V.label = '$T9_VEHICLE' AND E.observed-start = $T9_HAND_DA SELECT I.source-app;")"
 grep -q '%source-app' <<<"$report" \
@@ -2836,26 +2864,26 @@ report="$(t9_reminder_rows service-reminder-time T interval-count "$T9_VEHICLE" 
 grep -q '%interval-count 25717 3' <<<"$report" \
   || fail "fixture 84 the time interval did not arrive: $report"
 report="$(t9_reminder_rows service-reminder-time T interval-unit "$T9_VEHICLE" 'Engine Oil')"
-grep -q '%interval-unit %tas %month' <<<"$report" \
+grep -qE "%interval-unit %tas $(t9_term month)" <<<"$report" \
   || fail "fixture 84 the time unit did not arrive as a calendar step: $report"
 # The source writes one decimal place on a distance, and the stored digits
 # keep it. 3000.0 is 30000 at one decimal, not 3000 at none.
 report="$(t9_reminder_rows service-reminder-distance D interval-digits "$T9_VEHICLE" 'Engine Oil')"
-grep -q '%interval-digits 25717 30.000' <<<"$report" \
+grep -qE "%interval-digits 25717 $(t9_ud 30000)" <<<"$report" \
   || fail "fixture 84 the distance interval did not arrive: $report"
 report="$(t9_reminder_rows service-reminder-distance D interval-decimals "$T9_VEHICLE" 'Engine Oil')"
 grep -q '%interval-decimals 25717 1' <<<"$report" \
   || fail "fixture 84 the source-native precision of the interval was lost: $report"
 report="$(t9_reminder_rows service-reminder-distance D due-digits "$T9_VEHICLE" 'Engine Oil')"
-grep -q '%due-digits 25717 730.000' <<<"$report" \
+grep -qE "%due-digits 25717 $(t9_ud 730000)" <<<"$report" \
   || fail "fixture 84 the distance due point did not arrive: $report"
 report="$(t9_reminder_rows service-reminder-distance D distance-unit "$T9_VEHICLE" 'Engine Oil')"
-grep -q '%distance-unit %tas %mi' <<<"$report" \
+grep -qE "%distance-unit %tas $(t9_term mi)" <<<"$report" \
   || fail "fixture 84 the distance unit did not arrive: $report"
 # The second reminder carries a distance interval only. A blank time interval
 # is an absent row, never a zero count and never a bunt date.
 report="$(t9_reminder_rows service-reminder-distance D interval-digits "$T9_VEHICLE" 'Oil Filter')"
-grep -q '%interval-digits 25717 50.000' <<<"$report" \
+grep -qE "%interval-digits 25717 $(t9_ud 50000)" <<<"$report" \
   || fail "fixture 84 the distance-only reminder lost its interval: $report"
 report="$(t9_reminder_rows service-reminder-time T interval-count "$T9_VEHICLE" 'Oil Filter')"
 grep -q '%interval-count' <<<"$report" \
@@ -3271,7 +3299,7 @@ report="$(t9_event_rows vehicle-event-service-subtypes L service-subtype-id "$T9
 [ "$(count_rows "$report" '%service-subtype-id')" = 3 ] \
   || fail "fixture 87 the imported subtype links did not survive the restart: $report"
 report="$(t9_event_rows vehicle-event-cost-totals T total-mills "$T9_VEHICLE" "$T9_NOTE_DA")"
-grep -q '%total-mills 25717 811.880' <<<"$report" \
+grep -qE "%total-mills 25717 $(t9_ud 811880)" <<<"$report" \
   || fail "fixture 87 the note record's total did not survive the restart: $report"
 report="$(t9_reminder_rows service-reminder-time T interval-count "$T9_VEHICLE" 'Engine Oil')"
 grep -q '%interval-count 25717 3' <<<"$report" \

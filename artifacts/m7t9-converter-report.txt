@@ -1,0 +1,104 @@
+Rover aCar conversion report
+Mode: write
+
+Records
+Vehicles in/out: 2/2
+Fills in/out/dropped: 420/420/0
+Event records in/out: 39/39
+Service/note/expense events: 35/4/0
+Event to subtype links: 107
+Events with no station: 8
+Reminders in/out: 8/8
+Vehicles carrying a specification: 2
+Specification fields present/empty: 22/4
+Trip records unmapped: 0
+Trip types unmapped: 6
+Preferences ignored (application settings): 72
+
+Definitions and places
+Energy definitions: 2
+Additive definitions: 1
+Driving-mode definitions: 1
+Tag definitions: 6
+Payment-method definitions: 5
+Service-subtype source records: 65
+Service-subtype definitions: 62
+Duplicate subtype labels collapsed: 3
+Subtype default time/distance intervals carried: 52/52
+Places: 67
+Fill notes imported verbatim: 188
+Event notes imported verbatim: 26
+Suppressed literal 'deleted' tags: 125
+Parts-only addresses imported: 105
+Station-none fills with unmapped address text: 3
+Corrections applied: 1
+Unit mismatches: 0
+Corrected: <vehicle-1>/2025-06-07T15:00: ULSD (diesel, cetane 45) -> Premium (gasoline, 93 AKI); Mis-selected fuel type at entry. This 1981 spark-ignition vehicle has six gasoline 93 AKI fills; this is the most recent record and the volume (24.287 gal) is in line with its other fills. A dropdown slip, ratified by the owner 2026-07-30.
+Unmapped station address: <address 1, redacted>
+Unmapped station address: <address 2, redacted>
+Unmapped station address: <address 3, redacted>
+
+total-cost cross-check
+Compared: 420
+Exact: 420
+Within one cent: 0
+Beyond one cent: 0
+
+fuel-efficiency cross-check
+Chronological interval pairs: 418
+Compared to source: 416
+Source value absent: 2
+Beyond 0.01 mpg: 0
+
+Coordinates
+Source coordinate values: 1418
+Values exceeding scale 7: 643
+Place coordinate pairs imported: 391
+Imported place values rounded to scale 7: 59
+Device coordinate pairs skipped: 318
+Skipped device values exceeding scale 7: 584
+
+Attachments (no database rows)
+Photos extracted: 119
+Records carrying photos: 112
+Fill/event photo split: 116/3
+Raw/written bytes: 48456320/48429464
+Distinct raw hashes: 118
+Duplicate raw photos: 1
+Distinct filenames: 119
+Files changed by APPn stripping: 119
+PDF tags/nonempty PDFs: 69/0
+
+Not imported, and why
+Trip types: 6 - aCar's shipped defaults, carrying IRS mileage deduction rates. Rover has no model for a deduction rate.
+Insurance policies: 2 - Insurance is fenced, ruled 2026-08-18. A bare policy string is a stub of a feature rather than a feature.
+Photos: 119 - Attachments are their own task. The bytes are extracted to disk beside this document with a manifest, and no database row holds an image.
+Expense-only subtype definitions: 10 - Rover keeps one service-subtype catalog, so these arrive as ordinary definitions rather than a second family.
+Duplicate subtype labels collapsed: 3 - The source names these labels twice, once under service and once under expense. Rover's catalog holds one row per label, which is what the starter pack already seeded.
+Event records with a source total of zero: 12 - aCar writes 0 when no amount was entered, so a stored 0.00 could not be told apart from a genuine free service. These import with no cost row, and the amount can be entered later.
+Service-subtype default reminder intervals: 52 - aCar suggests an interval on every catalog entry. Rover stores an interval on a reminder, and the owner's own reminders carry theirs: 4 of 8 arrive holding exactly the suggestion for their subtype. Creating a reminder for every catalog entry would invent schedules nobody set.
+Reminder due points losing a time of day: 7 - A Rover reminder falls due on a calendar day rather than at an instant, so the source's clock time has no home.
+Event records aCar typed `note` that carry money: 1 - They import as notes with their total. Reclassifying one as an expense would decide, on the owner's behalf, that aCar's own type was wrong.
+Suppressed literal `deleted` tags: 125 - An aCar internal marker, not an owner tag. Ruled 2026-07-30 (import Q8).
+Station-none fills with unmapped address text: 3 - The address text names no station, and several stations share one address, so a match would invent which one was visited. Ruled 2026-07-30 (import Q10).
+Source field event.place-google-places-id: 14 - A provider-namespaced directory ID. It is a machine value that never reaches a person, and Rover already holds the label and the address.
+Source field fill.device-coordinate-pair: 318 - Where the phone was standing, not where the station is. Ruled 2026-07-30 (import Q6): the grain is per visit and Rover models a location per place.
+Source field fill.place-google-places-id: 275 - A provider-namespaced directory ID. It is a machine value that never reaches a person, and Rover already holds the label and the address.
+Source field vehicle.active: 2 - aCar's own show/hide flag. Rover has `archived`, and an import must not decide that a vehicle is retired.
+Source field vehicle.bed-type-id: 2 - aCar's catalog row number behind `bed-type`, which is imported.
+Source field vehicle.body-type-id: 2 - aCar's catalog row number behind `body-type`, which is imported.
+Source field vehicle.city-name: 2 - Where the vehicle is registered. Rover has no relation for it.
+Source field vehicle.country-id: 2 - aCar's catalog row number behind the country name.
+Source field vehicle.country-name: 2 - Where the vehicle is registered. Rover models a place for a station, not a home country for a vehicle.
+Source field vehicle.drive-type-id: 2 - aCar's catalog row number behind `drive-type`, which is imported.
+Source field vehicle.engine-id: 2 - aCar's catalog row number behind `engine`, which is imported.
+Source field vehicle.insurance-policy: 2 - Insurance is fenced, ruled 2026-08-18. A bare policy string is a stub of a feature rather than a feature.
+Source field vehicle.make-id: 2 - aCar's catalog row number behind `make`, which is imported.
+Source field vehicle.model-id: 2 - aCar's catalog row number behind `model`, which is imported.
+Source field vehicle.photo: 2 - The vehicle photo, held inline as base64. Attachments are their own task: the bytes are extracted to disk and no database row is written.
+Source field vehicle.region-id: 2 - aCar's catalog row number behind the region name.
+Source field vehicle.region-name: 2 - Where the vehicle is registered. Rover has no relation for it.
+Source field vehicle.transmission-id: 2 - aCar's catalog row number behind `transmission`, which is imported.
+Source field vehicle.type: 2 - aCar's vehicle category. Rover models make, model and body type instead, and all three are imported.
+Source field vehicle.vehicle-id: 2 - aCar's internal row number. Rover keys on its own IDs.
+Note: vehicle-2/2019-01-09T05:30: a record aCar typed `note` carries a total of 811.88. It is imported as a note with that total and is not reclassified as an expense.
