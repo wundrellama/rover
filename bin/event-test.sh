@@ -1711,6 +1711,12 @@ note "fixture 57 PASS - each specification field is independently absent, and a 
 #   * the vehicle label, which carries this run's stamp
 #   * the two membership check grids, whose contents follow the energy-source
 #     and driving-mode catalogs of the database rather than anything T7 does
+#   * the order of the options in the default-subtype selector. The engine
+#     returns a set, so the catalog read comes back in the order the random
+#     subtype IDs happen to give, and that order changes from pier to pier.
+#     M7 T8 found this on a fresh pier: the same eleven options in a different
+#     order. Sorting both sides keeps the guard on WHICH options are offered
+#     and drops the guard on an order no code decides.
 #
 # The specification fieldset is removed from the served panel before the
 # comparison, exactly as the tank-size input arrived: an optional field gets a
@@ -1738,6 +1744,12 @@ def normalize(document, label):
         "", document, flags=re.S)
     document = re.sub(r"<div class=\"check-grid\">.*?</div>", "<div class=\"check-grid\">CHECKS</div>",
                       document, flags=re.S)
+    document = re.sub(
+        r"(<select name=\"defaultSubtype\">)(.*?)(</select>)",
+        lambda match: match.group(1)
+        + "".join(sorted(re.findall(r"<option .*?</option>", match.group(2))))
+        + match.group(3),
+        document, flags=re.S)
     return document
 
 baseline = normalize(baseline, "Spec Baseline Vehicle")
@@ -1980,6 +1992,549 @@ export_readers="$(grep -rlF "$export_needle" "$REPO/bin" "$REPO/probes" "$REPO/d
 grep -q 'aCar export/' "$REPO/.gitignore" \
   || fail "fixture 63 the owner's aCar export is no longer gitignored"
 note "fixture 63 PASS - every VIN in the tree contains a letter the real VIN alphabet excludes, every plate is marked FAKE, and the owner's export is never read"
+
+# ===========================================================================
+# M7 T8 - the definition lifecycle.
+#
+# Nine owner-editable definition families, each with a label and an
+# `archived @f` that the M0 and M7 pours already wrote. T8 adds rename,
+# archive and restore, and it adds no relation and no column, because
+# `archived` was there from the first row of every one of these families.
+#
+# Every family is proved. The families with a create endpoint get a
+# definition of this run's own, stamped, so a row an earlier run left behind
+# can never satisfy an assertion here. The families whose definitions only
+# arrive in the starter pack are exercised ON a starter definition and put
+# back the way they were found - which is the T8 rule that the starter pack
+# is a convenience, not a protected set.
+# ===========================================================================
+T8_VEHICLE="Definition Vehicle $STAMP"
+T8_ENERGY="T8 Fuel $STAMP"
+T8_MODE="T8 Mode $STAMP"
+T8_TAG="T8 Tag $STAMP"
+T8_PAYMENT="T8 Card $STAMP"
+T8_ADDITIVE="T8 Additive $STAMP"
+T8_FIELD="T8 Field $STAMP"
+T8_LONE_TAG="T8 Unused Tag $STAMP"
+# Starter labels no earlier fixture touches, so a run of this battery that
+# stops inside T8 cannot change what an earlier fixture sees.
+T8_SUBTYPE='Muffler'
+T8_DISPOSAL='Gifted'
+T8_CONSUMABLE='DEF'
+T8_FAMILIES='energy driving-mode consumable service-subtype disposal-kind additive tag payment-method custom-field'
+
+t8_relation() {
+  case "$1" in
+    energy)           printf 'energy-definitions' ;;
+    driving-mode)     printf 'driving-mode-definitions' ;;
+    consumable)       printf 'consumable-definitions' ;;
+    service-subtype)  printf 'service-subtype-definitions' ;;
+    disposal-kind)    printf 'disposal-kind-definitions' ;;
+    additive)         printf 'additive-definitions' ;;
+    tag)              printf 'tag-definitions' ;;
+    payment-method)   printf 'payment-method-definitions' ;;
+    custom-field)     printf 'custom-field-definitions' ;;
+    *)  fail "t8_relation: no such family $1" ;;
+  esac
+}
+
+t8_id_column() {
+  case "$1" in
+    energy)           printf 'energy-definition-id' ;;
+    driving-mode)     printf 'mode-id' ;;
+    consumable)       printf 'consumable-id' ;;
+    service-subtype)  printf 'service-subtype-id' ;;
+    disposal-kind)    printf 'disposal-kind-id' ;;
+    additive)         printf 'additive-id' ;;
+    tag)              printf 'tag-id' ;;
+    payment-method)   printf 'method-id' ;;
+    custom-field)     printf 'field-id' ;;
+    *)  fail "t8_id_column: no such family $1" ;;
+  esac
+}
+
+# The label this run works with in each family.
+t8_label() {
+  case "$1" in
+    energy)           printf '%s' "$T8_ENERGY" ;;
+    driving-mode)     printf '%s' "$T8_MODE" ;;
+    consumable)       printf '%s' "$T8_CONSUMABLE" ;;
+    service-subtype)  printf '%s' "$T8_SUBTYPE" ;;
+    disposal-kind)    printf '%s' "$T8_DISPOSAL" ;;
+    additive)         printf '%s' "$T8_ADDITIVE" ;;
+    tag)              printf '%s' "$T8_TAG" ;;
+    payment-method)   printf '%s' "$T8_PAYMENT" ;;
+    custom-field)     printf '%s' "$T8_FIELD" ;;
+  esac
+}
+
+# The three writes, each through the endpoint a browser control calls.
+t8_rename() {
+  # family label newLabel note
+  eyre_post rename-definition \
+    "$(printf '{"family":"%s","label":"%s","newLabel":"%s"}' "$1" "$2" "$3")" \
+    $'Renamed definition\n201' "$4"
+}
+t8_archive() {
+  # family label note
+  eyre_post archive-definition \
+    "$(printf '{"family":"%s","label":"%s"}' "$1" "$2")" \
+    $'Archived definition\n201' "$3"
+}
+t8_restore() {
+  # family label note
+  eyre_post restore-definition \
+    "$(printf '{"family":"%s","label":"%s"}' "$1" "$2")" \
+    $'Restored definition\n201' "$3"
+}
+
+# `Y` is archived and `N` is active, because the @f bunt is %.y. The report
+# prints the flag as an atom: 0 is archived and 1 is active. An absent
+# definition prints nothing at all, which no assertion below accepts.
+t8_archived_flag() {
+  # family label
+  local report
+  report="$(rover_report "FROM $(t8_relation "$1") D WHERE D.label = '$2' SELECT D.archived;")"
+  grep -oE '%archived 102 [01]' <<<"$report" | head -1 | awk '{print $3}'
+}
+
+# How many rows of one family carry one label. Archive must never change this,
+# and rename must never make it two.
+t8_row_count() {
+  # family label
+  local report column
+  column="$(t8_id_column "$1")"
+  report="$(rover_report "FROM $(t8_relation "$1") D WHERE D.label = '$2' SELECT D.$column;")"
+  count_rows "$report" "%$column"
+}
+
+# Is this label OFFERED to a person filling in a form? The check is scoped to
+# the entry screen that offers the family, so a label that survives on the
+# edit form of a record already naming it - which it must - is not mistaken
+# for a selector that still offers it.
+t8_offers() {
+  # family label
+  local screen control kind
+  case "$1" in
+    energy)           screen='vehicle-create-screen'; control='energy';        kind=select ;;
+    driving-mode)     screen='add-fill';              control='drivingMode';   kind=select ;;
+    consumable)       screen='add-consumable';        control='consumable';    kind=select ;;
+    service-subtype)  screen='add-event';             control='subtypes';      kind=check ;;
+    disposal-kind)    screen='add-event';             control='disposalKind';  kind=select ;;
+    additive)         screen='add-fill';              control='additives';     kind=check ;;
+    tag)              screen='add-fill';              control='tags';          kind=check ;;
+    payment-method)   screen='add-fill';              control='paymentMethod'; kind=select ;;
+    custom-field)     screen='add-fill';              control='';              kind=custom ;;
+    *)  fail "t8_offers: no such family $1" ;;
+  esac
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+screen, control, kind, label = sys.argv[1:5]
+found = re.search(
+    r"<section id=\"%s\"[^>]*>.*?(?=<section id=\"[a-z-]+\"[^>]*class=\"[^\"]*app-screen)"
+    % re.escape(screen), document, re.S)
+slice = found.group(0) if found else ""
+if not slice:
+    sys.stdout.write("no-screen")
+    sys.exit(0)
+if kind == "custom":
+    hit = ("data-custom-label=\"%s\"" % label) in slice
+elif kind == "select":
+    picked = re.search(
+        r"<select name=\"%s\"[^>]*>(.*?)</select>" % re.escape(control), slice, re.S)
+    hit = picked is not None and ("value=\"%s\"" % label) in picked.group(1)
+else:
+    hit = ("name=\"%s\" value=\"%s\"" % (control, label)) in slice
+sys.stdout.write("yes" if hit else "no")
+' "$screen" "$control" "$kind" "$2" <<<"$view"
+}
+
+# The membership grids of the vehicle settings form, which are a second
+# selector for two of the families.
+t8_settings_offers() {
+  # control label
+  local card
+  card="$(vehicle_card "$T8_VEHICLE")"
+  if grep -qF "name=\"$1\" value=\"$2\"" <<<"$card"; then
+    printf 'yes'
+  else
+    printf 'no'
+  fi
+}
+
+# The one served fill card that carries a given text. The class is
+# `history-card fill`, so a charge and an event card cannot be mistaken for
+# one.
+fill_card_with() {
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+for match in re.finditer(r"<article class=\"history-card fill\".*?</article>", document, re.S):
+    if sys.argv[1] in match.group(0):
+        sys.stdout.write(match.group(0))
+        break
+' "$1" <<<"$view"
+}
+
+# The history row of this run's fill, with the edit form inside it. The
+# history screen is scoped to one vehicle, so this is the only row it holds.
+fill_edit_form() {
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+found = re.search(
+    r"<article class=\"history-table-row\" data-history-vehicle=\"%s\".*?</article>"
+    % re.escape(sys.argv[1]), document, re.S)
+sys.stdout.write(found.group(0) if found else "")
+' "$T8_VEHICLE" <<<"$view"
+}
+
+# --- the state every T8 fixture reads -------------------------------------
+# One vehicle, one definition of this run's own in each family that has a
+# create endpoint, and one real record naming every one of the nine.
+own_add_vehicle "$T8_VEHICLE" Gasoline
+eyre_post add-energy-source-type \
+  "$(printf '{"label":"%s","physicalKind":"reservoir","quantityUnit":"gal"}' "$T8_ENERGY")" \
+  $'Created energy source type\n201' 'T8 energy source'
+eyre_post add-driving-mode-type "$(printf '{"label":"%s"}' "$T8_MODE")" \
+  $'Created driving mode type\n201' 'T8 driving mode'
+eyre_post add-custom-field \
+  "$(printf '{"label":"%s","contentType":"text","mandatory":"no"}' "$T8_FIELD")" \
+  $'Created custom field\n201' 'T8 custom field'
+# Tags, payment methods and additives have no create endpoint of their own;
+# the import path is the product surface that makes them.
+curl -s -b "$JAR" -H 'content-type: application/json' \
+  --data-raw "$(printf '{"rover-import":1,"source":{"app":"rover-event-test"},"definitions":{"energy":[],"additives":[{"label":"%s"}],"driving-modes":[],"tags":[{"label":"%s"},{"label":"%s"}],"payment-methods":[{"label":"%s"}]},"places":[],"vehicles":[]}' \
+    "$T8_ADDITIVE" "$T8_TAG" "$T8_LONE_TAG" "$T8_PAYMENT")" \
+  "$URL/apps/rover/import" > /dev/null
+# The vehicle takes the new energy source and the new driving mode, and turns
+# DEF on, so all three are selectable on its forms.
+edit_vehicle "$(printf '{"vehicle":"%s","label":"%s","energySources":["Gasoline","%s"],"drivingModes":["%s"],"defEnabled":"yes","defTankSize":"5","defTankUnit":"gal"}' \
+  "$T8_VEHICLE" "$T8_VEHICLE" "$T8_ENERGY" "$T8_MODE")" 'T8 vehicle configuration'
+add_odometer_reading "$T8_VEHICLE" 70000 '2026-06-01T08:00' '70,000'
+# One fill that names the energy source, the driving mode, the tag, the
+# payment method, the additive and the custom field at once.
+T8_FILL_AT='2026-06-02T10:00'
+T8_FILL_DA='~2026.06.02..10.00.00'
+T8_FIELD_VALUE="Receipt $STAMP"
+eyre_post add-fill \
+  "$(printf '{"vehicle":"%s","definition":"%s","quantity":"10.000","price":"$4.10","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"70100","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":["%s"],"subtype":"","missedFill":"no","drivingMode":"%s","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":["%s"],"newTag":"","notes":"","paymentMethod":"%s","custom-%s":"%s"}' \
+    "$T8_VEHICLE" "$T8_ENERGY" "$T8_FILL_AT" "$T8_ADDITIVE" "$T8_MODE" "$T8_TAG" "$T8_PAYMENT" "$T8_FIELD" "$T8_FIELD_VALUE")" \
+  $'Saved fill - $4.109 - derived $41.09\n201' 'T8 fill'
+# One service event that names the starter subtype.
+T8_SERVICE_AT='2026-06-03T10:00'
+T8_SERVICE_DA='~2026.06.03..10.00.00'
+T8_SERVICE_NOTE="T8 muffler work $STAMP"
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"$210.00","currency":"usd","mileage":"70200","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"%s","subtypes":["%s"]}' \
+    "$T8_VEHICLE" "$T8_SERVICE_AT" "$T8_SERVICE_NOTE" "$T8_SUBTYPE")" \
+  $'Saved service event - $210.00\n201' 'T8 service event'
+# One disposal that names the starter disposal kind.
+T8_DISPOSAL_AT='2026-06-04T10:00'
+T8_DISPOSAL_NOTE="T8 given away $STAMP"
+eyre_post add-disposal-event \
+  "$(ownership_payload "$T8_VEHICLE" "$T8_DISPOSAL_AT" '$0.00' 70300 "$T8_DISPOSAL" "$T8_DISPOSAL_NOTE")" \
+  $'Saved disposal event - $0.00\n201' 'T8 disposal event'
+# One DEF purchase, the record that names the consumable definition.
+T8_DEF_AT='2026-06-05T10:00'
+eyre_post add-consumable \
+  "$(printf '{"vehicle":"%s","consumable":"%s","quantity":"2.500","price":"$8.00","profile":"us-usd-gal","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"70400","mileageUnit":"mi"}' \
+    "$T8_VEHICLE" "$T8_CONSUMABLE" "$T8_DEF_AT")" \
+  $'Saved consumable purchase - $20.02\n201' 'T8 DEF purchase'
+
+# ---------------------------------------------------------------------------
+# fixture 66 - every one of the nine families renames, and the new label is on
+# the row rather than on a second row beside it. The old label is gone from
+# the relation entirely: a rename is an UPDATE, not an insert.
+# ---------------------------------------------------------------------------
+for family in $T8_FAMILIES; do
+  before="$(t8_label "$family")"
+  after="$before (renamed $STAMP)"
+  [ "$(t8_row_count "$family" "$before")" = 1 ] \
+    || fail "fixture 66 $family has no single row labelled $before before the rename"
+  t8_rename "$family" "$before" "$after" "fixture 66 rename in $family"
+  [ "$(t8_row_count "$family" "$after")" = 1 ] \
+    || fail "fixture 66 $family has no row labelled $after after the rename"
+  [ "$(t8_row_count "$family" "$before")" = 0 ] \
+    || fail "fixture 66 $family kept a row under the old label $before"
+  t8_rename "$family" "$after" "$before" "fixture 66 rename back in $family"
+  [ "$(t8_row_count "$family" "$before")" = 1 ] \
+    || fail "fixture 66 $family did not come back to $before"
+done
+note "fixture 66 PASS - all nine definition families rename in place, one row keeps one identity, and the old label leaves the relation"
+
+# ---------------------------------------------------------------------------
+# fixture 67 - archive is not delete. Every family archives, the row stays in
+# the relation, and the flag is what moved.
+# ---------------------------------------------------------------------------
+for family in $T8_FAMILIES; do
+  label="$(t8_label "$family")"
+  [ "$(t8_archived_flag "$family" "$label")" = 1 ] \
+    || fail "fixture 67 $family definition $label is not active before the archive"
+  t8_archive "$family" "$label" "fixture 67 archive in $family"
+  [ "$(t8_archived_flag "$family" "$label")" = 0 ] \
+    || fail "fixture 67 $family definition $label did not archive"
+  [ "$(t8_row_count "$family" "$label")" = 1 ] \
+    || fail "fixture 67 archiving removed the $family row for $label"
+done
+note "fixture 67 PASS - all nine families archive by flipping a flag, and no row leaves any relation"
+
+# ---------------------------------------------------------------------------
+# fixture 68 - an archived definition leaves every selector it was offered in.
+# Read from the served view, which is the document the browser renders.
+# ---------------------------------------------------------------------------
+view="$(eyre_view_vehicle "$T8_VEHICLE")"
+for family in $T8_FAMILIES; do
+  label="$(t8_label "$family")"
+  [ "$(t8_offers "$family" "$label")" = no ] \
+    || fail "fixture 68 the $family selector still offers the archived $label"
+done
+# The two families that have a second selector - the membership grids of the
+# vehicle settings form - leave that one too.
+[ "$(t8_settings_offers energySources "$T8_ENERGY")" = no ] \
+  || fail "fixture 68 the vehicle settings energy grid still offers the archived $T8_ENERGY"
+[ "$(t8_settings_offers drivingModes "$T8_MODE")" = no ] \
+  || fail "fixture 68 the vehicle settings driving-mode grid still offers the archived $T8_MODE"
+note "fixture 68 PASS - an archived definition in each of the nine families is gone from every selector that offered it"
+
+# ---------------------------------------------------------------------------
+# fixture 69 - and it still renders on every historical record that names it.
+# This is the half that makes archive honest: a fill from 2019 still says
+# which fuel it was, whether or not that fuel is still offered today.
+# ---------------------------------------------------------------------------
+fill_card="$(fill_card_with "$T8_ENERGY")"
+[ -n "$fill_card" ] || fail "fixture 69 the fill this run wrote is not in the served history"
+for archived_label in "$T8_ENERGY" "$T8_ADDITIVE"; do
+  grep -qF "$archived_label" <<<"$fill_card" \
+    || fail "fixture 69 the fill card lost $archived_label when it was archived"
+done
+# The tag, the payment method and the driving mode of a fill render on the
+# record's own edit form rather than on its card. An archived definition the
+# record already names must still be there AND still be selected: dropping it
+# would make saving an unrelated edit quietly delete an association nobody
+# touched.
+edit_form="$(fill_edit_form)"
+[ -n "$edit_form" ] || fail "fixture 69 the fill this run wrote has no edit form"
+grep -qF "name=\"tags\" value=\"$T8_TAG\" checked" <<<"$edit_form" \
+  || fail "fixture 69 the fill edit form lost the archived tag $T8_TAG"
+grep -qF "<option value=\"$T8_PAYMENT\" selected>" <<<"$edit_form" \
+  || fail "fixture 69 the fill edit form lost the archived payment method $T8_PAYMENT"
+grep -qF "<option value=\"$T8_MODE\" selected>" <<<"$edit_form" \
+  || fail "fixture 69 the fill edit form lost the archived driving mode $T8_MODE"
+grep -qF "name=\"additives\" value=\"$T8_ADDITIVE\" checked" <<<"$edit_form" \
+  || fail "fixture 69 the fill edit form lost the archived additive $T8_ADDITIVE"
+# And an archived definition this record does NOT name is gone from the same
+# form, so the rule is "what this record already says", not "show everything".
+t8_archive tag "$T8_LONE_TAG" 'fixture 69 archive a tag no record names'
+view="$(eyre_view_vehicle "$T8_VEHICLE")"
+edit_form="$(fill_edit_form)"
+grep -qF "name=\"tags\" value=\"$T8_LONE_TAG\"" <<<"$edit_form" \
+  && fail "fixture 69 the fill edit form offers an archived tag the record never named"
+grep -qF "name=\"tags\" value=\"$T8_TAG\" checked" <<<"$edit_form" \
+  || fail "fixture 69 the fill edit form dropped the archived tag it does name"
+t8_restore tag "$T8_LONE_TAG" 'fixture 69 restore the tag no record names'
+service_card="$(event_card service "$T8_SERVICE_NOTE")"
+[ -n "$service_card" ] || fail "fixture 69 the service event this run wrote is not in the served history"
+grep -qF "$T8_SUBTYPE" <<<"$service_card" \
+  || fail "fixture 69 the service card lost the archived subtype $T8_SUBTYPE"
+disposal_card="$(event_card disposal "$T8_DISPOSAL_NOTE")"
+[ -n "$disposal_card" ] || fail "fixture 69 the disposal this run wrote is not in the served history"
+grep -qF "$T8_DISPOSAL" <<<"$disposal_card" \
+  || fail "fixture 69 the disposal card lost the archived kind $T8_DISPOSAL"
+# The consumable and the custom field render nowhere on a history card, so
+# their records are read where they live: an archived definition must still
+# join to the record that names it.
+report="$(rover_report "FROM consumable-definitions D JOIN consumable-acquisitions A ON D.consumable-id = A.consumable-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE V.label = '$T8_VEHICLE' SELECT D.label, A.observed-start;")"
+grep -qF "%label 116 '$T8_CONSUMABLE'" <<<"$report" \
+  || fail "fixture 69 the DEF purchase lost its archived definition: $report"
+report="$(rover_report "FROM custom-field-definitions D JOIN custom-field-values-text X ON D.field-id = X.field-id WHERE D.label = '$T8_FIELD' SELECT X.value;")"
+grep -qF "$T8_FIELD_VALUE" <<<"$report" \
+  || fail "fixture 69 the custom field value lost its archived definition: $report"
+note "fixture 69 PASS - every historical record still renders the definition it names after that definition is archived"
+
+# ---------------------------------------------------------------------------
+# fixture 70 - archive is reversible, and a restored definition comes back to
+# every selector it left.
+# ---------------------------------------------------------------------------
+for family in $T8_FAMILIES; do
+  label="$(t8_label "$family")"
+  t8_restore "$family" "$label" "fixture 70 restore in $family"
+  [ "$(t8_archived_flag "$family" "$label")" = 1 ] \
+    || fail "fixture 70 $family definition $label did not come back"
+done
+view="$(eyre_view_vehicle "$T8_VEHICLE")"
+for family in $T8_FAMILIES; do
+  label="$(t8_label "$family")"
+  [ "$(t8_offers "$family" "$label")" = yes ] \
+    || fail "fixture 70 the $family selector did not take $label back after the restore"
+done
+[ "$(t8_settings_offers energySources "$T8_ENERGY")" = yes ] \
+  || fail "fixture 70 the vehicle settings energy grid did not take $T8_ENERGY back"
+[ "$(t8_settings_offers drivingModes "$T8_MODE")" = yes ] \
+  || fail "fixture 70 the vehicle settings driving-mode grid did not take $T8_MODE back"
+note "fixture 70 PASS - every archived definition restores, and each one returns to the selectors it left"
+
+# ---------------------------------------------------------------------------
+# fixture 71 - a rename reaches the historical records. The old label appears
+# nowhere in the served document and the new one appears where the old one
+# was. Rover renders a label by joining to the definition, so there is no
+# copy of the old text anywhere to go stale.
+# ---------------------------------------------------------------------------
+# Neither corrected label contains the label it replaces, so a document that
+# still holds the old text cannot pass by being a prefix of the new one.
+T8_TAG_FIXED="T8 Corrected Label $STAMP"
+T8_SUBTYPE_FIXED="Exhaust Silencer $STAMP"
+T8_ENERGY_FIXED="T8 Corrected Fuel $STAMP"
+t8_rename tag "$T8_TAG" "$T8_TAG_FIXED" 'fixture 71 the corrected tag'
+t8_rename service-subtype "$T8_SUBTYPE" "$T8_SUBTYPE_FIXED" 'fixture 71 the corrected subtype'
+t8_rename energy "$T8_ENERGY" "$T8_ENERGY_FIXED" 'fixture 71 the corrected energy source'
+view="$(eyre_view_vehicle "$T8_VEHICLE")"
+# The old text is nowhere in the whole served document. Rover renders a label
+# by joining to the definition, so there is no second copy to go stale.
+grep -qF ">$T8_SUBTYPE<" <<<"$view" \
+  && fail "fixture 71 the old subtype label is still rendered somewhere"
+grep -qF "$T8_TAG" <<<"$view" \
+  && fail "fixture 71 the old tag label is still rendered somewhere"
+grep -qF "$T8_ENERGY" <<<"$view" \
+  && fail "fixture 71 the old energy source label is still rendered somewhere"
+service_card="$(event_card service "$T8_SERVICE_NOTE")"
+grep -qF "$T8_SUBTYPE_FIXED" <<<"$service_card" \
+  || fail "fixture 71 the service card does not carry the corrected subtype"
+fill_card="$(fill_card_with "$T8_ENERGY_FIXED")"
+[ -n "$fill_card" ] || fail "fixture 71 no fill card carries the corrected energy source"
+edit_form="$(fill_edit_form)"
+grep -qF "name=\"tags\" value=\"$T8_TAG_FIXED\" checked" <<<"$edit_form" \
+  || fail "fixture 71 the fill this run wrote does not carry the corrected tag"
+[ "$(t8_offers tag "$T8_TAG_FIXED")" = yes ] \
+  || fail "fixture 71 the tag selector does not offer the corrected label"
+t8_rename tag "$T8_TAG_FIXED" "$T8_TAG" 'fixture 71 the tag put back'
+t8_rename service-subtype "$T8_SUBTYPE_FIXED" "$T8_SUBTYPE" 'fixture 71 the subtype put back'
+t8_rename energy "$T8_ENERGY_FIXED" "$T8_ENERGY" 'fixture 71 the energy source put back'
+note "fixture 71 PASS - a rename reaches every record that names the definition, the old label renders nowhere, and the corrected one is offered again"
+
+# ---------------------------------------------------------------------------
+# fixture 72 - seed-starters does not resurrect an archived starter. The
+# starter pack is a convenience, not a protected set: an owner who archives a
+# starter definition must not find it back tomorrow.
+# ---------------------------------------------------------------------------
+t8_archive service-subtype "$T8_SUBTYPE" 'fixture 72 archive a seeded starter'
+t8_archive disposal-kind "$T8_DISPOSAL" 'fixture 72 archive a seeded disposal kind'
+t8_archive consumable "$T8_CONSUMABLE" 'fixture 72 archive a seeded consumable'
+seed_starters() {
+  click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s3)
+(pure:m !>(~))' > /dev/null
+}
+seed_starters
+seed_starters
+for pair in "service-subtype:$T8_SUBTYPE" "disposal-kind:$T8_DISPOSAL" "consumable:$T8_CONSUMABLE"; do
+  family="${pair%%:*}"
+  label="${pair##*:}"
+  [ "$(t8_archived_flag "$family" "$label")" = 0 ] \
+    || fail "fixture 72 seeding brought the archived $family definition $label back"
+  [ "$(t8_row_count "$family" "$label")" = 1 ] \
+    || fail "fixture 72 seeding wrote a second $family row for $label"
+done
+t8_restore service-subtype "$T8_SUBTYPE" 'fixture 72 put the starter back'
+t8_restore disposal-kind "$T8_DISPOSAL" 'fixture 72 put the disposal kind back'
+t8_restore consumable "$T8_CONSUMABLE" 'fixture 72 put the consumable back'
+note "fixture 72 PASS - two runs of seed-starters leave an archived starter definition archived, and add no second row"
+
+# ---------------------------------------------------------------------------
+# fixture 73 - a definition no record references archives and restores just
+# the same. Archive is a display decision, not a consequence of the record
+# count, and nothing here reads one.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM tag-definitions D JOIN fuel-fill-tags L ON D.tag-id = L.tag-id WHERE D.label = '$T8_LONE_TAG' SELECT L.acquisition-id;")"
+[ "$(count_rows "$report" '%acquisition-id')" = 0 ] \
+  || fail "fixture 73 the unreferenced tag is referenced after all: $report"
+report="$(rover_report "FROM tag-definitions D JOIN vehicle-event-tags L ON D.tag-id = L.tag-id WHERE D.label = '$T8_LONE_TAG' SELECT L.event-id;")"
+[ "$(count_rows "$report" '%event-id')" = 0 ] \
+  || fail "fixture 73 the unreferenced tag is on an event after all: $report"
+t8_archive tag "$T8_LONE_TAG" 'fixture 73 archive an unreferenced definition'
+[ "$(t8_archived_flag tag "$T8_LONE_TAG")" = 0 ] \
+  || fail "fixture 73 the unreferenced tag did not archive"
+view="$(eyre_view_vehicle "$T8_VEHICLE")"
+[ "$(t8_offers tag "$T8_LONE_TAG")" = no ] \
+  || fail "fixture 73 the archived unreferenced tag is still offered"
+t8_restore tag "$T8_LONE_TAG" 'fixture 73 restore an unreferenced definition'
+[ "$(t8_archived_flag tag "$T8_LONE_TAG")" = 1 ] \
+  || fail "fixture 73 the unreferenced tag did not restore"
+view="$(eyre_view_vehicle "$T8_VEHICLE")"
+[ "$(t8_offers tag "$T8_LONE_TAG")" = yes ] \
+  || fail "fixture 73 the restored unreferenced tag is not offered again"
+note "fixture 73 PASS - a definition no record references archives and restores, and no usage count is consulted"
+
+# ---------------------------------------------------------------------------
+# fixture 74 - one label, one family. A rename that would put two rows of one
+# family under one label is refused, because the label is the only handle
+# Rover has on a definition and a collision makes BOTH rows unreachable.
+#
+# The refusal is per family and nothing else. The T2 starter catalog puts
+# Car Wash, Insurance and Registration in more than one family on purpose,
+# and this rule must not disturb that.
+# ---------------------------------------------------------------------------
+response="$(curl -s -b "$JAR" -w $'\n%{http_code}' -H 'content-type: application/json' \
+  --data-raw "$(printf '{"family":"tag","label":"%s","newLabel":"%s"}' "$T8_LONE_TAG" "$T8_TAG")" \
+  "$URL/apps/rover/rename-definition")"
+[ "$response" = $'%duplicate-label: definition\n409' ] \
+  || fail "fixture 74 a colliding rename was not refused: $response"
+[ "$(t8_row_count tag "$T8_LONE_TAG")" = 1 ] \
+  || fail "fixture 74 the refused rename changed the row it named"
+[ "$(t8_row_count tag "$T8_TAG")" = 1 ] \
+  || fail "fixture 74 the refused rename made a second row under $T8_TAG"
+# A collision with an ARCHIVED row is a collision too: the archived row is
+# still addressed by its label, and restoring it later must still work.
+t8_archive tag "$T8_TAG" 'fixture 74 archive the collision target'
+response="$(curl -s -b "$JAR" -w $'\n%{http_code}' -H 'content-type: application/json' \
+  --data-raw "$(printf '{"family":"tag","label":"%s","newLabel":"%s"}' "$T8_LONE_TAG" "$T8_TAG")" \
+  "$URL/apps/rover/rename-definition")"
+[ "$response" = $'%duplicate-label: definition\n409' ] \
+  || fail "fixture 74 a rename onto an archived label was allowed: $response"
+t8_restore tag "$T8_TAG" 'fixture 74 restore the collision target'
+# The same label in two different families is untouched. Car Wash is a
+# service subtype in the T2 catalog; making it a tag as well must succeed.
+t8_rename tag "$T8_LONE_TAG" 'Car Wash' 'fixture 74 the cross-family label'
+[ "$(t8_row_count tag 'Car Wash')" = 1 ] \
+  || fail "fixture 74 the cross-family rename did not land"
+[ "$(t8_row_count service-subtype 'Car Wash')" = 1 ] \
+  || fail "fixture 74 the cross-family rename disturbed the service subtype"
+t8_rename tag 'Car Wash' "$T8_LONE_TAG" 'fixture 74 the cross-family label put back'
+note "fixture 74 PASS - a label collides only inside its own family, an archived row still holds its label, and the shared T2 catalog labels are undisturbed"
+
+# ---------------------------------------------------------------------------
+# fixture 75 - the refusals. A request that names no family Rover knows, a
+# definition that is not there, or an empty new label is refused, and nothing
+# is written.
+# ---------------------------------------------------------------------------
+t8_refusal() {
+  # path payload expected note
+  local response
+  response="$(curl -s -b "$JAR" -w $'\n%{http_code}' -H 'content-type: application/json' \
+    --data-raw "$2" "$URL/apps/rover/$1")"
+  [ "$response" = "$3" ] || fail "fixture 75 $4: $response"
+}
+t8_refusal archive-definition '{"family":"vehicle","label":"Gasoline"}' \
+  $'%unknown-family: definition.family\n400' 'a family Rover does not manage'
+t8_refusal archive-definition '{"family":"tag","label":"No Such Tag At All"}' \
+  $'%not-found: definition\n404' 'a definition that is not there'
+t8_refusal rename-definition "$(printf '{"family":"tag","label":"%s","newLabel":""}' "$T8_TAG")" \
+  $'%bad-shape: definition.new-label\n400' 'an empty new label'
+t8_refusal rename-definition "$(printf '{"family":"tag","label":"%s"}' "$T8_TAG")" \
+  $'%missing-key: definition.new-label\n400' 'a rename with no new label'
+t8_refusal archive-definition '{"label":"anything"}' \
+  $'%missing-key: definition.family\n400' 'a body with no family'
+# The route decides the operation. A body that asks to be renamed at the
+# archive endpoint is archived, because the endpoint is what was called.
+[ "$(t8_row_count tag "$T8_TAG")" = 1 ] \
+  || fail "fixture 75 a refused request changed the tag relation"
+[ "$(t8_archived_flag tag "$T8_TAG")" = 1 ] \
+  || fail "fixture 75 a refused request archived a definition"
+note "fixture 75 PASS - an unknown family, an absent definition, and a missing or empty new label are each refused, and none of them writes"
+
 
 # ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
@@ -2259,6 +2814,46 @@ grep -q 'data-vehicle-spec' <<<"$card" \
 note "fixture 64 PASS - every specification row, absence, correction, and rendered description survived a ship restart"
 
 # ---------------------------------------------------------------------------
+# fixture 76 - every T8 fact survives the same real ship restart: the renames,
+# the archive flags, the restores, and the seeded starters that stayed
+# archived while the seeding ran twice.
+# ---------------------------------------------------------------------------
+for family in $T8_FAMILIES; do
+  label="$(t8_label "$family")"
+  [ "$(t8_row_count "$family" "$label")" = 1 ] \
+    || fail "fixture 76 the $family definition $label did not survive the restart"
+  [ "$(t8_archived_flag "$family" "$label")" = 1 ] \
+    || fail "fixture 76 the $family definition $label came back archived"
+done
+# The label a rename left behind must still be gone after the restart.
+[ "$(t8_row_count service-subtype "$T8_SUBTYPE_FIXED")" = 0 ] \
+  || fail "fixture 76 a label a rename replaced came back after the restart"
+[ "$(t8_row_count tag "$T8_LONE_TAG")" = 1 ] \
+  || fail "fixture 76 the unreferenced tag did not survive the restart"
+[ "$(t8_archived_flag tag "$T8_LONE_TAG")" = 1 ] \
+  || fail "fixture 76 the restored unreferenced tag came back archived"
+# Archive and restore across a restart, on a definition that has been through
+# both already. The flag is state in the database, not state in the agent.
+t8_archive additive "$T8_ADDITIVE" 'fixture 76 archive after the restart'
+[ "$(t8_archived_flag additive "$T8_ADDITIVE")" = 0 ] \
+  || fail "fixture 76 archiving after the restart did not take"
+view="$(eyre_view_vehicle "$T8_VEHICLE")"
+[ "$(t8_offers additive "$T8_ADDITIVE")" = no ] \
+  || fail "fixture 76 the additive selector still offers the archived $T8_ADDITIVE after the restart"
+t8_restore additive "$T8_ADDITIVE" 'fixture 76 restore after the restart'
+[ "$(t8_archived_flag additive "$T8_ADDITIVE")" = 1 ] \
+  || fail "fixture 76 restoring after the restart did not take"
+# The historical records still name what they named.
+view="$(eyre_view_vehicle "$T8_VEHICLE")"
+service_card="$(event_card service "$T8_SERVICE_NOTE")"
+grep -qF "$T8_SUBTYPE" <<<"$service_card" \
+  || fail "fixture 76 the service card lost its subtype across the restart"
+disposal_card="$(event_card disposal "$T8_DISPOSAL_NOTE")"
+grep -qF "$T8_DISPOSAL" <<<"$disposal_card" \
+  || fail "fixture 76 the disposal card lost its kind across the restart"
+note "fixture 76 PASS - every rename, archive flag and restore survived a ship restart, and archive and restore still work after it"
+
+# ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut
 # ---------------------------------------------------------------------------
 arms="$(python3 - "$REPO/desk/sur/rover.hoon" <<'PY'
@@ -2455,5 +3050,59 @@ report="$(spec_rows vehicle-vin S vin "$BROWSER_SPEC_VEHICLE")"
 grep -qF "$BROWSER_VIN" <<<"$report" \
   || fail "fixture 65 the browser-entered VIN is not in the database: $report"
 note "fixture 65 PASS - a person records the whole specification in the browser and the vehicle screen reads it back as a description"
+
+
+# ---------------------------------------------------------------------------
+# fixture 77 - a person renames, archives and restores a definition in a real
+# browser. Gate 7 deleted two real user actions for shipping with no endpoint,
+# and T8 exists because of that ruling, so an endpoint with no browser control
+# would repeat the same defect wearing the other hat.
+#
+# The definition is a tag of this run's own. The fixture drives the Settings
+# screen, answers the prompt and the confirm the controls raise, and then
+# reads the Add Fill tag list to prove the archived definition left a selector
+# a person actually picks from.
+# ---------------------------------------------------------------------------
+BROWSER_DEF_TAG="T8 Browser Tag $STAMP"
+BROWSER_DEF_RENAMED="T8 Browser Tag $STAMP fixed"
+curl -s -b "$JAR" -H 'content-type: application/json' \
+  --data-raw "$(printf '{"rover-import":1,"source":{"app":"rover-event-test"},"definitions":{"energy":[],"additives":[],"driving-modes":[],"tags":[{"label":"%s"}],"payment-methods":[]},"places":[],"vehicles":[]}' \
+    "$BROWSER_DEF_TAG")" \
+  "$URL/apps/rover/import" > /dev/null
+[ "$(t8_row_count tag "$BROWSER_DEF_TAG")" = 1 ] \
+  || fail "fixture 77 the browser fixture has no tag to work on"
+definition_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/definition-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" \
+      tag "$BROWSER_DEF_TAG" "$BROWSER_DEF_RENAMED"
+} 2>&1)" || fail "fixture 77 the browser could not drive the definition controls: $definition_out"
+grep -q 'DEF_PANEL=present' <<<"$definition_out" \
+  || fail "fixture 77 the settings screen has no definitions panel: $definition_out"
+grep -q 'DEF_RENAME_VERDICT=Renamed definition' <<<"$definition_out" \
+  || fail "fixture 77 the rename control did not report a rename: $definition_out"
+grep -q "DEF_RENAMED_ENTRY=$BROWSER_DEF_RENAMED" <<<"$definition_out" \
+  || fail "fixture 77 the renamed definition is not on the reloaded panel: $definition_out"
+grep -q 'DEF_ARCHIVE_VERDICT=Archived definition' <<<"$definition_out" \
+  || fail "fixture 77 the archive control did not report an archive: $definition_out"
+grep -q 'DEF_ARCHIVED_FLAG=yes' <<<"$definition_out" \
+  || fail "fixture 77 the archived definition is not marked archived on the panel: $definition_out"
+grep -q 'DEF_SELECTOR_WHILE_ARCHIVED=absent' <<<"$definition_out" \
+  || fail "fixture 77 the archived definition is still in the Add Fill tag list: $definition_out"
+grep -q 'DEF_RESTORE_VERDICT=Restored definition' <<<"$definition_out" \
+  || fail "fixture 77 the restore control did not report a restore: $definition_out"
+grep -q 'DEF_ARCHIVED_FLAG_AFTER_RESTORE=no' <<<"$definition_out" \
+  || fail "fixture 77 the restored definition is still marked archived: $definition_out"
+grep -q 'DEF_SELECTOR_AFTER_RESTORE=present' <<<"$definition_out" \
+  || fail "fixture 77 the restored definition did not come back to the Add Fill tag list: $definition_out"
+# The browser session's writes are in the database, not only on the screen.
+[ "$(t8_row_count tag "$BROWSER_DEF_RENAMED")" = 1 ] \
+  || fail "fixture 77 the browser rename is not in the database"
+[ "$(t8_row_count tag "$BROWSER_DEF_TAG")" = 0 ] \
+  || fail "fixture 77 the browser rename left the old label behind"
+[ "$(t8_archived_flag tag "$BROWSER_DEF_RENAMED")" = 1 ] \
+  || fail "fixture 77 the browser restore is not in the database"
+note "fixture 77 PASS - a person renames, archives and restores a definition in the browser, and the archived one leaves the Add Fill tag list and comes back"
 
 . "$(dirname "$0")/event-coverage-gate.sh"
