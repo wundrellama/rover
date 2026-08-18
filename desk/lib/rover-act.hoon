@@ -810,6 +810,80 @@
     notes-row
   ==
 ::
+::  M7 T6. What a reminder may name: one vehicle and one service subtype. A
+::  subtype the catalog does not hold is refused, never invented.
+++  reminder-lookup
+  |=  vehicle-label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT V.vehicle-id;"
+    " FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived;"
+  ==
+::
+::  One atomic script for one reminder. An interval the owner left blank writes
+::  NO row: absence is what "this reminder has no distance interval" means, and
+::  a zero interval would name a service due every zero miles.
+++  insert-reminder
+  |=  $:  reminder-id=@ux
+          vehicle-id=@ux
+          service-subtype-id=@ux
+          input=reminder-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  reminder  (scow %ux reminder-id)
+  =/  parent-row=tape
+    ;:  weld
+      "INSERT INTO service-reminders VALUES ("
+      reminder
+      ", "
+      (scow %ux vehicle-id)
+      ", "
+      (scow %ux service-subtype-id)
+      ", N, "
+      (scow %da recorded-at)
+      ");"
+    ==
+  =/  time-row=tape
+    ?~  time.input
+      ~
+    ;:  weld
+      " INSERT INTO service-reminder-time VALUES ("
+      reminder
+      ", "
+      (sql-ud interval-count.u.time.input)
+      ", "
+      (sql-term interval-unit.u.time.input)
+      ", "
+      (scow %da due-at.u.time.input)
+      ");"
+    ==
+  =/  distance-row=tape
+    ?~  distance.input
+      ~
+    ;:  weld
+      " INSERT INTO service-reminder-distance VALUES ("
+      reminder
+      ", "
+      (sql-ud interval-digits.u.distance.input)
+      ", "
+      (sql-ud interval-places.u.distance.input)
+      ", "
+      (sql-ud due-digits.u.distance.input)
+      ", "
+      (sql-ud due-places.u.distance.input)
+      ", "
+      (sql-term reminder-distance-unit.u.distance.input)
+      ");"
+    ==
+  ;:  weld
+    parent-row
+    time-row
+    distance-row
+  ==
+::
 ++  insert-event-tags
   |=  [event-id=@ux tag-ids=(list @ux)]
   ^-  tape
@@ -1080,6 +1154,26 @@
       ::  two independent events, and the out-of-pocket figure is a rendering.
       :-  %vehicle-disposals
       "CREATE TABLE rover..vehicle-disposals (event-id @ux, disposal-kind-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (disposal-kind-id) REFERENCES disposal-kind-definitions (disposal-kind-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M7 T6. The reminder family. The parent names WHAT is due and on which
+      ::  vehicle; it holds no interval and no due point, because a reminder may
+      ::  carry an interval in time, an interval in distance, or both, and an
+      ::  absent one must be an absent row rather than a zero.
+      ::
+      ::  The subtype key is the whole point: a reminder is about a kind of
+      ::  service work, and the catalog T2 poured is where that kind lives. The
+      ::  single-column primary key T2 chose is what lets this reference it.
+      :-  %service-reminders
+      "CREATE TABLE rover..service-reminders (reminder-id @ux, vehicle-id @ux, service-subtype-id @ux, archived @f, recorded-at @da) PRIMARY KEY (reminder-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  The interval and the due point travel in one row because neither is
+      ::  meaningful alone. Both columns are mandatory WHEN THE ROW EXISTS,
+      ::  which is the same shape vehicle-tank-size uses.
+      :-  %service-reminder-time
+      "CREATE TABLE rover..service-reminder-time (reminder-id @ux, interval-count @ud, interval-unit @tas, due-at @da) PRIMARY KEY (reminder-id) FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  One unit covers both figures: an interval measured in miles and a due
+      ::  reading measured in kilometres could never be compared against one
+      ::  odometer, so two unit columns would only make a state that is wrong.
+      :-  %service-reminder-distance
+      "CREATE TABLE rover..service-reminder-distance (reminder-id @ux, interval-digits @ud, interval-decimals @ud, due-digits @ud, due-decimals @ud, distance-unit @tas) PRIMARY KEY (reminder-id) FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
 ::
 ++  relation-pour
@@ -1209,6 +1303,17 @@
     " FROM vehicle-acquisitions A SELECT A.event-id;"
     " FROM disposal-kind-definitions K JOIN vehicle-disposals X ON K.disposal-kind-id = X.disposal-kind-id SELECT X.event-id, K.label AS disposal-kind;"
     " FROM disposal-kind-definitions K SELECT K.disposal-kind-id, K.label, K.archived;"
+    ::  M7 T6. The reminder family, one relation per query and no join at all.
+    ::  The subtype label comes from the catalog query above, matched by id, so
+    ::  a fresh database with no reminder and no vehicle cannot meet the
+    ::  three-way join the pinned engine crashes on.
+    " FROM service-reminders R WHERE R.archived = N SELECT R.reminder-id, R.vehicle-id, R.service-subtype-id, R.recorded-at;"
+    " FROM service-reminder-time T SELECT T.reminder-id, T.interval-count, T.interval-unit, T.due-at;"
+    " FROM service-reminder-distance D SELECT D.reminder-id, D.interval-digits, D.interval-decimals, D.due-digits, D.due-decimals, D.distance-unit;"
+    ::  Which subtypes an event names, by id. The label join above serves the
+    ::  history card; a reminder needs the id, because the id is what its own
+    ::  row holds.
+    " FROM vehicle-event-service-subtypes L SELECT L.event-id, L.service-subtype-id;"
   ==
 ::
 ++  sql-quote

@@ -52,6 +52,28 @@
 ::  and an absent end reaches the present.
 +$  ownership-interval
   [start=(unit @da) end=(unit @da)]
+::  M7 T6. The derived current odometer, as a number rather than as the tape
+::  the readout prints. One derivation serves both.
++$  current-reading
+  [digits=@ud places=@ud reading-unit=@tas date=@da]
+::  M7 T6. The reminder family travels through the render as one name, the way
+::  the event family does. `event-subtypes` is keyed by event and holds the
+::  subtype ID, because a reminder matches on the ID its own row carries.
++$  reminder-rows
+  $:  reminders=(list vector:ast)
+      times=(list vector:ast)
+      distances=(list vector:ast)
+      event-subtypes=(list vector:ast)
+  ==
+::  What one reminder says, in three states and never in two. `%due` and
+::  `%not-due` are answers; `%unavailable` is the refusal, and it carries the
+::  human reason for it.
++$  reminder-verdict
+  [state=@tas headline=@t detail=@t]
+::  A service the reminder names, already recorded. The odometer is a unit
+::  because a service visit may be recorded without a reading.
++$  reminder-completion
+  [date=@da odometer=(unit vector:ast)]
 ++  result-rows
   |=  command=cmd-result:ast
   ^-  (list vector:ast)
@@ -906,6 +928,26 @@
     rest
   ==
 ::
+::  M7 T6. The same catalog as a drop-down. A reminder names exactly one kind
+::  of service work, so it picks one rather than checking several.
+++  service-subtype-select-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  (service-subtype-select-options t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\">"
+    label
+    "</option>"
+    rest
+  ==
+::
 ++  payment-options
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1293,6 +1335,444 @@
   'The vehicle was not owned for part of this interval, so it is unavailable.'
   ==
 ::
+::  M7 T6. Calendar arithmetic, because a reminder interval is a calendar step.
+::  Three months is not a fixed count of seconds, and a column holding one
+::  would drift by three days every year.
+++  month-days
+  |=  [year=@ud month=@ud]
+  ^-  @ud
+  ?:  =(2 month)
+    ?:  =(0 (mod year 400))
+      29
+    ?:  =(0 (mod year 100))
+      28
+    ?:(=(0 (mod year 4)) 29 28)
+  ?:  ?|  =(4 month)
+          =(6 month)
+          =(9 month)
+          =(11 month)
+      ==
+    30
+  31
+::
+::  The last day of a short month absorbs a longer one. The 31st plus one month
+::  is the 28th of February, not the 3rd of March: a service due at the end of
+::  January is due at the end of February, and rolling over would move it into
+::  the month after the one the owner meant.
+++  add-months
+  |=  [when=@da count=@ud]
+  ^-  @da
+  =/  parts  (yore when)
+  =/  ordinal  (add (dec m.parts) count)
+  =/  years  (add y.parts (div ordinal 12))
+  =/  month  +((mod ordinal 12))
+  =/  day  (min d.t.parts (month-days years month))
+  %-  year
+  [[a.parts years] month [day h.t.parts m.t.parts s.t.parts f.t.parts]]
+::
+++  add-time-interval
+  |=  [when=@da count=@ud interval-unit=@tas]
+  ^-  @da
+  ?:  =(%day interval-unit)
+    (add when (mul count ~d1))
+  ?:  =(%week interval-unit)
+    (add when (mul count ~d7))
+  ?:  =(%year interval-unit)
+    (add-months when (mul count 12))
+  (add-months when count)
+::
+::  The plural a person expects. "Every 1 month", "every 3 months".
+++  interval-unit-text
+  |=  [count=@ud interval-unit=@tas]
+  ^-  tape
+  =/  singular=tape  (trip (scot %tas interval-unit))
+  ?:(=(1 count) singular (weld singular "s"))
+::
+++  format-day
+  |=  when=@da
+  ^-  tape
+  (scag 10 (trip (format-da:render when)))
+::
+::  Exact thousandths in, a figure a person reads out. A whole number of miles
+::  keeps no decimal point, and a fractional one keeps only the digits it has.
+++  format-distance-milli
+  |=  [milli=@ud distance-unit=@tas]
+  ^-  tape
+  =/  scaled=tape  (trip (format-scaled:render milli 3 %.y))
+  =/  trimmed=tape
+    %-  flop
+    |-  ^-  tape
+    =/  reversed  (flop scaled)
+    ?~  reversed
+      ~
+    ?:  =('0' i.reversed)
+      $(scaled (flop t.reversed))
+    ?:  =('.' i.reversed)
+      t.reversed
+    reversed
+  ;:  weld
+    ?~(trimmed "0" trimmed)
+    " "
+    (trip (scot %tas distance-unit))
+  ==
+::
+::  One odometer figure in exact thousandths of the unit the reminder uses. A
+::  reading Rover cannot convert or cannot hold exactly answers with nothing,
+::  and the caller renders that as unavailable rather than as a guess.
+++  reading-in-milli
+  |=  [digits=@ud places=@ud source=@tas target=@tas]
+  ^-  (unit @ud)
+  ?:  (gth places 3)
+    ~
+  ?.  ?|  =(%mi source)
+          =(%km source)
+      ==
+    ~
+  ?.  ?|  =(%mi target)
+          =(%km target)
+      ==
+    ~
+  =/  converted  (convert-distance:render digits places source target)
+  `(mul converted-digits.converted (pow-ten:render (sub 3 converted-places.converted)))
+::
+::  Every service already recorded that names this reminder's subtype, newest
+::  first. A service event and nothing else: the subtype link keys to the event
+::  parent, so an expense could carry one, but paying for a part is not the
+::  same as having the work done.
+++  reminder-completions
+  |=  $:  vehicle-id=@
+          subtype-id=@
+          events=(list vector:ast)
+          services=(list vector:ast)
+          links=(list vector:ast)
+          odometers=(list vector:ast)
+      ==
+  ^-  (list reminder-completion)
+  =/  service-events=(set @)
+    (~(gas in *(set @)) `(list @)`(row-ids %event-id services))
+  =/  named=(set @)
+    %-  ~(gas in *(set @))
+    ^-  (list @)
+    %+  turn  (rows-by %service-subtype-id subtype-id links)
+    |=(row=vector:ast (cell-atom %event-id row))
+  =/  matched=(list vector:ast)
+    %+  skim  (rows-for vehicle-id events)
+    |=  row=vector:ast
+    =/  event  (cell-atom %event-id row)
+    ?&  (~(has in service-events) event)
+        (~(has in named) event)
+    ==
+  %+  turn  (order-vectors:act %observed-start %.y matched)
+  |=  row=vector:ast
+  ^-  reminder-completion
+  =/  found  (rows-by %event-id (cell-atom %event-id row) odometers)
+  :-  `@da`(cell-atom %observed-start row)
+  ?~(found ~ `i.found)
+::
+::  The time half. The stored due point is what the owner entered; recording
+::  the service the reminder names moves it forward by one interval. It never
+::  moves backwards, so a service recorded before the point the owner entered
+::  leaves that point standing.
+++  reminder-time-verdict
+  |=  $:  row=vector:ast
+          completions=(list reminder-completion)
+          now=@da
+      ==
+  ^-  reminder-verdict
+  =/  count  (cell-atom %interval-count row)
+  =/  interval-unit  (cell-term %interval-unit row)
+  =/  anchor=@da  `@da`(cell-atom %due-at row)
+  =/  effective=@da
+    ?~  completions
+      anchor
+    =/  advanced  (add-time-interval date.i.completions count interval-unit)
+    ?:((gth advanced anchor) advanced anchor)
+  =/  every=tape
+    ;:  weld
+      "Every "
+      (scow %ud count)
+      " "
+      (interval-unit-text count interval-unit)
+      ". "
+    ==
+  ?:  (gte now effective)
+    :+  %due
+      'Due now'
+    (crip ;:(weld "Due on " (format-day effective) "."))
+  :+  %not-due
+    (crip (weld "Due " (format-day effective)))
+  (crip ;:(weld every "Next due on " (format-day effective) "."))
+::
+::  The distance half. Three things can make it unanswerable, and each says so
+::  in a sentence: the vehicle has no reading, the readings overlap, or the
+::  countdown crosses a gap in ownership.
+::
+::  Ruling 12 is the last of the three. Progress toward a distance due point is
+::  distance driven, and distance driven across a gap includes miles the owner
+::  did not drive. The countdown starts at the due point less one interval, and
+::  the window runs from the reading at or below that point to the reading now.
+::  A window that leaves one ownership interval and returns is unavailable, the
+::  way a fuel economy interval across the same gap is.
+++  reminder-distance-verdict
+  |=  $:  row=vector:ast
+          completions=(list reminder-completion)
+          odometers=(list vector:ast)
+          spans=(list ownership-interval)
+      ==
+  ^-  reminder-verdict
+  =/  distance-unit  (cell-term %distance-unit row)
+  =/  interval=(unit @ud)
+    %:  reading-in-milli
+        (cell-atom %interval-digits row)
+        (cell-atom %interval-decimals row)
+        distance-unit
+        distance-unit
+    ==
+  =/  anchor=(unit @ud)
+    %:  reading-in-milli
+        (cell-atom %due-digits row)
+        (cell-atom %due-decimals row)
+        distance-unit
+        distance-unit
+    ==
+  ?:  ?|(?=(~ interval) ?=(~ anchor))
+    :+  %unavailable
+      'Unavailable'
+    'This reminder holds a distance Rover cannot hold exactly, so it is unavailable.'
+  =/  found  (current-odometer-reading odometers)
+  ?:  ?=(%| -.found)
+    :+  %unavailable
+      'Unavailable'
+    ?:  =(%no-readings p.found)
+      'This vehicle has no odometer reading, so Rover cannot tell whether this is due.'
+    'The latest odometer observations of this vehicle overlap, so Rover cannot tell whether this is due.'
+  =/  current=(unit @ud)
+    (reading-in-milli digits.p.found places.p.found reading-unit.p.found distance-unit)
+  ?~  current
+    :+  %unavailable
+      'Unavailable'
+    'The odometer of this vehicle is not in a unit Rover can compare against this reminder.'
+  ::  The newest recorded service that carries a reading. One without a reading
+  ::  moves no distance due point, because it says nothing about the odometer.
+  =/  completion=(unit @ud)
+    |-  ^-  (unit @ud)
+    ?~  completions
+      ~
+    ?~  odometer.i.completions
+      $(completions t.completions)
+    =/  measured
+      %:  reading-in-milli
+          (cell-atom %value-digits u.odometer.i.completions)
+          (cell-atom %decimal-places u.odometer.i.completions)
+          (cell-term %unit u.odometer.i.completions)
+          distance-unit
+      ==
+    ?~  measured
+      $(completions t.completions)
+    measured
+  =/  effective=@ud
+    ?~  completion
+      u.anchor
+    =/  advanced  (add u.completion u.interval)
+    ?:((gth advanced u.anchor) advanced u.anchor)
+  =/  countdown-start=@ud
+    ?:((gth effective u.interval) (sub effective u.interval) 0)
+  =/  started=@da
+    (countdown-start-date odometers distance-unit countdown-start date.p.found)
+  ?:  (ownership-gap spans started date.p.found)
+    [%unavailable 'Unavailable' (economy-break-text %ownership-gap)]
+  =/  every=tape
+    ;:  weld
+      "Every "
+      (format-distance-milli u.interval distance-unit)
+      ". "
+    ==
+  ?:  (gte u.current effective)
+    :+  %due
+      'Due now'
+    %-  crip
+    ;:  weld
+      "Due at "
+      (format-distance-milli effective distance-unit)
+      ". The odometer reads "
+      (format-distance-milli u.current distance-unit)
+      "."
+    ==
+  :+  %not-due
+    (crip (weld "Due in " (format-distance-milli (sub effective u.current) distance-unit)))
+  %-  crip
+  ;:  weld
+    every
+    "Next due at "
+    (format-distance-milli effective distance-unit)
+    "."
+  ==
+::
+::  When the countdown started, in time. The reading at or below the countdown
+::  point is where the clock of this reminder began; if the record starts after
+::  that point, the earliest reading is as far back as Rover can honestly go.
+++  countdown-start-date
+  |=  $:  odometers=(list vector:ast)
+          distance-unit=@tas
+          countdown-start=@ud
+          fallback=@da
+      ==
+  ^-  @da
+  =/  ordered  (order-vectors:act %observed-start %.n odometers)
+  ?~  ordered
+    fallback
+  =/  earliest=@da  `@da`(cell-atom %observed-start i.ordered)
+  =/  rows=(list vector:ast)  ordered
+  =/  found=(unit @da)
+    |-  ^-  (unit @da)
+    ?~  rows
+      ~
+    =/  rest  $(rows t.rows)
+    =/  measured
+      %:  reading-in-milli
+          (cell-atom %value-digits i.rows)
+          (cell-atom %decimal-places i.rows)
+          (cell-term %unit i.rows)
+          distance-unit
+      ==
+    ?~  measured
+      rest
+    ?.  (lte u.measured countdown-start)
+      rest
+    =/  when=@da  `@da`(cell-atom %observed-start i.rows)
+    ?~  rest
+      `when
+    ?:((gth when u.rest) `when rest)
+  ?~(found earliest u.found)
+::
+::  Both intervals set means due when EITHER fires. That is how a maintenance
+::  schedule is written and how a person reads one: every six months or five
+::  thousand miles, whichever comes first.
+::
+::  When neither has fired and one of them cannot answer, the reminder is
+::  unavailable rather than not due. Half an answer is not an answer.
+++  reminder-verdict-of
+  |=  [time=(unit reminder-verdict) distance=(unit reminder-verdict)]
+  ^-  reminder-verdict
+  ?~  time
+    ?~  distance
+      [%unavailable 'Unavailable' 'This reminder carries no interval.']
+    u.distance
+  ?~  distance
+    u.time
+  =/  both=(list reminder-verdict)  ~[u.time u.distance]
+  =/  due=(list reminder-verdict)
+    (skim both |=(one=reminder-verdict =(%due state.one)))
+  ?^  due
+    :+  %due
+      'Due now'
+    (crip (join-details due))
+  =/  refused=(list reminder-verdict)
+    (skim both |=(one=reminder-verdict =(%unavailable state.one)))
+  ?^  refused
+    [%unavailable 'Unavailable' (crip (join-details refused))]
+  :+  %not-due
+    (crip ;:(weld (trip headline.u.distance) " or " (slag 4 (trip headline.u.time))))
+  (crip (join-details ~[u.distance u.time]))
+::
+++  join-details
+  |=  parts=(list reminder-verdict)
+  ^-  tape
+  ?~  parts
+    ~
+  =/  rest  $(parts t.parts)
+  ?~  rest
+    (trip detail.i.parts)
+  ;:(weld (trip detail.i.parts) " " rest)
+::
+::  One reminder card per reminder of this vehicle. The subtype label is the
+::  name of the thing that is due; the reminder ID never leaves the server.
+++  reminder-cards
+  |=  $:  vehicle-id=@
+          family=reminder-rows
+          subtypes=(list vector:ast)
+          odometers=(list vector:ast)
+          events=(list vector:ast)
+          services=(list vector:ast)
+          event-odometers=(list vector:ast)
+          spans=(list ownership-interval)
+          now=@da
+      ==
+  ^-  tape
+  =/  vehicle-odometers  (rows-for vehicle-id odometers)
+  =/  mine
+    %:  order-vectors:act
+        %recorded-at
+        %.n
+        (rows-by %vehicle-id vehicle-id reminders.family)
+    ==
+  |-  ^-  tape
+  ?~  mine
+    ~
+  =/  rest=tape  $(mine t.mine)
+  =/  row  i.mine
+  =/  reminder-id  (cell-atom %reminder-id row)
+  =/  subtype-id  (cell-atom %service-subtype-id row)
+  =/  named  (rows-by %service-subtype-id subtype-id subtypes)
+  ?~  named
+    rest
+  =/  label=@t  (cell-text %label i.named)
+  =/  completions
+    %:  reminder-completions
+        vehicle-id
+        subtype-id
+        events
+        services
+        event-subtypes.family
+        event-odometers
+    ==
+  =/  time-rows  (rows-by %reminder-id reminder-id times.family)
+  =/  distance-rows  (rows-by %reminder-id reminder-id distances.family)
+  =/  time=(unit reminder-verdict)
+    ?~  time-rows
+      ~
+    `(reminder-time-verdict i.time-rows completions now)
+  =/  distance=(unit reminder-verdict)
+    ?~  distance-rows
+      ~
+    :-  ~
+    %:  reminder-distance-verdict
+        i.distance-rows
+        completions
+        vehicle-odometers
+        spans
+    ==
+  =/  verdict  (reminder-verdict-of time distance)
+  ;:  weld
+    "<article class=\"reminder\" data-reminder=\""
+    (escape label)
+    "\" data-reminder-state=\""
+    (trip (scot %tas state.verdict))
+    "\" data-reminder-due=\""
+    (escape headline.verdict)
+    "\" data-reminder-detail=\""
+    (escape detail.verdict)
+    "\"><span>"
+    (escape label)
+    "</span><strong>"
+    (escape headline.verdict)
+    "</strong><small>"
+    (escape detail.verdict)
+    "</small></article>"
+    rest
+  ==
+::
+++  reminder-section
+  |=  cards=tape
+  ^-  tape
+  ;:  weld
+    "<section class=\"hub-reminders\" aria-label=\"Reminders\"><h2>REMINDERS</h2>"
+    ?~  cards
+      "<p class=\"empty\">No reminder is recorded for this vehicle.</p>"
+    cards
+    "</section>"
+  ==
+::
 ++  main-hub
   |=  $:  app-default=(list vector:ast)
           definition-rows=(list vector:ast)
@@ -1306,6 +1786,10 @@
           def-odometers=(list vector:ast)
           derivations=(map @ derived-fill)
           ownership=(map @ (list ownership-interval))
+          ::  M7 T6. The reminder cards arrive already rendered. What is due is
+          ::  derived from the same rows this page already reads, so the hub
+          ::  takes a tape rather than eight more row lists.
+          reminder-html=tape
       ==
   ^-  tape
   =/  default-id=(unit @)
@@ -1448,6 +1932,7 @@
     "</section>"
     "<nav class=\"hub-actions\" aria-label=\"Main actions\">"
     "<button type=\"button\" data-open-screen=\"add-odometer\">Add Odometer Entry</button>"
+    "<button type=\"button\" data-open-screen=\"add-reminder\">Add Reminder</button>"
     "<button type=\"button\" data-open-screen=\"vehicles-screen\">Vehicles</button>"
     "<button type=\"button\" data-open-screen=\"history-screen\">History</button>"
     "<button type=\"button\" data-open-screen=\"statistics-screen\">Statistics</button>"
@@ -1499,7 +1984,9 @@
     "</strong><small>"
     ?:(available.def-status "Consecutive odometer-linked DEF purchases." (escape reason.def-status))
     "</small></article>"
-    "</section></section>"
+    "</section>"
+    (reminder-section reminder-html)
+    "</section>"
   ==
 ::
 ++  entry-screens
@@ -1522,6 +2009,7 @@
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
   =/  service-subtype-html  (service-subtype-options service-subtypes)
+  =/  reminder-subtype-html  (service-subtype-select-options service-subtypes)
   =/  disposal-kind-html  (disposal-kind-options disposal-kinds)
   =/  definition-html  (definition-options definitions vehicles)
   =/  station-html  (station-options stations localities)
@@ -1677,6 +2165,33 @@
     "</div><label>New tag<input name=\"newTag\" autocomplete=\"off\"></label></fieldset><label>Payment method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
     payment-html
     "</select></label><label>Note <span class=\"optional\">optional</span><input name=\"notes\" autocomplete=\"off\"></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save event</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"event-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+    ::  M7 T6. A reminder names one kind of service work and carries an
+    ::  interval in time, an interval in distance, or both. A blank interval
+    ::  writes NO row, so the form asks for nothing it will not store.
+    "<section id=\"add-reminder\" class=\"entry-screen app-screen\" hidden>"
+    "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
+    "<header><p class=\"eyebrow\">NEW REMINDER</p><h2>Add reminder</h2></header>"
+    "<form id=\"reminder-form\">"
+    "<label>Vehicle<select name=\"vehicle\" required>"
+    vehicle-html
+    "</select></label>"
+    "<label>Service<select name=\"subtype\" required><option value=\"\">Choose one</option>"
+    reminder-subtype-html
+    "</select></label>"
+    "<fieldset id=\"reminder-time\"><legend>Time interval <span class=\"optional\">optional</span></legend>"
+    "<label>Every<input name=\"timeInterval\" inputmode=\"numeric\" autocomplete=\"off\" placeholder=\"3\"></label>"
+    "<label>Unit<select name=\"timeUnit\"><option value=\"month\">months</option><option value=\"day\">days</option><option value=\"week\">weeks</option><option value=\"year\">years</option></select></label>"
+    "<label>Next due on<input name=\"timeDue\" type=\"date\"></label>"
+    "</fieldset>"
+    "<fieldset id=\"reminder-distance\"><legend>Distance interval <span class=\"optional\">optional</span></legend>"
+    "<label>Every<input name=\"distanceInterval\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"3000\"></label>"
+    "<label>Next due at<input name=\"distanceDue\" inputmode=\"decimal\" autocomplete=\"off\" placeholder=\"83169\"></label>"
+    "<label>Unit<select name=\"distanceUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label>"
+    "</fieldset>"
+    "<p class=\"field-note\">Fill in one interval or both. A reminder with both is due when either one fires. Rover reads the odometer it already holds; it never asks for the current reading here.</p>"
+    "<div class=\"form-actions\"><button type=\"submit\">Save reminder</button><button type=\"button\" data-close-screen>Cancel</button></div>"
+    "<output id=\"reminder-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output>"
+    "</form></section>"
     "<section id=\"add-odometer\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header>"
@@ -1694,12 +2209,16 @@
     "</form></section>"
   ==
 ::
-++  current-odometer
-  |=  [rows=(list vector:ast) preference=(unit @tas)]
-  ^-  tape
+::  M7 T6. The one derivation of "how far has this vehicle been driven". The
+::  reading is never stored: it is the latest non-overlapping observation of
+::  the vehicle, recomputed on every read. `current-odometer` prints it and
+::  the reminders compare against it, so the two can never disagree.
+++  current-odometer-reading
+  |=  rows=(list vector:ast)
+  ^-  (each current-reading @tas)
   =/  ordered  (order-vectors:act %observed-start %.y rows)
   ?~  ordered
-    "Unavailable - no odometer readings"
+    [%| %no-readings]
   =/  latest  i.ordered
   =/  ambiguous
     ?~  t.ordered
@@ -1708,11 +2227,26 @@
     =/  latest-start  (cell-atom %observed-start latest)
     (gth prior-end latest-start)
   ?:  ambiguous
+    [%| %overlapping]
+  :-  %&
+  :*  (cell-atom %value-digits latest)
+      (cell-atom %decimal-places latest)
+      (cell-term %unit latest)
+      `@da`(cell-atom %observed-start latest)
+  ==
+::
+++  current-odometer
+  |=  [rows=(list vector:ast) preference=(unit @tas)]
+  ^-  tape
+  =/  found  (current-odometer-reading rows)
+  ?:  ?=(%| -.found)
+    ?:  =(%no-readings p.found)
+      "Unavailable - no odometer readings"
     "Unavailable - latest observation times overlap"
-  =/  source  (cell-term %unit latest)
+  =/  source  reading-unit.p.found
   =/  target  ?~(preference source u.preference)
   =/  converted
-    (convert-distance:render (cell-atom %value-digits latest) (cell-atom %decimal-places latest) source target)
+    (convert-distance:render digits.p.found places.p.found source target)
   %-  trip
   %:  format-distance:render
       converted-digits.converted
@@ -3206,6 +3740,7 @@
 ::
 ++  page
   |=  $:  ship=@p
+          now=@da
           history-page=@ud
           selected-label=(unit @t)
           commands=(list cmd-result:ast)
@@ -3269,6 +3804,15 @@
     ==
   =/  service-subtypes  (rows-at commands 53)
   =/  disposal-kinds  (rows-at commands 56)
+  ::  M7 T6. The reminder family. Four single-relation queries, joined here by
+  ::  ID rather than by the engine, so no fresh database meets a three-way join
+  ::  whose leftmost relation is empty.
+  =/  reminders=reminder-rows
+    :*  (rows-at commands 57)
+        (rows-at commands 58)
+        (rows-at commands 59)
+        (rows-at commands 60)
+    ==
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -3291,6 +3835,23 @@
     (ownership-index events.events acquisitions.events disposals.events)
   =/  derivations
     (derive-fill-series fills energy-odometers economy-breaks ownership)
+  ::  What is due, derived on this read from the stored intervals, the stored
+  ::  due points, the clock, and the derived current odometer. Nothing is
+  ::  stored and no wakeup is scheduled.
+  =/  reminder-html=tape
+    ?~  default-id
+      ~
+    %:  reminder-cards
+        u.default-id
+        reminders
+        service-subtypes
+        odometers
+        events.events
+        services.events
+        odometers.events
+        (~(gut by ownership) u.default-id ~)
+        now
+    ==
   =/  cards=tape
     |-
     ?~  vehicles
@@ -3341,7 +3902,7 @@
       ==
       "></span>"
       (address-locality-data localities)
-      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations ownership)
+      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations ownership reminder-html)
       (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes disposal-kinds)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))

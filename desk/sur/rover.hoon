@@ -289,6 +289,35 @@
       payment-method-label=(unit @t)
       notes=(unit @t)
   ==
+::  M7 T6. How long a reminder interval runs. A term, never a baked count of
+::  seconds: three months is a calendar step, and a column holding 7.776.000
+::  seconds would say something else and would round differently every month.
++$  reminder-time-unit  ?(%day %week %month %year)
+::  An interval in time and the point it is next due. The two travel together
+::  because a reminder with a due point and no interval cannot advance, and an
+::  interval with no due point has nowhere to start.
++$  reminder-time-entry
+  [interval-count=@ud interval-unit=reminder-time-unit due-at=@da]
+::  An interval in distance and the reading it is next due at, both in one
+::  unit. Source-native digits and precision are retained exactly, the way
+::  every other distance in Rover is.
++$  reminder-distance-entry
+  $:  interval-digits=@ud
+      interval-places=@ud
+      due-digits=@ud
+      due-places=@ud
+      reminder-distance-unit=distance-unit
+  ==
+::  One reminder as a human entered it. Each interval is optional and each
+::  absent one writes NO child row - never a zero interval and never a bunt
+::  date. At least one of the two must be present: a reminder with neither
+::  interval names no moment at all.
++$  reminder-entry
+  $:  vehicle-label=@t
+      subtype-label=@t
+      time=(unit reminder-time-entry)
+      distance=(unit reminder-distance-entry)
+  ==
 +$  preference-entry
   [vehicle-label=@t distance-unit=(unit distance-unit) currency=currency]
 +$  vehicle-label-entry  [vehicle-label=@t]

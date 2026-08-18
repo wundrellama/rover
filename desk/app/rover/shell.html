@@ -2140,6 +2140,33 @@
         });
       }
 
+      // A reminder carries an interval in time, an interval in distance, or
+      // both. A blank field is sent blank and the server writes no row for it,
+      // so the form never invents a zero interval.
+      const reminderForm = app.querySelector('#reminder-form');
+      if (reminderForm) {
+        if (defaultVehicle) reminderForm.elements.vehicle.value = defaultVehicle;
+        reminderForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = app.querySelector('#reminder-verdict');
+          verdict.value = 'Saving…';
+          try {
+            const response = await fetch('/apps/rover/add-reminder', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {'content-type': 'application/json'},
+              body: JSON.stringify(
+                Object.fromEntries(new FormData(reminderForm).entries())
+              )
+            });
+            verdict.value = await response.text();
+            if (response.ok) await loadView();
+          } catch (error) {
+            verdict.value = `%unavailable: reminder · ${error.message}`;
+          }
+        });
+      }
+
       const odometerForm = app.querySelector('#odometer-form');
       if (odometerForm) {
         if (defaultVehicle) odometerForm.elements.vehicle.value = defaultVehicle;

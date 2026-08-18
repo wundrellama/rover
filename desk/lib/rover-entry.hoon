@@ -110,6 +110,35 @@
     ~
   `u.parsed
 ::
+::  M7 T6. A calendar day, the way `<input type="date">` sends one. The reminder
+::  due point is a day and not an instant, so it lands at midnight of that day
+::  rather than carrying a time the owner never entered.
+++  local-day
+  |=  txt=@t
+  ^-  (unit @da)
+  =/  tap=tape  (trip txt)
+  ?.  =(10 (lent tap))
+    ~
+  ?.  ?&  =('-' (snag 4 tap))
+          =('-' (snag 7 tap))
+      ==
+    ~
+  =/  digits
+    (skip tap |=(char=@t =('-' char)))
+  ?.  (levy digits |=(char=@t &((gte char '0') (lte char '9'))))
+    ~
+  =/  da-text
+    %-  crip
+    ;:  weld
+      "~"
+      (scag 4 tap)
+      "."
+      (scag 2 (slag 5 tap))
+      "."
+      (scag 2 (slag 8 tap))
+    ==
+  (slaw %da da-text)
+::
 ++  nonempty
   |=  value=@t
   ^-  ?
@@ -1182,6 +1211,97 @@
       payment-method
       notes
   ==
+::
+::  M7 T6. One reminder as a person entered it. Each interval is optional and a
+::  blank field writes no child row, but a reminder with NEITHER interval names
+::  no moment at all, so that is refused rather than stored.
+++  decode-reminder
+  |=  body=@t
+  ^-  (each reminder-entry:rover entry-verdict:rover)
+  =/  object  (json-object body)
+  ?~  object
+    [%| %bad-shape 'reminder']
+  =/  vehicle  (json-string 'vehicle' u.object)
+  ?~  vehicle
+    [%| %missing-key 'reminder.vehicle']
+  ?.  (nonempty u.vehicle)
+    [%| %bad-shape 'reminder.vehicle']
+  =/  subtype  (json-string 'subtype' u.object)
+  ?~  subtype
+    [%| %missing-key 'reminder.subtype']
+  ?.  (nonempty u.subtype)
+    [%| %bad-shape 'reminder.subtype']
+  =/  time-count-text  (optional-text 'timeInterval' u.object)
+  =/  time-unit-text  (optional-text 'timeUnit' u.object)
+  =/  time-due-text  (optional-text 'timeDue' u.object)
+  ::  The unit control carries a default and a drop-down always sends one, so
+  ::  it alone never means the owner asked for a time interval. The count and
+  ::  the due date are what a person types, and either one asks.
+  =/  time-asked
+    ?|  ?=(^ time-count-text)
+        ?=(^ time-due-text)
+    ==
+  =/  time=(unit reminder-time-entry:rover)
+    ?.  time-asked
+      ~
+    ?~  time-count-text  ~
+    ?~  time-unit-text  ~
+    ?~  time-due-text  ~
+    =/  count  (slaw %ud u.time-count-text)
+    ?~  count  ~
+    ?:  =(0 u.count)  ~
+    =/  unit-term  (slaw %tas u.time-unit-text)
+    ?~  unit-term  ~
+    ?.  ?=(reminder-time-unit:rover u.unit-term)  ~
+    =/  due  (local-day u.time-due-text)
+    ?~  due  ~
+    `[u.count ;;(reminder-time-unit:rover u.unit-term) u.due]
+  ::  A half-filled time interval is a mistake, not an absent one. Saying so is
+  ::  better than dropping the two fields the owner did fill in.
+  ?:  ?&  time-asked
+          ?=(~ time)
+      ==
+    [%| %bad-shape 'reminder.time-interval']
+  =/  distance-interval-text  (optional-text 'distanceInterval' u.object)
+  =/  distance-due-text  (optional-text 'distanceDue' u.object)
+  =/  distance-asked
+    ?|  ?=(^ distance-interval-text)
+        ?=(^ distance-due-text)
+    ==
+  =/  distance=(unit reminder-distance-entry:rover)
+    ?.  distance-asked
+      ~
+    ?~  distance-interval-text  ~
+    ?~  distance-due-text  ~
+    =/  parsed-interval  (parse-decimal:render u.distance-interval-text 3)
+    ?:  ?=(%| -.parsed-interval)  ~
+    ?:  =(0 digits.p.parsed-interval)  ~
+    =/  parsed-due  (parse-decimal:render u.distance-due-text 3)
+    ?:  ?=(%| -.parsed-due)  ~
+    =/  unit-text  (json-string 'distanceUnit' u.object)
+    ?~  unit-text  ~
+    =/  unit-term  (slaw %tas u.unit-text)
+    ?~  unit-term  ~
+    ?.  ?|  =(%mi u.unit-term)
+            =(%km u.unit-term)
+        ==
+      ~
+    :-  ~
+    :*  digits.p.parsed-interval
+        places.p.parsed-interval
+        digits.p.parsed-due
+        places.p.parsed-due
+        ;;(distance-unit:rover u.unit-term)
+    ==
+  ?:  ?&  distance-asked
+          ?=(~ distance)
+      ==
+    [%| %bad-shape 'reminder.distance-interval']
+  ?:  ?&  ?=(~ time)
+          ?=(~ distance)
+      ==
+    [%| %missing-key 'reminder.interval']
+  [%& u.vehicle u.subtype time distance]
 ::
 ++  decode-odometer
   |=  body=@t

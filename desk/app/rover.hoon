@@ -744,6 +744,28 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ::  M7 T6. One reminder. The write is two phases like an event write: the
+    ::  vehicle and the service subtype are resolved by label first, and an
+    ::  unknown one is refused rather than invented.
+    ?:  =('/apps/rover/add-reminder' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: reminder')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  decoded  (decode-reminder:entry body-text)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  wir=wire  /rover-reminder-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%script %rover %vector (reminder-lookup:act vehicle-label.p.decoded)])
+      =/  next
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          fill-body-pending  (~(put by fill-body-pending.sat) wir body-text)
+        ==
+      :_  next
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/add-custom-field' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: custom-field')) sat]
@@ -1639,6 +1661,99 @@
         (cat 3 head (cat 3 ' - ' total-display.p.decoded))
       :_  cleared
       (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs saved))
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-reminder-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: reminder'))
+      =/  decoded  (decode-reminder:entry u.body)
+      ?:  ?=(%| -.decoded)
+        :_  cleared
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: reminder'))
+      ?.  (gte (lent p.res) 2)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: reminder'))
+      =/  vehicles  (rows-at:view p.res 0)
+      =/  subtype-rows  (rows-at:view p.res 1)
+      ?.  =(1 (lent vehicles))
+        :_  cleared
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: reminder.vehicle'))
+      =/  found  (row-by-text:view %label subtype-label.p.decoded subtype-rows)
+      ?~  found
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: reminder.subtype'))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  write-wire=path  /rover-reminder-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script=tape
+        %:  insert-reminder:act
+            (fixture-id:act base 9.601)
+            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+            `@ux`(cell-atom:view %service-subtype-id u.found)
+            p.decoded
+            now.bowl
+        ==
+      =/  jon  !>([%script %rover %vector script])
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+      =/  next-body
+        (~(put by (~(del by fill-body-pending) wire)) write-wire u.body)
+      :_  this(http-pending next-http, fill-body-pending next-body)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-reminder-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      =/  decoded  (decode-reminder:entry u.body)
+      ?:  ?|  ?=(%.n -.res)
+              ?=(%| -.decoded)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: reminder'))
+      :_  cleared
+      %:  http-give
+          u.eyre-id
+          201
+          ['content-type' 'text/plain']~
+          `(text-octs (cat 3 'Saved reminder - ' subtype-label.p.decoded))
+      ==
     ::
         %kick
       `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
@@ -3932,7 +4047,7 @@
           u.eyre-id
           200
           headers
-          `(as-octs:mimes:html (page:view our.bowl history-page selected-label p.res))
+          `(as-octs:mimes:html (page:view our.bowl now.bowl history-page selected-label p.res))
       ==
     ::
         %kick
