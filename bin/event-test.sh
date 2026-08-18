@@ -228,6 +228,16 @@ for match in re.finditer(pattern, document, re.S):
 ' "$kind" "$needle" <<<"$view"
 }
 
+section_html() {
+  python3 -c '
+import re, sys
+section_id = sys.argv[1]
+document = sys.stdin.read()
+match = re.search(r"<section id=\"%s\".*?</section>" % re.escape(section_id), document, re.S)
+sys.stdout.write(match.group(0) if match else "")
+' "$1"
+}
+
 count_rows() {
   local report="$1" marker="$2"
   grep -o "$marker" <<<"$report" | wc -l
@@ -308,6 +318,214 @@ report="$(rover_report "FROM vehicles V WHERE V.label = '$VEHICLE' SELECT V.vehi
 grep -q "%station 116 '$STATION'" <<<"$report" \
   || fail "fixture 3 the baseline station is absent: $report"
 note "fixture 3 PASS - baseline vehicle, fill, station, tag, and payment method exist"
+
+# ---------------------------------------------------------------------------
+# fixture 66 - a rename changes the human label everywhere it renders. The
+# fill above already references Gasoline, so this is a history test rather
+# than a catalog-only update. The stable definition id never crosses Eyre.
+# ---------------------------------------------------------------------------
+RENAMED_ENERGY="Gasoline corrected $STAMP"
+eyre_post rename-definition \
+  "$(printf '{"family":"energy","label":"Gasoline","newLabel":"%s"}' "$RENAMED_ENERGY")" \
+  $'Renamed definition\n201' 'fixture 66 rename the referenced energy source'
+view="$(eyre_view)"
+grep -qF "$RENAMED_ENERGY" <<<"$view" \
+  || fail "fixture 66 the renamed energy source is absent from the served history"
+grep -qF '>Gasoline<' <<<"$view" \
+  && fail "fixture 66 the old energy label still renders after the rename"
+report="$(rover_report "FROM energy-definitions E WHERE E.label = '$RENAMED_ENERGY' SELECT E.energy-definition-id, E.label;")"
+grep -qF "%label 116 '$RENAMED_ENERGY'" <<<"$report" \
+  || fail "fixture 66 the renamed definition is absent from Obelisk: $report"
+eyre_post rename-definition \
+  "$(printf '{"family":"energy","label":"%s","newLabel":"Gasoline"}' "$RENAMED_ENERGY")" \
+  $'Renamed definition\n201' 'fixture 66 restore the energy source label'
+note "fixture 66 PASS - a rename reaches a referenced historical record, the old label disappears, and the definition keeps its identity"
+
+# ---------------------------------------------------------------------------
+# fixture 67 - every owner-editable definition family takes the same rename
+# path. Duplicate labels in a different family are irrelevant, while a target
+# label already present in this family is refused.
+# ---------------------------------------------------------------------------
+CUSTOM_LIFECYCLE="Lifecycle Field $STAMP"
+eyre_post add-custom-field \
+  "$(printf '{"label":"%s","contentType":"text","mandatory":"no"}' "$CUSTOM_LIFECYCLE")" \
+  $'Created custom field\n201' 'fixture 67 create the custom field used by the lifecycle audit'
+while IFS='|' read -r family relation id_column original; do
+  corrected="$original corrected $STAMP"
+  eyre_post rename-definition \
+    "$(printf '{"family":"%s","label":"%s","newLabel":"%s"}' "$family" "$original" "$corrected")" \
+    $'Renamed definition\n201' "fixture 67 rename $family"
+  report="$(rover_report "FROM $relation D WHERE D.label = '$corrected' SELECT D.$id_column, D.label;")"
+  grep -qF "%label 116 '$corrected'" <<<"$report" \
+    || fail "fixture 67 $family did not keep its row under the corrected label: $report"
+  eyre_post rename-definition \
+    "$(printf '{"family":"%s","label":"%s","newLabel":"%s"}' "$family" "$corrected" "$original")" \
+    $'Renamed definition\n201' "fixture 67 restore $family label"
+done <<EOF
+driving-mode|driving-mode-definitions|mode-id|Normal
+consumable|consumable-definitions|consumable-id|Washer Fluid
+service-subtype|service-subtype-definitions|service-subtype-id|Engine Oil
+disposal-kind|disposal-kind-definitions|disposal-kind-id|Sold
+additive|additive-definitions|additive-id|Fuel stabilizer
+tag|tag-definitions|tag-id|$TAG
+payment-method|payment-method-definitions|method-id|$PAYMENT
+custom-field|custom-field-definitions|field-id|$CUSTOM_LIFECYCLE
+EOF
+
+status_body="$(curl -sS -b "$JAR" -H 'content-type: application/json' \
+  --data-raw '{"family":"energy","label":"Gasoline","newLabel":"Diesel"}' \
+  -w $'\n%{http_code}' "$URL/apps/rover/rename-definition")"
+[ "$status_body" = $'%conflict: definition.label\n409' ] \
+  || fail "fixture 67 a same-family label collision was not refused: $status_body"
+note "fixture 67 PASS - all nine definition families rename, and same-family label collisions fail closed"
+
+# ---------------------------------------------------------------------------
+# fixture 68 - archive is reversible. The referenced energy row leaves both
+# acquisition selectors, but the old fill still says which energy it used.
+# ---------------------------------------------------------------------------
+eyre_post set-definition-archived \
+  '{"family":"energy","label":"Gasoline","archived":"yes"}' \
+  $'Archived definition\n201' 'fixture 68 archive the referenced energy definition'
+view="$(eyre_view)"
+fill_screen="$(python3 -c '
+import re, sys
+document = sys.stdin.read()
+match = re.search(r"<section id=\"add-fill\".*?</section>", document, re.S)
+sys.stdout.write(match.group(0) if match else "")
+' <<<"$view")"
+charge_screen="$(python3 -c '
+import re, sys
+document = sys.stdin.read()
+match = re.search(r"<section id=\"add-charge\".*?</section>", document, re.S)
+sys.stdout.write(match.group(0) if match else "")
+' <<<"$view")"
+grep -q '<dt>ENERGY</dt><dd>Gasoline' <<<"$view" \
+  || fail "fixture 68 the archived definition disappeared from its historical fill"
+grep -q '>Gasoline</option>' <<<"$fill_screen" \
+  && fail "fixture 68 the archived definition remains in the fill selector"
+grep -q '>Gasoline</option>' <<<"$charge_screen" \
+  && fail "fixture 68 the archived definition remains in the charge selector"
+eyre_post set-definition-archived \
+  '{"family":"energy","label":"Gasoline","archived":"no"}' \
+  $'Restored definition\n201' 'fixture 68 restore the referenced energy definition'
+view="$(eyre_view)"
+fill_screen="$(python3 -c '
+import re, sys
+document = sys.stdin.read()
+match = re.search(r"<section id=\"add-fill\".*?</section>", document, re.S)
+sys.stdout.write(match.group(0) if match else "")
+' <<<"$view")"
+grep -q '>Gasoline</option>' <<<"$fill_screen" \
+  || fail "fixture 68 the restored definition did not return to the fill selector"
+note "fixture 68 PASS - archive hides a referenced definition from selectors, history keeps it, and restore returns it"
+
+# ---------------------------------------------------------------------------
+# fixture 69 - every remaining family archives and restores. The view checks
+# each selector that offers the archived row, not just the database bit.
+# ---------------------------------------------------------------------------
+while IFS='|' read -r family relation id_column label; do
+  eyre_post set-definition-archived \
+    "$(printf '{"family":"%s","label":"%s","archived":"yes"}' "$family" "$label")" \
+    $'Archived definition\n201' "fixture 69 archive $family"
+  report="$(rover_report "FROM $relation D WHERE D.label = '$label' SELECT D.$id_column, D.archived;")"
+  [ "$(count_rows "$report" "%$id_column")" = 1 ] \
+    || fail "fixture 69 $family was removed instead of archived: $report"
+  grep -q '%archived 102 0' <<<"$report" \
+    || fail "fixture 69 $family did not carry archived Y: $report"
+done <<EOF
+driving-mode|driving-mode-definitions|mode-id|Normal
+consumable|consumable-definitions|consumable-id|Washer Fluid
+service-subtype|service-subtype-definitions|service-subtype-id|Engine Oil
+disposal-kind|disposal-kind-definitions|disposal-kind-id|Sold
+additive|additive-definitions|additive-id|Fuel stabilizer
+tag|tag-definitions|tag-id|$TAG
+payment-method|payment-method-definitions|method-id|$PAYMENT
+custom-field|custom-field-definitions|field-id|$CUSTOM_LIFECYCLE
+EOF
+
+view="$(eyre_view)"
+vehicle_create="$(section_html vehicle-create-screen <<<"$view")"
+fill_screen="$(section_html add-fill <<<"$view")"
+consumable_screen="$(section_html add-consumable <<<"$view")"
+event_screen="$(section_html add-event <<<"$view")"
+reminder_screen="$(section_html add-reminder <<<"$view")"
+grep -q 'value="Normal"' <<<"$vehicle_create" \
+  && fail "fixture 69 the archived driving mode remains in the vehicle selector"
+grep -q 'value="Washer Fluid"' <<<"$consumable_screen" \
+  && fail "fixture 69 the archived consumable remains in its selector"
+grep -q 'value="Engine Oil"' <<<"$event_screen$reminder_screen" \
+  && fail "fixture 69 the archived service subtype remains in an event or reminder selector"
+grep -q 'value="Sold"' <<<"$event_screen" \
+  && fail "fixture 69 the archived disposal kind remains in its selector"
+grep -q 'value="Fuel stabilizer"' <<<"$fill_screen" \
+  && fail "fixture 69 the archived additive remains in its selector"
+grep -qF "value=\"$TAG\"" <<<"$fill_screen$event_screen" \
+  && fail "fixture 69 the archived tag remains in a fill or event selector"
+grep -qF "value=\"$PAYMENT\"" <<<"$fill_screen$event_screen" \
+  && fail "fixture 69 the archived payment method remains in a fill or event selector"
+grep -qF "data-custom-label=\"$CUSTOM_LIFECYCLE\"" <<<"$fill_screen" \
+  && fail "fixture 69 the archived custom field remains in the fill form"
+
+while IFS='|' read -r family label; do
+  eyre_post set-definition-archived \
+    "$(printf '{"family":"%s","label":"%s","archived":"no"}' "$family" "$label")" \
+    $'Restored definition\n201' "fixture 69 restore $family"
+done <<EOF
+driving-mode|Normal
+consumable|Washer Fluid
+service-subtype|Engine Oil
+disposal-kind|Sold
+additive|Fuel stabilizer
+tag|$TAG
+payment-method|$PAYMENT
+custom-field|$CUSTOM_LIFECYCLE
+EOF
+
+view="$(eyre_view)"
+vehicle_create="$(section_html vehicle-create-screen <<<"$view")"
+fill_screen="$(section_html add-fill <<<"$view")"
+consumable_screen="$(section_html add-consumable <<<"$view")"
+event_screen="$(section_html add-event <<<"$view")"
+reminder_screen="$(section_html add-reminder <<<"$view")"
+grep -q 'value="Normal"' <<<"$vehicle_create" \
+  || fail "fixture 69 the restored driving mode did not return"
+grep -q 'value="Washer Fluid"' <<<"$consumable_screen" \
+  || fail "fixture 69 the restored consumable did not return"
+grep -q 'value="Engine Oil"' <<<"$event_screen$reminder_screen" \
+  || fail "fixture 69 the restored service subtype did not return"
+grep -q 'value="Sold"' <<<"$event_screen" \
+  || fail "fixture 69 the restored disposal kind did not return"
+grep -q 'value="Fuel stabilizer"' <<<"$fill_screen" \
+  || fail "fixture 69 the restored additive did not return"
+grep -qF "value=\"$TAG\"" <<<"$fill_screen$event_screen" \
+  || fail "fixture 69 the restored tag did not return"
+grep -qF "value=\"$PAYMENT\"" <<<"$fill_screen$event_screen" \
+  || fail "fixture 69 the restored payment method did not return"
+grep -qF "data-custom-label=\"$CUSTOM_LIFECYCLE\"" <<<"$fill_screen" \
+  || fail "fixture 69 the restored custom field did not return"
+note "fixture 69 PASS - every definition family archives, leaves its selectors, restores, and returns"
+
+# ---------------------------------------------------------------------------
+# fixture 70 - seed-starters sees an archived row as an existing row. The
+# starter remains archived and singular until the owner restores it.
+# ---------------------------------------------------------------------------
+eyre_post set-definition-archived \
+  '{"family":"additive","label":"Fuel stabilizer","archived":"yes"}' \
+  $'Archived definition\n201' 'fixture 70 archive an unreferenced starter'
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%seed-starters ~]))
+;<  ~  bind:m  (sleep ~s3)
+(pure:m !>(~))' > /dev/null
+report="$(rover_report "FROM additive-definitions A WHERE A.label = 'Fuel stabilizer' SELECT A.additive-id, A.archived;")"
+[ "$(count_rows "$report" '%additive-id')" = 1 ] \
+  || fail "fixture 70 seed-starters duplicated the archived starter: $report"
+grep -q '%archived 102 0' <<<"$report" \
+  || fail "fixture 70 seed-starters resurrected the archived starter: $report"
+eyre_post set-definition-archived \
+  '{"family":"additive","label":"Fuel stabilizer","archived":"no"}' \
+  $'Restored definition\n201' 'fixture 70 restore the unreferenced starter'
+note "fixture 70 PASS - an unreferenced definition archives and restores, and seed-starters does not resurrect it"
 
 places_before="$(count_rows "$(rover_report 'FROM places P SELECT P.place-id;')" '%place-id')"
 stations_before="$(count_rows "$(rover_report 'FROM stations S SELECT S.station-id;')" '%station-id')"
@@ -1709,8 +1927,8 @@ note "fixture 57 PASS - each specification field is independently absent, and a 
 # normalizations are applied to both sides and to neither side alone:
 #
 #   * the vehicle label, which carries this run's stamp
-#   * the two membership check grids, whose contents follow the energy-source
-#     and driving-mode catalogs of the database rather than anything T7 does
+#   * the two membership check grids and the default-subtype selector, whose
+#     contents follow definition catalogs rather than anything T7 does
 #
 # The specification fieldset is removed from the served panel before the
 # comparison, exactly as the tank-size input arrived: an optional field gets a
@@ -1738,6 +1956,10 @@ def normalize(document, label):
         "", document, flags=re.S)
     document = re.sub(r"<div class=\"check-grid\">.*?</div>", "<div class=\"check-grid\">CHECKS</div>",
                       document, flags=re.S)
+    document = re.sub(
+        r"<select name=\"defaultSubtype\">.*?</select>",
+        "<select name=\"defaultSubtype\">OPTIONS</select>",
+        document, flags=re.S)
     return document
 
 baseline = normalize(baseline, "Spec Baseline Vehicle")
@@ -1981,6 +2203,17 @@ grep -q 'aCar export/' "$REPO/.gitignore" \
   || fail "fixture 63 the owner's aCar export is no longer gitignored"
 note "fixture 63 PASS - every VIN in the tree contains a letter the real VIN alphabet excludes, every plate is marked FAKE, and the owner's export is never read"
 
+# Fixture 72 begins before the shared restart and finishes after it. One
+# referenced label remains renamed, and one unreferenced starter remains
+# archived, while the ship is down.
+PERSISTED_TAG="$TAG restart $STAMP"
+eyre_post rename-definition \
+  "$(printf '{"family":"tag","label":"%s","newLabel":"%s"}' "$TAG" "$PERSISTED_TAG")" \
+  $'Renamed definition\n201' 'fixture 72 leave a referenced rename across restart'
+eyre_post set-definition-archived \
+  '{"family":"additive","label":"Fuel stabilizer","archived":"yes"}' \
+  $'Archived definition\n201' 'fixture 72 leave an archive across restart'
+
 # ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
@@ -2038,6 +2271,26 @@ done
 URL="http://localhost:$PORT"
 eyre_login
 view="$(eyre_view)"
+
+report="$(rover_report "FROM tag-definitions T WHERE T.label = '$PERSISTED_TAG' SELECT T.tag-id, T.label; FROM additive-definitions A WHERE A.label = 'Fuel stabilizer' SELECT A.additive-id, A.archived;")"
+grep -qF "%label 116 '$PERSISTED_TAG'" <<<"$report" \
+  || fail "fixture 72 the renamed tag did not survive restart: $report"
+grep -q '%archived 102 0' <<<"$report" \
+  || fail "fixture 72 the archived additive did not survive restart: $report"
+grep -qF "$PERSISTED_TAG" <<<"$view" \
+  || fail "fixture 72 history did not render the renamed tag after restart"
+fill_screen="$(section_html add-fill <<<"$view")"
+grep -q 'value="Fuel stabilizer"' <<<"$fill_screen" \
+  && fail "fixture 72 the archived additive returned to its selector after restart"
+eyre_post set-definition-archived \
+  '{"family":"additive","label":"Fuel stabilizer","archived":"no"}' \
+  $'Restored definition\n201' 'fixture 72 restore the additive after restart'
+eyre_post rename-definition \
+  "$(printf '{"family":"tag","label":"%s","newLabel":"%s"}' "$PERSISTED_TAG" "$TAG")" \
+  $'Renamed definition\n201' 'fixture 72 restore the tag label after restart'
+view="$(eyre_view)"
+note "fixture 72 PASS - rename, archive, historical rendering, selector filtering, and restore survive a ship restart"
+
 card="$(event_card service "$SERVICE_NOTE")"
 [ -n "$card" ] || fail "fixture 12 the service event did not survive the restart"
 grep -qF "data-event-total=\"$SERVICE_TOTAL\"" <<<"$card" \
@@ -2308,6 +2561,29 @@ chromium_binary="${ROVER_CHROMIUM:-$HOME/.cache/ms-playwright/chromium-1217/chro
 auth_cookie_name="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $6; exit}' "$JAR")"
 auth_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
 [ -n "$auth_cookie" ] || fail "fixture 14 has no urbauth cookie to hand the browser"
+
+# ---------------------------------------------------------------------------
+# fixture 71 - every lifecycle action is reachable through a visible browser
+# control. The script clicks rename, archive, restore, and rename-back for all
+# nine families. It does not call fetch from the browser test.
+# ---------------------------------------------------------------------------
+definition_browser_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/definition-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$STAMP" \
+      "$CUSTOM_LIFECYCLE" "$TAG" "$PAYMENT"
+} 2>&1)" || fail "fixture 71 the definition controls are not reachable: $definition_browser_out"
+grep -q 'DEFINITION_FAMILIES=9' <<<"$definition_browser_out" \
+  || fail "fixture 71 the browser did not find all nine families: $definition_browser_out"
+grep -q 'DEFINITION_RENAMED=9' <<<"$definition_browser_out" \
+  || fail "fixture 71 the browser did not rename all nine families: $definition_browser_out"
+grep -q 'DEFINITION_ARCHIVED=9' <<<"$definition_browser_out" \
+  || fail "fixture 71 the browser did not archive all nine families: $definition_browser_out"
+grep -q 'DEFINITION_RESTORED=9' <<<"$definition_browser_out" \
+  || fail "fixture 71 the browser did not restore all nine families: $definition_browser_out"
+note "fixture 71 PASS - a person reaches rename, archive, and restore controls for all nine definition families"
+
 BROWSER_NOTE="Browser service $STAMP"
 BROWSER_ODO="$((53000 + STAMP % 1000))"
 BROWSER_SUBTYPES='Engine Oil,Oil Filter,Tire Rotation'

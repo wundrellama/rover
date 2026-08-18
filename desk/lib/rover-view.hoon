@@ -465,6 +465,11 @@
   ?~  rows
     ~
   =/  row  i.rows
+  =/  rest  $(rows t.rows)
+  ?:  ?|  =(0 (cell-atom %energy-archived row))
+          =(0 (cell-atom %link-archived row))
+      ==
+    rest
   =/  owner
     (escape (vehicle-label (cell-atom %vehicle-id row) vehicles))
   =/  label  (escape (cell-text %energy row))
@@ -484,7 +489,7 @@
       label
       "</option>"
     ==
-  (weld option $(rows t.rows))
+  (weld option rest)
 ::
 ++  station-options
   |=  [rows=(list vector:ast) localities=(list vector:ast)]
@@ -1098,26 +1103,84 @@
   ;:  weld
     "<li data-custom-definition=\""
     label
+    "\" data-definition-family=\"custom-field\" data-definition-label=\""
+    label
+    "\" data-definition-archived=\""
+    ?:(archived "yes" "no")
     "\"><span>"
     label
     " - "
     (escape (scot %tas (cell-term %content-type i.rows)))
     ?:(=(0 (cell-atom %mandatory i.rows)) " - mandatory" "")
     ?:(archived " - archived" "")
-    "</span><button type=\"button\" data-archive-custom-field data-label=\""
+    "</span><label>Rename<input data-definition-rename-input value=\""
     label
-    "\">Archive</button><select data-change-custom-type><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select><button type=\"button\" data-change-custom-field data-label=\""
+    "\"></label><button type=\"button\" data-rename-definition>Rename</button><button type=\"button\" data-toggle-definition>"
+    ?:(archived "Restore" "Archive")
+    "</button><select data-change-custom-type><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select><button type=\"button\" data-change-custom-field data-label=\""
     label
-    "\">Change type</button></li>"
+    "\">Change type</button><output class=\"form-verdict\" data-definition-verdict aria-live=\"polite\"></output></li>"
     (custom-definition-list t.rows)
   ==
 ::
+++  definition-lifecycle-list
+  |=  [family=@tas rows=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (escape (cell-text %label i.rows))
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  ;:  weld
+    "<li data-definition-family=\""
+    (trip (scot %tas family))
+    "\" data-definition-label=\""
+    label
+    "\" data-definition-archived=\""
+    ?:(archived "yes" "no")
+    "\"><span>"
+    label
+    ?:(archived " - archived" " - active")
+    "</span><label>Rename<input data-definition-rename-input value=\""
+    label
+    "\"></label><button type=\"button\" data-rename-definition>Rename</button><button type=\"button\" data-toggle-definition>"
+    ?:(archived "Restore" "Archive")
+    "</button><output class=\"form-verdict\" data-definition-verdict aria-live=\"polite\"></output></li>"
+    (definition-lifecycle-list family t.rows)
+  ==
+::
 ++  settings-screen
-  |=  custom-definitions=(list vector:ast)
+  |=  $:  energy-definitions=(list vector:ast)
+          driving-mode-definitions=(list vector:ast)
+          consumable-definitions=(list vector:ast)
+          service-subtype-definitions=(list vector:ast)
+          disposal-kind-definitions=(list vector:ast)
+          additive-definitions=(list vector:ast)
+          tag-definitions=(list vector:ast)
+          payment-method-definitions=(list vector:ast)
+          custom-definitions=(list vector:ast)
+      ==
   ^-  tape
   ;:  weld
     "<section id=\"settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER CONFIGURATION</p><h1>SETTINGS</h1></header>"
     "<section data-settings-section=\"theme\"><h2>Theme</h2><p>Colors use the UA 571-C palette. Use the header toggle to switch glow on or off.</p><div class=\"theme-swatches\"><span>Background</span><span>Amber</span><span>Warning</span></div><div class=\"theme-glow-control\"><label for=\"glow-intensity\">Glow intensity<input id=\"glow-intensity\" data-glow-intensity type=\"range\" min=\"0\" max=\"100\" step=\"1\" value=\"32\"></label><output data-glow-intensity-output for=\"glow-intensity\">32%</output></div></section>"
+    "<section data-settings-section=\"definition-guidance\"><h2>Definition labels</h2><p>Rename corrects a label everywhere, including history. Archive removes a definition from selectors without changing old records. Restore makes it selectable again.</p></section>"
+    "<section data-settings-section=\"energy-definitions\"><h2>Energy sources</h2><ul>"
+    (definition-lifecycle-list %energy energy-definitions)
+    "</ul></section><section data-settings-section=\"driving-mode-definitions\"><h2>Driving modes</h2><ul>"
+    (definition-lifecycle-list %driving-mode driving-mode-definitions)
+    "</ul></section><section data-settings-section=\"consumable-definitions\"><h2>Consumables</h2><ul>"
+    (definition-lifecycle-list %consumable consumable-definitions)
+    "</ul></section><section data-settings-section=\"service-subtype-definitions\"><h2>Service subtypes</h2><ul>"
+    (definition-lifecycle-list %service-subtype service-subtype-definitions)
+    "</ul></section><section data-settings-section=\"disposal-kind-definitions\"><h2>Disposal kinds</h2><ul>"
+    (definition-lifecycle-list %disposal-kind disposal-kind-definitions)
+    "</ul></section><section data-settings-section=\"additive-definitions\"><h2>Additives</h2><ul>"
+    (definition-lifecycle-list %additive additive-definitions)
+    "</ul></section><section data-settings-section=\"tag-definitions\"><h2>Tags</h2><ul>"
+    (definition-lifecycle-list %tag tag-definitions)
+    "</ul></section><section data-settings-section=\"payment-method-definitions\"><h2>Payment methods</h2><ul>"
+    (definition-lifecycle-list %payment-method payment-method-definitions)
+    "</ul></section>"
     "<section data-settings-section=\"custom-fields\"><h2>Custom fields</h2><form id=\"custom-field-definition-form\"><label>Label<input name=\"label\" required></label><label>Content type<select name=\"contentType\"><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select></label><label class=\"check-option\"><input type=\"checkbox\" name=\"mandatory\"><span>Mandatory on Add Fill</span></label><button type=\"submit\">Create custom field</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form><ul id=\"custom-field-definitions\">"
     (custom-definition-list custom-definitions)
     "</ul></section><section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section class=\"settings-placeholder\"><h2>EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
@@ -4085,7 +4148,17 @@
       "</section>"
       (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
       (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations ownership selected-vehicle history-page)
-      (settings-screen custom-definitions)
+      %:  settings-screen
+          starter-definitions
+          available-modes
+          consumables
+          service-subtypes
+          disposal-kinds
+          additives
+          tags
+          payment-methods
+          custom-definitions
+      ==
       import-screen
     ==
   (crip html)

@@ -869,6 +869,78 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ?:  =('/apps/rover/rename-definition' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  object  (json-object:entry body-text)
+      ?~  object
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition')) sat]
+      =/  family-text  (json-string:entry 'family' u.object)
+      =/  label  (json-string:entry 'label' u.object)
+      =/  new-label  (json-string:entry 'newLabel' u.object)
+      =/  family
+        ?~  family-text
+          ~
+        (slaw %tas u.family-text)
+      ?:  ?|  ?=(~ family)
+              ?=(~ label)
+              ?=(~ new-label)
+              !?=(?(%energy %driving-mode %consumable %service-subtype %disposal-kind %additive %tag %payment-method %custom-field) u.family)
+              !(nonempty:entry u.label)
+              !(nonempty:entry u.new-label)
+          ==
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition')) sat]
+      =/  wir=wire  /rover-definition-lookup/rename/[u.family]/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%script %rover %vector (definition-lookup:act u.family u.label `u.new-label)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir body-text)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ?:  =('/apps/rover/set-definition-archived' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  object  (json-object:entry body-text)
+      ?~  object
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition')) sat]
+      =/  family-text  (json-string:entry 'family' u.object)
+      =/  label  (json-string:entry 'label' u.object)
+      =/  archived-text  (json-string:entry 'archived' u.object)
+      =/  family
+        ?~  family-text
+          ~
+        (slaw %tas u.family-text)
+      ?:  ?|  ?=(~ family)
+              ?=(~ label)
+              ?=(~ archived-text)
+              !?=(?(%energy %driving-mode %consumable %service-subtype %disposal-kind %additive %tag %payment-method %custom-field) u.family)
+              ?&  !=('yes' u.archived-text)
+                  !=('no' u.archived-text)
+              ==
+              !(nonempty:entry u.label)
+          ==
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition')) sat]
+      =/  operation=@tas  ?:(=('yes' u.archived-text) %archive %restore)
+      =/  wir=wire
+        /rover-definition-lookup/[operation]/[u.family]/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%script %rover %vector (definition-lookup:act u.family u.label ~)])
+      =/  new-sat
+        %_  sat
+          pending  (~(put by pending.sat) wir body-text)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ?:  =('/apps/rover/edit-fill' url.request.req)
       ?~  body.request.req
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-fill')) sat]
@@ -2324,6 +2396,94 @@
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: custom-field'))
       =/  message  ?:(=(%archive operation-term) 'Archived custom field' 'Changed custom field type')
+      :_  this
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs message))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-definition-lookup @tas @tas *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by pending) wire)
+      ?~  eyre-id
+        `this
+      ?~  body
+        :_  this(http-pending (~(del by http-pending) wire))
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: definition'))
+      =/  operation-term=@tas  i.t.wire
+      =/  family-term=@tas  i.t.t.wire
+      =/  definitions  (rows-at:view p.res 0)
+      ?.  =(1 (lent definitions))
+        :_  this
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: definition'))
+      ?:  ?&  =(%rename operation-term)
+              ?=(^ (rows-at:view p.res 1))
+          ==
+        :_  this
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%conflict: definition.label'))
+      =/  definition-id=@ux
+        `@ux`(cell-atom:view %definition-id (snag 0 definitions))
+      =/  object  (json-object:entry u.body)
+      ?~  object
+        :_  this
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition'))
+      =/  script=tape
+        ?:  =(%rename operation-term)
+          =/  new-label  (json-string:entry 'newLabel' u.object)
+          ?~  new-label
+            ~
+          (rename-definition:act family-term definition-id u.new-label)
+        (set-definition-archived:act family-term definition-id =(%archive operation-term))
+      ?~  script
+        :_  this
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: definition'))
+      =/  write-wire=path
+        /rover-definition-write/[operation-term]/[family-term]/(scot %da now.bowl)/[u.eyre-id]
+      =/  jon
+        !>([%script %rover %vector script])
+      =/  new-state
+        %_  state
+          pending  (~(put by (~(del by pending) wire)) write-wire u.body)
+          http-pending
+            (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+        ==
+      :_  this(state new-state)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-definition-write ?(%rename %archive %restore) @tas *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: definition'))
+      =/  message=@t
+        ?+  i.t.wire  'Renamed definition'
+          %archive  'Archived definition'
+          %restore  'Restored definition'
+        ==
       :_  this
       (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs message))
     ::

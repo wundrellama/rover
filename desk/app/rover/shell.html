@@ -1672,6 +1672,50 @@
         });
       }
 
+      app.querySelectorAll('[data-rename-definition]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const row = button.closest('[data-definition-family]');
+          const verdict = row.querySelector('[data-definition-verdict]');
+          const newLabel = row.querySelector('[data-definition-rename-input]').value.trim();
+          if (!newLabel) {
+            verdict.value = '%bad-shape: definition.label';
+            return;
+          }
+          const response = await fetch('/apps/rover/rename-definition', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({
+              family: row.dataset.definitionFamily,
+              label: row.dataset.definitionLabel,
+              newLabel
+            })
+          });
+          verdict.value = await response.text();
+          if (response.ok) await loadView(0, 'settings-screen');
+        });
+      });
+
+      app.querySelectorAll('[data-toggle-definition]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const row = button.closest('[data-definition-family]');
+          const verdict = row.querySelector('[data-definition-verdict]');
+          const archived = row.dataset.definitionArchived === 'yes' ? 'no' : 'yes';
+          const response = await fetch('/apps/rover/set-definition-archived', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({
+              family: row.dataset.definitionFamily,
+              label: row.dataset.definitionLabel,
+              archived
+            })
+          });
+          verdict.value = await response.text();
+          if (response.ok) await loadView(0, 'settings-screen');
+        });
+      });
+
       app.querySelectorAll('[data-archive-custom-field]').forEach((button) => {
         button.addEventListener('click', async () => {
           const response = await fetch('/apps/rover/archive-custom-field', {

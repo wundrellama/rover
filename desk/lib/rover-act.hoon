@@ -2328,6 +2328,78 @@
     "' SELECT V.parent-id;"
   ==
 ::
+++  definition-relation
+  |=  family=@tas
+  ^-  [table=tape id-column=tape]
+  ?+  family  [~ ~]
+    %energy           ["energy-definitions" "energy-definition-id"]
+    %driving-mode     ["driving-mode-definitions" "mode-id"]
+    %consumable       ["consumable-definitions" "consumable-id"]
+    %service-subtype  ["service-subtype-definitions" "service-subtype-id"]
+    %disposal-kind    ["disposal-kind-definitions" "disposal-kind-id"]
+    %additive         ["additive-definitions" "additive-id"]
+    %tag              ["tag-definitions" "tag-id"]
+    %payment-method   ["payment-method-definitions" "method-id"]
+    %custom-field     ["custom-field-definitions" "field-id"]
+  ==
+::
+++  definition-lookup
+  |=  [family=@tas label=@t new-label=(unit @t)]
+  ^-  tape
+  =/  relation  (definition-relation family)
+  ;:  weld
+    "FROM "
+    table.relation
+    " D WHERE D.label = '"
+    (sql-quote label)
+    "' SELECT D."
+    id-column.relation
+    " AS definition-id, D.label, D.archived;"
+    ?~  new-label
+      ~
+    ;:  weld
+      " FROM "
+      table.relation
+      " D WHERE D.label = '"
+      (sql-quote u.new-label)
+      "' SELECT D."
+      id-column.relation
+      " AS definition-id;"
+    ==
+  ==
+::
+++  rename-definition
+  |=  [family=@tas definition-id=@ux new-label=@t]
+  ^-  tape
+  =/  relation  (definition-relation family)
+  ;:  weld
+    "UPDATE "
+    table.relation
+    " SET label = '"
+    (sql-quote new-label)
+    "' WHERE "
+    id-column.relation
+    " = "
+    (scow %ux definition-id)
+    ";"
+  ==
+::
+++  set-definition-archived
+  |=  [family=@tas definition-id=@ux archived=?]
+  ^-  tape
+  =/  relation  (definition-relation family)
+  ;:  weld
+    "UPDATE "
+    table.relation
+    " SET archived = "
+    ?:(archived "Y" "N")
+    " WHERE "
+    id-column.relation
+    " = "
+    (scow %ux definition-id)
+    ";"
+  ==
+::
 ++  archive-custom-field
   |=  field-id=@ux
   ^-  tape
