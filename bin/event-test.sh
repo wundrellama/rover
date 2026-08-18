@@ -3517,13 +3517,13 @@ note "fixture 85 PASS - the export carries every product record family, keeps an
 # ---------------------------------------------------------------------------
 # fixture 86 - the deciding round trip. Preserve the populated owner database
 # under a temporary Obelisk name, initialize a fresh Rover database on the same
-# real substrate, import the unmodified download, and compare wide relation
+# real substrate, import the unmodified download, and compare relation
 # counts, rendered history, archive state, and an order-independent re-export.
 # The original database is restored after the proof and by the EXIT trap.
 # ---------------------------------------------------------------------------
 mapfile -t roundtrip_sql_chunks < <(
-  python3 "$REPO/bin/export-semantic.py" sql \
-    "$REPO/desk/lib/rover-act.hoon" --chunk-size 1
+  python3 "$REPO/bin/export-semantic.py" count-sql \
+    "$REPO/desk/lib/rover-act.hoon" "$REPO/docs/schema-m0.sql" --chunk-size 1
 )
 mapfile -t roundtrip_relations < <(
   python3 "$REPO/bin/export-semantic.py" relations "$REPO/desk/lib/rover-act.hoon"
@@ -3598,7 +3598,7 @@ done
 [ "$(wc -l < "$ROUNDTRIP_COUNTS_AFTER")" = 101 ] \
   || fail "fixture 86 the destination count probe did not return all 101 relations"
 cmp -s "$ROUNDTRIP_COUNTS_BEFORE" "$ROUNDTRIP_COUNTS_AFTER" \
-  || fail "fixture 86 at least one wide relation count changed across the round trip"
+  || fail "fixture 86 at least one relation count changed across the round trip"
 paste <(printf '%s\n' "${roundtrip_relations[@]}") \
       "$ROUNDTRIP_COUNTS_BEFORE" "$ROUNDTRIP_COUNTS_AFTER" |
   while IFS=$'\t' read -r relation before after; do
@@ -3607,6 +3607,6 @@ paste <(printf '%s\n' "${roundtrip_relations[@]}") \
 
 restore_roundtrip_owner \
   || fail "fixture 86 could not restore the populated pre-round-trip database"
-note "fixture 86 PASS - an unchanged export imports into a fresh real database with all 101 wide relation counts, rendered history, archive state, and semantic re-export equal"
+note "fixture 86 PASS - an unchanged export imports into a fresh real database with all 101 primary-key relation counts, rendered history, archive state, and semantic re-export equal"
 
 . "$(dirname "$0")/event-coverage-gate.sh"

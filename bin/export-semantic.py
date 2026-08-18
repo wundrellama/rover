@@ -76,6 +76,35 @@ def export_queries(path: str) -> list[str]:
     return queries
 
 
+def primary_keys(*paths: str) -> dict[str, list[str]]:
+    keys: dict[str, list[str]] = {}
+    for path in paths:
+        source = Path(path).read_text(encoding="utf-8")
+        declarations = re.findall(
+            r"CREATE TABLE rover\.\.([a-z0-9-]+).*?PRIMARY KEY \(([^)]+)\)",
+            source,
+            re.DOTALL,
+        )
+        for relation, columns in declarations:
+            key = [column.strip() for column in columns.split(",")]
+            if relation in keys and keys[relation] != key:
+                raise SystemExit(f"export-semantic: conflicting keys for {relation}")
+            keys[relation] = key
+    return keys
+
+
+def count_queries(rover_act: str, schema: str) -> list[str]:
+    keys = primary_keys(rover_act, schema)
+    queries: list[str] = []
+    for query in export_queries(rover_act):
+        relation = relation_name(query)
+        if relation not in keys:
+            raise SystemExit(f"export-semantic: {relation} has no declared primary key")
+        selection = ", ".join(f"X.{column}" for column in keys[relation])
+        queries.append(f"FROM {relation} X SELECT {selection};")
+    return queries
+
+
 def relation_name(query: str) -> str:
     match = re.match(r"FROM ([a-z0-9-]+) ", query)
     if match is None:
@@ -146,6 +175,10 @@ def main() -> int:
     sql_parser = subparsers.add_parser("sql")
     sql_parser.add_argument("rover_act")
     sql_parser.add_argument("--chunk-size", type=int)
+    count_sql_parser = subparsers.add_parser("count-sql")
+    count_sql_parser.add_argument("rover_act")
+    count_sql_parser.add_argument("schema")
+    count_sql_parser.add_argument("--chunk-size", type=int)
     relation_parser = subparsers.add_parser("relations")
     relation_parser.add_argument("rover_act")
     subparsers.add_parser("history")
@@ -153,8 +186,12 @@ def main() -> int:
 
     if args.command == "compare":
         return command_compare(args.before, args.after)
-    if args.command == "sql":
-        queries = export_queries(args.rover_act)
+    if args.command in ("sql", "count-sql"):
+        queries = (
+            export_queries(args.rover_act)
+            if args.command == "sql"
+            else count_queries(args.rover_act, args.schema)
+        )
         if args.chunk_size is None:
             print(" ".join(queries))
             return 0
