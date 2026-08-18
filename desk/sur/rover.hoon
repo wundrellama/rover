@@ -329,6 +329,38 @@
       def-enabled=?
       def-tank-size=(unit scaled-entry)
   ==
+::  M7 T7. One specification field, as a person left it in the form.
+::
+::  Two units, because there are three states and two are not enough. The
+::  OUTER one says whether the body named the field at all: a body that never
+::  mentions a make leaves the make exactly as it was. The INNER one says
+::  whether the person put anything in it: a field sent empty removes its row.
+::  A value is a row, an absence is NO row, and neither is ever an empty
+::  string, a zero, or a bunt.
++$  spec-text  (unit (unit @t))
++$  spec-number  (unit (unit @ud))
+::  The twelve specification fields plus the vehicle note. Insurance is NOT
+::  here: ruled 2026-08-18, a bare policy string is a stub of a feature rather
+::  than a feature, and the fence stays shut until insurance is designed whole.
+::
+::  `vin` and `plate` are identifying personal data. They travel in this one
+::  entry because one form writes them, but they reach two relations of their
+::  own and share none with a descriptive field.
++$  vehicle-spec-entry
+  $:  vin=spec-text
+      plate=spec-text
+      model-year=spec-number
+      make=spec-text
+      model=spec-text
+      sub-model=spec-text
+      body-type=spec-text
+      color=spec-text
+      engine=spec-text
+      transmission=spec-text
+      drive-type=spec-text
+      bed-type=spec-text
+      note=spec-text
+  ==
 +$  vehicle-edit-entry
   $:  vehicle-label=@t
       label=@t
@@ -340,6 +372,7 @@
       driving-mode-labels=(unit (list @t))
       def-enabled=(unit ?)
       def-tank-size=(unit scaled-entry)
+      specification=vehicle-spec-entry
   ==
 +$  custom-definition-entry
   [label=@t content-type=@tas mandatory=?]

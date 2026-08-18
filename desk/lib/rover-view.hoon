@@ -74,6 +74,10 @@
 ::  because a service visit may be recorded without a reading.
 +$  reminder-completion
   [date=@da odometer=(unit vector:ast)]
+::  M7 T7. The thirteen specification relations, keyed by relation name rather
+::  than carried as thirteen positional arguments. `spec-view-order:act` is the
+::  one list that decides which query answers which name.
++$  spec-index  (map @tas (list vector:ast))
 ++  result-rows
   |=  command=cmd-result:ast
   ^-  (list vector:ast)
@@ -2912,6 +2916,145 @@
     (pagination-controls history-page (lent all-ordered) 'vehicle-settings-screen')
   ==
 ::
+::  M7 T7. Join the parts a person actually recorded, and nothing else. An
+::  empty part contributes no separator, so a vehicle with a make and no model
+::  reads "Ford" rather than "Ford " or "Ford ,".
+++  join-parts
+  |=  [separator=tape parts=(list tape)]
+  ^-  tape
+  =/  live=(list tape)  (skip parts |=(part=tape ?=(~ part)))
+  |-
+  ^-  tape
+  ?~  live
+    ~
+  ?~  t.live
+    i.live
+  ;:(weld i.live separator $(live t.live))
+::
+::  One specification value of one vehicle, or nothing at all. Nothing is what
+::  an unrecorded field is: there is no row to find, so there is no empty
+::  string to render and no placeholder to explain away.
+++  spec-text-of
+  |=  [vehicle-id=@ relation=@tas column=@tas specs=spec-index]
+  ^-  (unit @t)
+  =/  rows  (rows-for vehicle-id (~(gut by specs) relation ~))
+  ?~  rows
+    ~
+  `(cell-text column i.rows)
+::
+++  spec-number-of
+  |=  [vehicle-id=@ relation=@tas column=@tas specs=spec-index]
+  ^-  (unit @ud)
+  =/  rows  (rows-for vehicle-id (~(gut by specs) relation ~))
+  ?~  rows
+    ~
+  `(cell-atom column i.rows)
+::
+::  One line of the rendered description, present only when it has something to
+::  say. `part` names the line so a reader - a person or a fixture - can find
+::  it without parsing the sentence.
+++  spec-line
+  |=  [class=tape part=tape body=tape]
+  ^-  tape
+  ?~  body
+    ~
+  ;:  weld
+    "<p class=\""
+    class
+    "\" data-vehicle-spec=\""
+    part
+    "\">"
+    body
+    "</p>"
+  ==
+::
+::  What the vehicle screen says about what the vehicle IS. A description, not
+::  a table of terms: the year, make, model and sub-model read as one name, and
+::  the colour, body, engine, transmission, drive and bed read as one sentence.
+::  A vehicle with no specification row at all renders NOTHING here, which is
+::  the state every installed database is in.
+++  vehicle-description
+  |=  [vehicle-id=@ specs=spec-index]
+  ^-  tape
+  =/  text
+    |=  [relation=@tas column=@tas]
+    ^-  tape
+    =/  found  (spec-text-of vehicle-id relation column specs)
+    ?~(found ~ (escape u.found))
+  =/  model-year  (spec-number-of vehicle-id %vehicle-model-year %model-year specs)
+  =/  headline
+    %+  join-parts  " "
+    :~  ?~(model-year ~ (trip (format-scaled:render u.model-year 0 %.n)))
+        (text %vehicle-make %make)
+        (text %vehicle-model %model)
+        (text %vehicle-sub-model %sub-model)
+    ==
+  =/  appearance
+    %+  join-parts  " "
+    :~  (text %vehicle-color %color)
+        (text %vehicle-body-type %body-type)
+    ==
+  =/  detail
+    %+  join-parts  ", "
+    :~  appearance
+        (text %vehicle-engine %engine)
+        (text %vehicle-transmission %transmission)
+        (text %vehicle-drive-type %drive-type)
+        (text %vehicle-bed-type %bed-type)
+    ==
+  =/  vin  (text %vehicle-vin %vin)
+  =/  plate  (text %vehicle-license-plate %plate)
+  ;:  weld
+    (spec-line "vehicle-description" "headline" headline)
+    (spec-line "vehicle-description-detail" "detail" ?~(detail ~ (weld detail ".")))
+    (spec-line "vehicle-identifier" "vin" ?~(vin ~ (weld "<span class=\"key\">VIN</span> " vin)))
+    (spec-line "vehicle-identifier" "plate" ?~(plate ~ (weld "<span class=\"key\">PLATE</span> " plate)))
+    (spec-line "vehicle-note" "note" (text %vehicle-notes %note))
+  ==
+::
+++  spec-input
+  |=  [label=tape name=tape value=tape]
+  ^-  tape
+  ;:  weld
+    "<label>"
+    label
+    "<input name=\""
+    name
+    "\" value=\""
+    value
+    "\"></label>"
+  ==
+::
+::  Where a person types the specification. Every control starts empty, exactly
+::  as the tank-size control has since M0, and an empty control writes no row.
+++  vehicle-spec-form
+  |=  [vehicle-id=@ specs=spec-index]
+  ^-  tape
+  =/  text
+    |=  [relation=@tas column=@tas]
+    ^-  tape
+    =/  found  (spec-text-of vehicle-id relation column specs)
+    ?~(found ~ (escape u.found))
+  =/  model-year  (spec-number-of vehicle-id %vehicle-model-year %model-year specs)
+  ;:  weld
+    "<fieldset class=\"vehicle-settings-group\" data-settings-group=\"specification\"><legend>Specification</legend>"
+    (spec-input "Year" "specYear" ?~(model-year ~ (trip (format-scaled:render u.model-year 0 %.n))))
+    (spec-input "Make" "specMake" (text %vehicle-make %make))
+    (spec-input "Model" "specModel" (text %vehicle-model %model))
+    (spec-input "Sub-model" "specSubModel" (text %vehicle-sub-model %sub-model))
+    (spec-input "Body type" "specBodyType" (text %vehicle-body-type %body-type))
+    (spec-input "Colour" "specColor" (text %vehicle-color %color))
+    (spec-input "Engine" "specEngine" (text %vehicle-engine %engine))
+    (spec-input "Transmission" "specTransmission" (text %vehicle-transmission %transmission))
+    (spec-input "Drive type" "specDriveType" (text %vehicle-drive-type %drive-type))
+    (spec-input "Bed type" "specBedType" (text %vehicle-bed-type %bed-type))
+    (spec-input "VIN" "specVin" (text %vehicle-vin %vin))
+    (spec-input "Licence plate" "specPlate" (text %vehicle-license-plate %plate))
+    "<label>Notes<input name=\"specNotes\" value=\""
+    (text %vehicle-notes %note)
+    "\"></label></fieldset>"
+  ==
+::
 ++  vehicle-card
   |=  $:  row=vector:ast
           odometers=(list vector:ast)
@@ -2938,6 +3081,7 @@
           tank-sizes=(list vector:ast)
           refill-reserves=(list vector:ast)
           events=event-rows
+          specs=spec-index
           is-default=?
           history-page=@ud
       ==
@@ -3042,7 +3186,9 @@
     (escape (cell-text %label row))
     "</h2></div><span class=\"status\">"
     ?:(is-default "DEFAULT" ?:(archived "ARCHIVED" "ACTIVE"))
-    "</span></header><div class=\"vehicle-actions\">"
+    "</span></header>"
+    (vehicle-description id specs)
+    "<div class=\"vehicle-actions\">"
     "<button type=\"button\" data-set-default-vehicle data-vehicle=\""
     (escape (cell-text %label row))
     "\">Set Default</button></div><div class=\"vehicle-entry-actions\">"
@@ -3098,6 +3244,7 @@
         ">litre</option></select></span></label></fieldset>"
       ==
     ~
+    (vehicle-spec-form id specs)
     "<button type=\"submit\">Save Vehicle Settings</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form>"
     preference-control
     "<button type=\"button\" class=\"archive-vehicle-control\" data-remove-vehicle data-vehicle=\""
@@ -3814,6 +3961,19 @@
         (rows-at commands 60)
     ==
   =/  custom-definitions  (rows-at commands 18)
+  ::  M7 T7. The specification family, keyed by relation name. `spec-view-order`
+  ::  is the one list that decides the query order, so the render never counts
+  ::  indices by hand and a fourteenth field costs one entry there.
+  =/  specs=spec-index
+    =/  order  spec-view-order:act
+    =/  index  61
+    |-
+    ^-  spec-index
+    ?~  order
+      ~
+    %+  ~(put by $(order t.order, index +(index)))
+      relation.i.order
+    (rows-at commands index)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
   =/  starter-subtype-html  (subtype-options subtypes)
@@ -3883,6 +4043,7 @@
           tank-sizes
           refill-reserves
           events
+          specs
           ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
           history-page
       ==

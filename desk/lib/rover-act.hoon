@@ -1065,6 +1065,186 @@
   ^-  tape
   "CREATE TABLE rover..vehicle-display-preferences (vehicle-id @ux, distance-unit @tas, currency @tas, recorded-at @da) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT;"
 ::
+::  M7 T7. The specification family: ONE RELATION PER FIELD.
+::
+::  Every field here is individually optional, and a row must use every column
+::  it defines, so the two rules together decide the division. Grouping the
+::  drivetrain would put engine, transmission, drive type and bed type in one
+::  row - and a sedan has no bed at all, so that row bunts a column for every
+::  vehicle that is not a pickup. That is the conditionally-meaningless-column
+::  defect, and no pair among these fields is safe from it: a classic is
+::  recorded with a make and no model, a project car with a year and neither.
+::
+::  A field the owner has not recorded is an ABSENT ROW. There is no empty
+::  string, no zero, and no bunt anywhere in this family.
+::
+::  The order below is the order `ui-view` reads them in. `spec-view-order`
+::  is the one list; the DDL, the queries, and the render all follow it, so a
+::  new field is one entry rather than four edits that can drift.
+++  spec-view-order
+  ^-  (list [relation=@tas column=@tas])
+  :~  [%vehicle-vin %vin]
+      [%vehicle-license-plate %plate]
+      [%vehicle-model-year %model-year]
+      [%vehicle-make %make]
+      [%vehicle-model %model]
+      [%vehicle-sub-model %sub-model]
+      [%vehicle-body-type %body-type]
+      [%vehicle-color %color]
+      [%vehicle-engine %engine]
+      [%vehicle-transmission %transmission]
+      [%vehicle-drive-type %drive-type]
+      [%vehicle-bed-type %bed-type]
+      [%vehicle-notes %note]
+  ==
+::
+::  The ten descriptive text fields. Each one is a vehicle, a value, and
+::  nothing else.
+++  spec-text-relations
+  ^-  (list [relation=@tas column=@tas])
+  %+  skip  spec-view-order
+  |=  [relation=@tas column=@tas]
+  ?|  =(%vehicle-vin relation)
+      =(%vehicle-license-plate relation)
+      =(%vehicle-model-year relation)
+  ==
+::
+++  spec-child-ddl
+  |=  [relation=@tas columns=tape]
+  ^-  [@tas tape]
+  :-  relation
+  ;:  weld
+    "CREATE TABLE rover.."
+    (trip relation)
+    " (vehicle-id @ux, "
+    columns
+    ") PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles "
+    "(vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+  ==
+::
+++  spec-relations
+  ^-  (list [name=@tas ddl=tape])
+  %+  weld
+    ^-  (list [name=@tas ddl=tape])
+    :~  ::  VIN and plate are IDENTIFYING personal data, and they are two
+        ::  relations rather than one. Ruled 2026-08-18: they must be
+        ::  shareable independently of other vehicle data and independently of
+        ::  each other, and a grant can only be as fine-grained as the rows it
+        ::  gates. A person hands a plate to a parking service and a VIN to a
+        ::  mechanic, and the counterparty is different in each case.
+        ::
+        ::  VIN is EVIDENCE, not a key. A vehicle exists before its VIN is
+        ::  known and a mistyped VIN is corrected without re-keying anything,
+        ::  so `vehicle-id` stays the identity and nothing references this.
+        ::  `recorded-at` says when the value now held was recorded, which is
+        ::  what makes a correction traceable.
+        (spec-child-ddl %vehicle-vin "vin @t, recorded-at @da")
+        (spec-child-ddl %vehicle-license-plate "plate @t, recorded-at @da")
+        ::  A year is a NUMBER a person reads as a year, not a date. 1981 and
+        ::  2019 are the real values in the owner's corpus.
+        (spec-child-ddl %vehicle-model-year "model-year @ud")
+    ==
+  %+  turn  spec-text-relations
+  |=  [relation=@tas column=@tas]
+  (spec-child-ddl relation (weld (trip column) " @t"))
+::
+::  One specification field, written the way every optional child in Rover is
+::  written. A field the body did not name is not touched at all. A field sent
+::  empty deletes its row. A field with a value deletes and inserts, so a
+::  corrected VIN is an ordinary update to one evidence row: it makes no new
+::  vehicle, and it re-keys nothing.
+++  spec-clear
+  |=  [vehicle-id=@ux relation=@tas]
+  ^-  tape
+  ;:  weld
+    "DELETE FROM "
+    (trip relation)
+    " WHERE vehicle-id = "
+    (scow %ux vehicle-id)
+    "; "
+  ==
+::
+++  spec-text-write
+  |=  [vehicle-id=@ux relation=@tas value=spec-text:rover stamped=(unit @da)]
+  ^-  tape
+  ?~  value
+    ~
+  =/  clear  (spec-clear vehicle-id relation)
+  ?~  u.value
+    clear
+  ;:  weld
+    clear
+    "INSERT INTO "
+    (trip relation)
+    " VALUES ("
+    (scow %ux vehicle-id)
+    ", '"
+    (sql-quote u.u.value)
+    "'"
+    ?~(stamped ~ (weld ", " (scow %da u.stamped)))
+    "); "
+  ==
+::
+++  spec-number-write
+  |=  [vehicle-id=@ux relation=@tas value=spec-number:rover]
+  ^-  tape
+  ?~  value
+    ~
+  =/  clear  (spec-clear vehicle-id relation)
+  ?~  u.value
+    clear
+  ;:  weld
+    clear
+    "INSERT INTO "
+    (trip relation)
+    " VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (sql-ud u.u.value)
+    "); "
+  ==
+::
+++  spec-write
+  |=  [vehicle-id=@ux input=vehicle-spec-entry:rover now=@da]
+  ^-  tape
+  =/  text-write
+    |=  [relation=@tas value=spec-text:rover]
+    (spec-text-write vehicle-id relation value ~)
+  ;:  weld
+    (spec-text-write vehicle-id %vehicle-vin vin.input `now)
+    (spec-text-write vehicle-id %vehicle-license-plate plate.input `now)
+    (spec-number-write vehicle-id %vehicle-model-year model-year.input)
+    (text-write %vehicle-make make.input)
+    (text-write %vehicle-model model.input)
+    (text-write %vehicle-sub-model sub-model.input)
+    (text-write %vehicle-body-type body-type.input)
+    (text-write %vehicle-color color.input)
+    (text-write %vehicle-engine engine.input)
+    (text-write %vehicle-transmission transmission.input)
+    (text-write %vehicle-drive-type drive-type.input)
+    (text-write %vehicle-bed-type bed-type.input)
+    (text-write %vehicle-notes note.input)
+  ==
+::
+::  One single-relation query per specification field, in `spec-view-order`.
+::  No join: a fresh database holds no vehicle and no specification row, and a
+::  join whose leftmost relation is empty crashes the pinned engine. The render
+::  matches these to their vehicle by ID.
+++  spec-queries
+  ^-  tape
+  %-  relation-pour
+  %+  turn  spec-view-order
+  |=  [relation=@tas column=@tas]
+  ^-  [@tas tape]
+  :-  relation
+  ;:  weld
+    "FROM "
+    (trip relation)
+    " S SELECT S.vehicle-id, S."
+    (trip column)
+    "; "
+  ==
+::
 ::  The definition-layer pour, named relation by relation. `schema-m0` welds the
 ::  whole list for a fresh database; `ensure-def-schema` pours only the members
 ::  an installed ship is missing. One copy of each statement, so the two paths
@@ -1073,6 +1253,8 @@
 ::  ORDER IS LOAD-BEARING. Obelisk rejects a foreign key to a table that does
 ::  not exist yet, so every parent precedes its children here.
 ++  def-relations
+  ^-  (list [name=@tas ddl=tape])
+  ;:  weld
   ^-  (list [name=@tas ddl=tape])
   :~  ::  M7 T3. The link keys to the energy event-family parent, so fuel fills
       ::  and charging sessions share one optional odometer association.
@@ -1174,6 +1356,10 @@
       ::  odometer, so two unit columns would only make a state that is wrong.
       :-  %service-reminder-distance
       "CREATE TABLE rover..service-reminder-distance (reminder-id @ux, interval-digits @ud, interval-decimals @ud, due-digits @ud, due-decimals @ud, distance-unit @tas) PRIMARY KEY (reminder-id) FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+  ==
+    ::  M7 T7. Every member keys only to `vehicles`, which `schema-m0` pours
+    ::  before it reaches this list at all, so these may sit at either end.
+    spec-relations
   ==
 ::
 ++  relation-pour
@@ -1314,6 +1500,11 @@
     ::  history card; a reminder needs the id, because the id is what its own
     ::  row holds.
     " FROM vehicle-event-service-subtypes L SELECT L.event-id, L.service-subtype-id;"
+    ::  M7 T7. The thirteen specification relations, in `spec-view-order`.
+    ::  They come last on purpose: every index before this one is unchanged,
+    ::  so no earlier reader has to move.
+    " "
+    spec-queries
   ==
 ::
 ++  sql-quote
@@ -2011,6 +2202,10 @@
     mode-script
     def-membership
     def-tank-insert
+    ::  M7 T7. Field by field, and only the fields this body named. A client
+    ::  that knows nothing about the specification saves vehicle settings
+    ::  without erasing it.
+    (spec-write vehicle-id specification.input now)
   ==
 ::
 ++  insert-energy-links

@@ -1786,7 +1786,58 @@
           ?=(~ def-tank-size)
       ==
     [%| %bad-shape 'vehicle.def-tank-size']
-  [%& u.vehicle u.label tank-size refill-reserve default-subtype default-energy energy-labels mode-labels def-enabled def-tank-size]
+  ::  M7 T7. Each specification field is read on its own. A key the body never
+  ::  names is untouched, a key sent empty clears its row, and a key with a
+  ::  value writes one. This is what lets a client that knows nothing about the
+  ::  specification save vehicle settings without erasing it.
+  =/  spec-text-of
+    |=  key=@t
+    ^-  spec-text:rover
+    =/  text  (json-string key u.object)
+    ?~  text
+      ~
+    ?.  (nonempty u.text)
+      [~ ~]
+    ``u.text
+  =/  year-text  (json-string 'specYear' u.object)
+  =/  model-year=spec-number:rover
+    ?~  year-text
+      ~
+    ?.  (nonempty u.year-text)
+      [~ ~]
+    ::  A person types 2019, not the 2.019 that Hoon's own @ud syntax wants, so
+    ::  this reads a plain decimal and refuses a fractional one.
+    =/  parsed  (parse-decimal:render u.year-text 0)
+    ?:  ?=(%| -.parsed)
+      ~
+    ::  A year a person reads is four digits. A zero, a two-digit shorthand,
+    ::  and a mistyped seven-digit number are all refused rather than stored.
+    ?:  ?|  (lth digits.p.parsed 1.000)
+            (gth digits.p.parsed 9.999)
+        ==
+      ~
+    ``digits.p.parsed
+  ?:  ?&  ?=(^ year-text)
+          (nonempty u.year-text)
+          ?=(~ model-year)
+      ==
+    [%| %bad-shape 'vehicle.specification.year']
+  =/  specification=vehicle-spec-entry:rover
+    :*  (spec-text-of 'specVin')
+        (spec-text-of 'specPlate')
+        model-year
+        (spec-text-of 'specMake')
+        (spec-text-of 'specModel')
+        (spec-text-of 'specSubModel')
+        (spec-text-of 'specBodyType')
+        (spec-text-of 'specColor')
+        (spec-text-of 'specEngine')
+        (spec-text-of 'specTransmission')
+        (spec-text-of 'specDriveType')
+        (spec-text-of 'specBedType')
+        (spec-text-of 'specNotes')
+    ==
+  [%& u.vehicle u.label tank-size refill-reserve default-subtype default-energy energy-labels mode-labels def-enabled def-tank-size specification]
 ::
 ++  decode-custom-definition
   |=  body=@t

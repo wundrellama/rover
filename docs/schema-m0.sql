@@ -6,6 +6,7 @@
 -- Amended 2026-08-16 (M7 T1): +the eleven-relation vehicle-event family.
 -- Amended 2026-08-17 (M7 T2): +service-subtype-definitions,
 --                     +vehicle-event-service-subtypes.
+-- Amended 2026-08-18 (M7 T7): +the thirteen vehicle specification relations.
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -793,4 +794,124 @@ CREATE TABLE rover..vehicle-event-service-subtypes
   FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ===========================================================================
+-- M7 T7 - vehicle identity and specification
+-- ===========================================================================
+-- ONE RELATION PER FIELD. Every field here is individually optional, and a row
+-- must use every column it defines, so the two rules together decide the
+-- division. A grouped `vehicle-drivetrain` holding engine, transmission, drive
+-- type and bed type bunts a column for every vehicle that is not a pickup,
+-- because a sedan has no bed at all. No pair among these fields escapes it: a
+-- classic is recorded with a make and no model, a project car with a year and
+-- neither.
+--
+-- A field the owner has not recorded is an ABSENT ROW. There is no empty
+-- string, no zero, and no bunt in this family.
+--
+-- Nothing here reached `vehicles`. That relation is populated and
+-- history-bearing, and the post-publish rule forbids a new column on it.
+--
+-- INSURANCE IS NOT BUILT. Ruled 2026-08-18: a bare policy string cannot say
+-- when the policy renews, what it covers, or what it cost, so it is a stub of
+-- a feature rather than a feature, and shipping the stub makes the real
+-- feature harder because the stub's shape becomes a migration obligation. The
+-- T9 import reports the field as unmapped.
+
+-- VIN AND PLATE ARE IDENTIFYING PERSONAL DATA, and they are two relations
+-- rather than one. Ruled 2026-08-18: they must be shareable independently of
+-- other vehicle data and independently of each other. A grant can only be as
+-- fine-grained as the rows it gates, so the shape has to allow the gating
+-- before the gating exists. A person hands a plate to a parking service and a
+-- VIN to a mechanic, and the counterparty is different in each case.
+--
+-- VIN IS EVIDENCE, NOT A KEY. A vehicle exists before its VIN is known, and a
+-- mistyped VIN is corrected without re-keying anything, so `vehicle-id` stays
+-- the identity and no foreign key anywhere targets this column. `recorded-at`
+-- says when the value now held was recorded, which is what makes a correction
+-- traceable.
+CREATE TABLE rover..vehicle-vin
+  (vehicle-id @ux, vin @t, recorded-at @da)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-license-plate
+  (vehicle-id @ux, plate @t, recorded-at @da)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- A year is a NUMBER a person reads as a year, not a date. 1981 and 2019 are
+-- the real values in the owner's corpus.
+CREATE TABLE rover..vehicle-model-year
+  (vehicle-id @ux, model-year @ud)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- The ten descriptive fields. Each row is a vehicle, a value, and nothing
+-- else. Both of the owner's real vehicles carry make, model, sub-model, year,
+-- body type, engine, transmission, drive type and bed type, and both leave
+-- colour and the note EMPTY - so a single wide row would have to bunt two
+-- columns on the only two real records available.
+CREATE TABLE rover..vehicle-make
+  (vehicle-id @ux, make @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-model
+  (vehicle-id @ux, model @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-sub-model
+  (vehicle-id @ux, sub-model @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-body-type
+  (vehicle-id @ux, body-type @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-color
+  (vehicle-id @ux, color @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-engine
+  (vehicle-id @ux, engine @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-transmission
+  (vehicle-id @ux, transmission @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-drive-type
+  (vehicle-id @ux, drive-type @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-bed-type
+  (vehicle-id @ux, bed-type @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-notes
+  (vehicle-id @ux, note @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
