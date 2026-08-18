@@ -1295,7 +1295,13 @@
     "<section data-settings-section=\"definitions\"><h2>Definitions</h2><p>Rename corrects a label everywhere it renders, including on records already saved. Archive removes a definition from every selector and keeps every record that names it. Nothing is deleted, and an archived definition can be restored.</p>"
     (definition-panels panels)
     "<output id=\"definition-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></section>"
-    "<section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section class=\"settings-placeholder\"><h2>EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
+    "<section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section>"
+    ::  M7 T10. One button, one complete file. The link is an anchor rather
+    ::  than a form, because the export reads and writes nothing, and the
+    ::  browser saves what a GET returns. The file is a Rover import
+    ::  document, so another Rover ship reads it back with no converter.
+    "<section data-settings-section=\"export\"><h2>Export</h2><p>The file holds your whole history: every vehicle and specification, every fill, charge and purchase, every service, expense, note, acquisition and disposal, your definitions with their archived state, your reminders, places, stations and custom fields. It is a Rover import document, so any Rover ship reads it back.</p><p>The file carries stored facts only. Economy, cost per mile and current odometer are figures Rover works out from those facts, so the ship that reads the file works them out again. Photos stay outside the database and are not in the file. The file names everything it leaves behind.</p><p>The file is yours and reaches nobody else. It holds your VIN and your plate.</p><a class=\"download-control\" data-export-download href=\"/apps/rover/export\" download>Download my history</a></section>"
+    "<section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
   ==
 ::
 ::  The import screen carries no server-rendered data. The browser reads the

@@ -516,6 +516,26 @@
       padding-inline: 0.75rem;
     }
 
+    /* The export control is an anchor, because the export is a GET that the
+       browser saves. It reads as the button it is. */
+    .download-control {
+      display: inline-block;
+      min-height: 44px;
+      padding: 0.65rem 0.85rem;
+      border: 1px solid var(--rv-olive);
+      background: var(--rv-bg);
+      color: var(--rv-amber-bright);
+      text-decoration: none;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .download-control:focus-visible {
+      border-color: var(--rv-amber-bright);
+      outline: 2px solid var(--rv-amber-dim);
+      outline-offset: 2px;
+    }
+
     .action-bar {
       display: grid;
       grid-template-columns: 1fr;
