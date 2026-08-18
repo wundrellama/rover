@@ -1295,7 +1295,7 @@
     "<section data-settings-section=\"definitions\"><h2>Definitions</h2><p>Rename corrects a label everywhere it renders, including on records already saved. Archive removes a definition from every selector and keeps every record that names it. Nothing is deleted, and an archived definition can be restored.</p>"
     (definition-panels panels)
     "<output id=\"definition-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></section>"
-    "<section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section class=\"settings-placeholder\"><h2>EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
+    "<section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section data-settings-section=\"export\"><h2>Export</h2><p>Download one Rover import file that contains your complete vehicle history.</p><a href=\"/apps/rover/export\" download data-rover-export-download>Download complete export</a></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
   ==
 ::
 ::  The import screen carries no server-rendered data. The browser reads the

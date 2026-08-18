@@ -50,7 +50,29 @@ PORT="$(awk '/insecure public/{print $1}' "$PIER/.http.ports")"
 [ -n "$PORT" ] || { echo "no public http port in $PIER/.http.ports" >&2; exit 2; }
 URL="http://localhost:$PORT"
 JAR="$(mktemp /tmp/rover-event-test-jar.XXXXXX)"
-trap 'rm -f "$JAR"' EXIT
+ROUNDTRIP_BACKUP='roverexportowner'
+ROUNDTRIP_SWAPPED=0
+ROUNDTRIP_BEFORE=''
+ROUNDTRIP_AFTER=''
+ROUNDTRIP_COUNTS_BEFORE=''
+ROUNDTRIP_COUNTS_AFTER=''
+ROUNDTRIP_HISTORY_BEFORE=''
+ROUNDTRIP_HISTORY_AFTER=''
+
+cleanup_event_test() {
+  if [ "$ROUNDTRIP_SWAPPED" -eq 1 ]; then
+    restore_roundtrip_owner >/dev/null 2>&1 ||
+      echo "event-test: cleanup could not restore the pre-round-trip database" >&2
+  fi
+  rm -f "$JAR"
+  [ -z "$ROUNDTRIP_BEFORE" ] || rm -f "$ROUNDTRIP_BEFORE"
+  [ -z "$ROUNDTRIP_AFTER" ] || rm -f "$ROUNDTRIP_AFTER"
+  [ -z "$ROUNDTRIP_COUNTS_BEFORE" ] || rm -f "$ROUNDTRIP_COUNTS_BEFORE"
+  [ -z "$ROUNDTRIP_COUNTS_AFTER" ] || rm -f "$ROUNDTRIP_COUNTS_AFTER"
+  [ -z "$ROUNDTRIP_HISTORY_BEFORE" ] || rm -f "$ROUNDTRIP_HISTORY_BEFORE"
+  [ -z "$ROUNDTRIP_HISTORY_AFTER" ] || rm -f "$ROUNDTRIP_HISTORY_AFTER"
+}
+trap cleanup_event_test EXIT
 
 STAMP="$(date +%s)"
 VEHICLE="Event Vehicle $STAMP"
@@ -154,16 +176,36 @@ derive_code() {
 
 # A readback is one urQL script sent straight to %obelisk. The tail line of the
 # click output is the typed fyrd result, and every assertion below reads it.
-rover_report() {
-  local script="$1"
+obelisk_report() {
+  local database="$1" script="$2"
   click_file "=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
 =/  wire  /rover-event-report
 ;<  ~  bind:m  (watch wire [our %obelisk] /server)
-;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %rover %vector \"$script\"]))
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %$database %vector \"$script\"]))
 ;<  [mark =vase]  bind:m  (take-fact wire)
 ;<  ~  bind:m  (take-kick wire)
 (pure:m vase)"
+}
+
+rover_report() {
+  obelisk_report rover "$1"
+}
+
+database_exists() {
+  grep -Fq "[%database %tas %$2]" <<<"$1"
+}
+
+restore_roundtrip_owner() {
+  local databases
+  [ "$ROUNDTRIP_SWAPPED" -eq 1 ] || return 0
+  databases="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+  database_exists "$databases" "$ROUNDTRIP_BACKUP" || return 1
+  if database_exists "$databases" rover; then
+    obelisk_report sys 'DROP DATABASE FORCE rover;' >/dev/null || return 1
+  fi
+  obelisk_report sys "ALTER DATABASE $ROUNDTRIP_BACKUP RENAME TO rover;" >/dev/null || return 1
+  ROUNDTRIP_SWAPPED=0
 }
 
 eyre_login() {
@@ -3349,5 +3391,222 @@ view="$(eyre_view)"
 [ "$(hub_readout 'ECONOMY - LAST FILL' <<<"$view")" = '25.000 mpg' ] \
   || fail "fixture 83 imported no-ownership history changed last-fill economy"
 note "fixture 83 PASS - imported history creates no ownership events and keeps the pre-T5 whole-history derivation"
+
+# ---------------------------------------------------------------------------
+# M7 T10 - a complete Rover export uses the Rover import format.
+#
+# fixture 84 - the owner-only download endpoint and its browser control exist.
+# The authenticated response is JSON with a download name. An unauthenticated
+# request receives the same login redirect as every Rover write endpoint.
+# ---------------------------------------------------------------------------
+export_unauthenticated="$(curl -sS -D - -o /dev/null "$URL/apps/rover/export")"
+grep -q '^HTTP/1.1 303 ' <<<"$export_unauthenticated" \
+  || fail "fixture 84 an unauthenticated export request did not redirect to login: $export_unauthenticated"
+
+export_headers="$(mktemp /tmp/rover-export-headers.XXXXXX)"
+export_document="$(mktemp /tmp/rover-export-document.XXXXXX.json)"
+export_status="$(curl -sS -b "$JAR" -D "$export_headers" -o "$export_document" -w '%{http_code}' \
+  "$URL/apps/rover/export")"
+[ "$export_status" = 200 ] \
+  || fail "fixture 84 the authenticated export returned HTTP $export_status: $(cat "$export_document")"
+grep -qi '^content-type: application/json' "$export_headers" \
+  || fail "fixture 84 the export response is not JSON: $(cat "$export_headers")"
+grep -qi '^content-disposition: attachment; filename="rover-export-' "$export_headers" \
+  || fail "fixture 84 the export response has no Rover download name: $(cat "$export_headers")"
+python3 -m json.tool "$export_document" >/dev/null \
+  || fail "fixture 84 the export response is not valid JSON"
+python3 - "$export_document" <<'PY' \
+  || fail "fixture 84 the export source and attachment notice are incomplete"
+import json
+import pathlib
+import sys
+
+document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert document["rover-import"] == 1
+assert document["source"]["app"] == "Rover"
+assert document["source"]["attachments"]["included"] is False
+assert "photoCount" in document["source"]["attachments"]
+assert document["source"]["attachments"]["manifest"]
+PY
+view="$(eyre_view)"
+grep -q 'data-rover-export-download' <<<"$view" \
+  || fail "fixture 84 the settings screen has no export download control"
+export_browser_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/export-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie"
+} 2>&1)" || fail "fixture 84 the browser could not download the export: $export_browser_out"
+grep -q '^EXPORT_FILENAME=rover-export-complete.json$' <<<"$export_browser_out" \
+  || fail "fixture 84 the browser received the wrong filename: $export_browser_out"
+grep -q '^EXPORT_FORMAT=1$' <<<"$export_browser_out" \
+  || fail "fixture 84 the browser download is not a Rover import: $export_browser_out"
+grep -q '^EXPORT_SOURCE=Rover$' <<<"$export_browser_out" \
+  || fail "fixture 84 the browser download does not name Rover: $export_browser_out"
+grep -q '^EXPORT_ATTACHMENTS_INCLUDED=false$' <<<"$export_browser_out" \
+  || fail "fixture 84 the browser download does not name the attachment omission: $export_browser_out"
+rm -f "$export_headers" "$export_document"
+note "fixture 84 PASS - an authenticated owner presses the browser control and gets the named Rover import file, while unauthenticated requests redirect to login"
+
+# ---------------------------------------------------------------------------
+# fixture 85 - the export carries each stored record family and no derived
+# value. This run leaves one synthetic tag archived so the payload must keep
+# that display state instead of reviving the definition on the next ship.
+# ---------------------------------------------------------------------------
+t8_archive tag "$T8_LONE_TAG" 'fixture 85 archived export definition'
+set_default_vehicle "$VEHICLE"
+ROUNDTRIP_BEFORE="$(mktemp /tmp/rover-export-before.XXXXXX.json)"
+export_status="$(curl -sS -b "$JAR" -o "$ROUNDTRIP_BEFORE" -w '%{http_code}' \
+  "$URL/apps/rover/export")"
+[ "$export_status" = 200 ] \
+  || fail "fixture 85 the complete export returned HTTP $export_status: $(cat "$ROUNDTRIP_BEFORE")"
+python3 - "$ROUNDTRIP_BEFORE" "$VEHICLE" "$T8_VEHICLE" "$REM_VEHICLE" \
+  "$SPEC_VEHICLE" "$T8_LONE_TAG" "$T8_FIELD" "$T8_FIELD_VALUE" <<'PY' \
+  || fail "fixture 85 the export omitted a stored family, an archive flag, or a custom value"
+import json
+import pathlib
+import sys
+
+path, event_vehicle, t8_vehicle, reminder_vehicle, spec_vehicle, archived_tag, field, field_value = sys.argv[1:]
+document = json.loads(pathlib.Path(path).read_text())
+definitions = document["definitions"]
+expected_definition_families = {
+    "energy", "service-subtypes", "additives", "driving-modes", "tags",
+    "payment-methods", "consumables", "disposal-kinds", "custom-fields",
+}
+assert expected_definition_families <= definitions.keys()
+tag = next(row for row in definitions["tags"] if row["label"] == archived_tag)
+assert tag["archived"] is True
+
+vehicles = {row["label"]: row for row in document["vehicles"]}
+event = vehicles[event_vehicle]
+assert event["chargingSessions"]
+assert any(len(row["subtypes"]) == 10 for row in event["serviceEvents"])
+assert event["expenseEvents"] and event["noteEvents"]
+assert event["acquisitionEvents"] and event["disposalEvents"]
+
+t8 = vehicles[t8_vehicle]
+assert t8["fills"] and t8["consumableAcquisitions"]
+fill = t8["fills"][0]
+assert fill["additives"] and fill["tags"]
+custom = next(row for row in fill["customFields"] if row["label"] == field)
+assert custom == {"label": field, "type": "text", "value": field_value}
+
+assert vehicles[reminder_vehicle]["reminders"]
+assert vehicles[spec_vehicle]["specification"]["specVin"].startswith("ROVERFAKEVIN")
+assert document["places"]
+
+forbidden = {
+    "currentodometer", "economy", "fuelefficiency", "costpermile",
+    "distancebetweenfills", "timebetweenfills", "derivedtotal",
+}
+
+def check(value):
+    if isinstance(value, dict):
+        assert forbidden.isdisjoint(key.lower() for key in value)
+        for child in value.values():
+            check(child)
+    elif isinstance(value, list):
+        for child in value:
+            check(child)
+
+check(document)
+PY
+note "fixture 85 PASS - the export carries every product record family, keeps an archived definition and a custom value, and carries no derived value"
+
+# ---------------------------------------------------------------------------
+# fixture 86 - the deciding round trip. Preserve the populated owner database
+# under a temporary Obelisk name, initialize a fresh Rover database on the same
+# real substrate, import the unmodified download, and compare wide relation
+# counts, rendered history, archive state, and an order-independent re-export.
+# The original database is restored after the proof and by the EXIT trap.
+# ---------------------------------------------------------------------------
+mapfile -t roundtrip_sql_chunks < <(
+  python3 "$REPO/bin/export-semantic.py" sql \
+    "$REPO/desk/lib/rover-act.hoon" --chunk-size 1
+)
+mapfile -t roundtrip_relations < <(
+  python3 "$REPO/bin/export-semantic.py" relations "$REPO/desk/lib/rover-act.hoon"
+)
+[ "${#roundtrip_relations[@]}" = 101 ] \
+  || fail "fixture 86 the count probe names ${#roundtrip_relations[@]} relations, want 101"
+
+ROUNDTRIP_COUNTS_BEFORE="$(mktemp /tmp/rover-export-counts-before.XXXXXX)"
+: > "$ROUNDTRIP_COUNTS_BEFORE"
+for roundtrip_sql in "${roundtrip_sql_chunks[@]}"; do
+  rover_report "$roundtrip_sql" | grep -oE '%vector-count [0-9]+' | awk '{print $2}' \
+    >> "$ROUNDTRIP_COUNTS_BEFORE"
+done
+[ "$(wc -l < "$ROUNDTRIP_COUNTS_BEFORE")" = 101 ] \
+  || fail "fixture 86 the source count probe did not return all 101 relations"
+
+ROUNDTRIP_HISTORY_BEFORE="$(mktemp /tmp/rover-export-history-before.XXXXXX)"
+eyre_view | python3 "$REPO/bin/export-semantic.py" history > "$ROUNDTRIP_HISTORY_BEFORE"
+[ -s "$ROUNDTRIP_HISTORY_BEFORE" ] \
+  || fail "fixture 86 the source vehicle rendered no history cards"
+
+database_report="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+database_exists "$database_report" "$ROUNDTRIP_BACKUP" \
+  && fail "fixture 86 the temporary database $ROUNDTRIP_BACKUP already exists"
+obelisk_report sys "ALTER DATABASE rover RENAME TO $ROUNDTRIP_BACKUP;" >/dev/null \
+  || fail "fixture 86 could not isolate the populated Rover database"
+ROUNDTRIP_SWAPPED=1
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%init-db ~]))
+;<  ~  bind:m  (sleep ~s8)
+(pure:m !>(~))' >/dev/null
+database_report="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+database_exists "$database_report" rover \
+  || fail "fixture 86 the fresh Rover database was not created"
+
+roundtrip_import="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-binary "@$ROUNDTRIP_BEFORE" \
+  "$URL/apps/rover/import")"
+case "$roundtrip_import" in (*$'\n'200) ;; (*) fail "fixture 86 the exported file was not accepted unchanged: $roundtrip_import";; esac
+grep -q 'failures 0' <<<"$roundtrip_import" \
+  || fail "fixture 86 the empty-database import reported a failed fill: $roundtrip_import"
+grep -q 'conflicts 0' <<<"$roundtrip_import" \
+  || fail "fixture 86 the empty-database import reported a conflict: $roundtrip_import"
+
+set_default_vehicle "$VEHICLE"
+ROUNDTRIP_HISTORY_AFTER="$(mktemp /tmp/rover-export-history-after.XXXXXX)"
+eyre_view | python3 "$REPO/bin/export-semantic.py" history > "$ROUNDTRIP_HISTORY_AFTER"
+cmp -s "$ROUNDTRIP_HISTORY_BEFORE" "$ROUNDTRIP_HISTORY_AFTER" \
+  || fail "fixture 86 the same vehicle did not render the same history after import"
+[ "$(t8_archived_flag tag "$T8_LONE_TAG")" = 0 ] \
+  || fail "fixture 86 the archived definition was resurrected"
+
+ROUNDTRIP_AFTER="$(mktemp /tmp/rover-export-after.XXXXXX.json)"
+export_status="$(curl -sS -b "$JAR" -o "$ROUNDTRIP_AFTER" -w '%{http_code}' \
+  "$URL/apps/rover/export")"
+[ "$export_status" = 200 ] \
+  || fail "fixture 86 the round-tripped database could not re-export: HTTP $export_status"
+semantic_comparison="$(python3 "$REPO/bin/export-semantic.py" compare \
+  "$ROUNDTRIP_BEFORE" "$ROUNDTRIP_AFTER")" \
+  || fail "fixture 86 the two exports differ semantically: $semantic_comparison"
+grep -q '^SEMANTIC_EQUAL=yes$' <<<"$semantic_comparison" \
+  || fail "fixture 86 the semantic comparator did not report equality: $semantic_comparison"
+while IFS= read -r line; do note "round-trip $line"; done <<<"$semantic_comparison"
+
+ROUNDTRIP_COUNTS_AFTER="$(mktemp /tmp/rover-export-counts-after.XXXXXX)"
+: > "$ROUNDTRIP_COUNTS_AFTER"
+for roundtrip_sql in "${roundtrip_sql_chunks[@]}"; do
+  rover_report "$roundtrip_sql" | grep -oE '%vector-count [0-9]+' | awk '{print $2}' \
+    >> "$ROUNDTRIP_COUNTS_AFTER"
+done
+[ "$(wc -l < "$ROUNDTRIP_COUNTS_AFTER")" = 101 ] \
+  || fail "fixture 86 the destination count probe did not return all 101 relations"
+cmp -s "$ROUNDTRIP_COUNTS_BEFORE" "$ROUNDTRIP_COUNTS_AFTER" \
+  || fail "fixture 86 at least one wide relation count changed across the round trip"
+paste <(printf '%s\n' "${roundtrip_relations[@]}") \
+      "$ROUNDTRIP_COUNTS_BEFORE" "$ROUNDTRIP_COUNTS_AFTER" |
+  while IFS=$'\t' read -r relation before after; do
+    note "round-trip relation $relation: $before -> $after"
+  done
+
+restore_roundtrip_owner \
+  || fail "fixture 86 could not restore the populated pre-round-trip database"
+note "fixture 86 PASS - an unchanged export imports into a fresh real database with all 101 wide relation counts, rendered history, archive state, and semantic re-export equal"
 
 . "$(dirname "$0")/event-coverage-gate.sh"

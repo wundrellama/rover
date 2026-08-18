@@ -120,6 +120,8 @@
       octane=(unit @ud)
       octane-method=(unit octane-method)
       cetane=(unit @ud)
+      blends=(list [kind=blend-kind digits=@ud places=@ud])
+      grade-code=(unit @t)
   ==
 +$  import-energy-definition
   $:  label=@t
@@ -130,29 +132,64 @@
 +$  import-place-address
   $:  formatted=(unit @t)
       parts=(list [part=address-part value=@t])
+      source=address-source
   ==
 +$  import-place-coordinates
   $:  latitude=@sd
       longitude=@sd
       source=coordinate-source
+      accuracy=(unit [digits=@ud places=@ud unit=radius-unit])
+  ==
++$  import-station
+  $:  label=@t
+      station-kind=station-kind
+      brand-operators=(list [role=station-role label=@t])
+      identifiers=(list [provider=@tas external-id=@t])
   ==
 +$  import-place
   $:  label=@t
       station-kind=station-kind
       address=(unit import-place-address)
       coordinates=(unit import-place-coordinates)
+      stations=(list import-station)
+  ==
++$  import-custom-value
+  $:  label=@t
+      content-type=@tas
+      value-text=@t
+      value-unit=@tas
+      boolean-value=?
   ==
 +$  import-fill
   $:  input=fill-entry
-      source-app=@tas
-      source-record-id=@t
+      source-app=(unit @tas)
+      source-record-id=(unit @t)
       source-total=(unit @t)
+      custom-values=(list import-custom-value)
   ==
 +$  import-event
   $:  input=event-entry
-      source-app=@tas
-      source-record-id=@t
+      source-app=(unit @tas)
+      source-record-id=(unit @t)
   ==
++$  import-consumable-definition
+  [label=@t quantity-unit=@tas]
++$  import-custom-option
+  [ordinal=@ud label=@t]
++$  import-custom-definition
+  $:  label=@t
+      content-type=@tas
+      entry-type=@tas
+      mandatory=?
+      target=@tas
+      options=(list import-custom-option)
+  ==
++$  import-archive
+  [family=@tas label=@t]
++$  import-consumable
+  [input=consumable-entry station-label=(unit @t)]
++$  import-vehicle-consumable
+  [label=@t tank-size=(unit scaled-entry)]
 +$  import-vehicle
   $:  label=@t
       distance-unit=distance-unit
@@ -164,6 +201,17 @@
       service-events=(list import-event)
       note-events=(list import-event)
       reminders=(list reminder-entry)
+      additional-energy=(list @t)
+      driving-modes=(list @t)
+      default-subtype=(unit @t)
+      refill-reserve=(unit @ud)
+      charging-sessions=(list charge-entry)
+      consumable-acquisitions=(list import-consumable)
+      expense-events=(list import-event)
+      acquisition-events=(list import-event)
+      disposal-events=(list import-event)
+      odometers=(list odometer-entry)
+      vehicle-consumables=(list import-vehicle-consumable)
   ==
 +$  import-definitions
   $:  energy=(list import-energy-definition)
@@ -172,13 +220,17 @@
       driving-modes=(list import-simple-definition)
       tags=(list import-simple-definition)
       payment-methods=(list import-simple-definition)
+      consumables=(list import-consumable-definition)
+      disposal-kinds=(list import-simple-definition)
+      custom-fields=(list import-custom-definition)
   ==
 +$  import-document
   $:  definitions=import-definitions
       places=(list import-place)
       vehicles=(list import-vehicle)
+      archives=(list import-archive)
   ==
-+$  import-simple-kind  ?(%additive %driving-mode %tag %payment-method)
++$  import-simple-kind  ?(%additive %driving-mode %tag %payment-method %disposal-kind)
 +$  import-work
   $%  [%energy value=import-energy-definition]
       [%service-subtype value=import-service-subtype]
@@ -192,6 +244,12 @@
       ==
       [%event value=import-event]
       [%reminder value=reminder-entry]
+      [%consumable-definition value=import-consumable-definition]
+      [%custom-definition value=import-custom-definition]
+      [%charge value=charge-entry]
+      [%consumable value=import-consumable]
+      [%odometer value=odometer-entry]
+      [%archive value=import-archive]
   ==
 +$  import-report
   $:  imported=@ud

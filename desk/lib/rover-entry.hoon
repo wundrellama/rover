@@ -59,6 +59,26 @@
     ~
   `+.value
 ::
+++  json-boolean
+  |=  [key=@t object=(map @t json)]
+  ^-  (unit ?)
+  =/  value  (~(get by object) key)
+  ?~  value
+    ~
+  ?.  ?=(%b -.u.value)
+    ~
+  `+.u.value
+::
+++  json-number
+  |=  [key=@t object=(map @t json)]
+  ^-  (unit @ud)
+  =/  value  (~(get by object) key)
+  ?~  value
+    ~
+  ?.  ?=(%n -.u.value)
+    ~
+  (slaw %ud +.u.value)
+::
 ++  json-object
   |=  body=@t
   ^-  (unit (map @t json))
@@ -582,6 +602,171 @@
     [%| %bad-shape field]
   $(values t.values, out [[u.label] out])
 ::
+++  decode-import-consumables
+  |=  values=(list json)
+  ^-  (each (list import-consumable-definition:rover) entry-verdict:rover)
+  =/  out=(list import-consumable-definition:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.definitions.consumables']
+  =/  label  (json-string 'label' u.object)
+  =/  unit-text  (json-string 'quantityUnit' u.object)
+  ?:  ?|  ?=(~ label)
+          ?=(~ unit-text)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.definitions.consumables']
+  =/  unit-term  (slaw %tas u.unit-text)
+  ?~  unit-term
+    [%| %bad-shape 'import.definitions.consumables.quantityUnit']
+  $(values t.values, out [[u.label u.unit-term] out])
+::
+++  decode-import-options
+  |=  values=(list json)
+  ^-  (each (list import-custom-option:rover) entry-verdict:rover)
+  =/  out=(list import-custom-option:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.definitions.custom-fields.options']
+  =/  ordinal  (json-number 'ordinal' u.object)
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ ordinal)
+          ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.definitions.custom-fields.options']
+  $(values t.values, out [[u.ordinal u.label] out])
+::
+++  decode-import-custom-definitions
+  |=  values=(list json)
+  ^-  (each (list import-custom-definition:rover) entry-verdict:rover)
+  =/  out=(list import-custom-definition:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.definitions.custom-fields']
+  =/  label  (json-string 'label' u.object)
+  =/  content  (json-string 'contentType' u.object)
+  =/  entry  (json-string 'entryType' u.object)
+  =/  mandatory  (json-boolean 'mandatory' u.object)
+  =/  target  (json-string 'target' u.object)
+  ?:  ?|  ?=(~ label)
+          ?=(~ content)
+          ?=(~ entry)
+          ?=(~ mandatory)
+          ?=(~ target)
+      ==
+    [%| %bad-shape 'import.definitions.custom-fields']
+  =/  content-term  (slaw %tas u.content)
+  =/  entry-term  (slaw %tas u.entry)
+  =/  target-term  (slaw %tas u.target)
+  ?:  ?|  ?=(~ content-term)
+          ?=(~ entry-term)
+          ?=(~ target-term)
+      ==
+    [%| %bad-shape 'import.definitions.custom-fields']
+  =/  option-json  (json-array 'options' u.object)
+  =/  options=(each (list import-custom-option:rover) entry-verdict:rover)
+    ?~  option-json  [%& ~]
+    (decode-import-options u.option-json)
+  ?:  ?=(%| -.options)
+    options
+  =/  row=import-custom-definition:rover
+    [u.label u.content-term u.entry-term u.mandatory u.target-term p.options]
+  $(values t.values, out [row out])
+::
+++  decode-import-custom-values
+  |=  values=(list json)
+  ^-  (each (list import-custom-value:rover) entry-verdict:rover)
+  =/  out=(list import-custom-value:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.fills.customFields']
+  =/  label  (json-string 'label' u.object)
+  =/  type-text  (json-string 'type' u.object)
+  ?:  ?|  ?=(~ label)
+          ?=(~ type-text)
+      ==
+    [%| %bad-shape 'import.vehicle.fills.customFields']
+  =/  type-term  (slaw %tas u.type-text)
+  ?~  type-term
+    [%| %bad-shape 'import.vehicle.fills.customFields.type']
+  =/  value-text=@t
+    ?:  =(%boolean u.type-term)
+      ''
+    =/  value  (json-string 'value' u.object)
+    ?~  value  ''
+    u.value
+  =/  boolean=(unit ?)
+    ?:  =(%boolean u.type-term)
+      (json-boolean 'value' u.object)
+    `%.n
+  ?:  ?|  ?&  !=(%boolean u.type-term)
+              =(0 value-text)
+          ==
+          ?&  =(%boolean u.type-term)
+              ?=(~ boolean)
+          ==
+      ==
+    [%| %bad-shape 'import.vehicle.fills.customFields.value']
+  =/  unit-text  (json-string 'unit' u.object)
+  =/  value-unit=@tas
+    ?~  unit-text  %unitless
+    =/  parsed  (slaw %tas u.unit-text)
+    ?~  parsed  %unitless
+    u.parsed
+  =/  row=import-custom-value:rover
+    [u.label u.type-term value-text value-unit ?~(boolean %.n u.boolean)]
+  $(values t.values, out [row out])
+::
+++  decode-import-vehicle-consumables
+  |=  values=(list json)
+  ^-  (each (list import-vehicle-consumable:rover) entry-verdict:rover)
+  =/  out=(list import-vehicle-consumable:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.consumables']
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.vehicle.consumables.label']
+  =/  tank-value  (~(get by u.object) 'tankSize')
+  =/  tank-size=(unit scaled-entry:rover)
+    ?~  tank-value  ~
+    =/  tank-object  (json-map u.tank-value)
+    ?~  tank-object  ~
+    =/  value-text  (json-string 'value' u.tank-object)
+    =/  unit-text  (json-string 'unit' u.tank-object)
+    ?:  ?|  ?=(~ value-text)
+            ?=(~ unit-text)
+        ==
+      ~
+    =/  parsed  (parse-decimal:render u.value-text 3)
+    ?:  ?=(%| -.parsed)  ~
+    =/  unit-term  (slaw %tas u.unit-text)
+    ?~  unit-term  ~
+    `[digits.p.parsed places.p.parsed u.unit-term]
+  ?:  ?&  ?=(^ tank-value)
+          ?=(~ tank-size)
+      ==
+    [%| %bad-shape 'import.vehicle.consumables.tankSize']
+  $(values t.values, out [[u.label tank-size] out])
+::
 ++  decode-import-service-subtypes
   |=  values=(list json)
   ^-  (each (list import-service-subtype:rover) entry-verdict:rover)
@@ -702,8 +887,37 @@
           ?=(^ method)
       ==
     [%| %bad-shape 'import.definitions.energy.subtypes.method']
+  =/  blend-json  (json-array 'blends' u.object)
+  =/  blends=(list [kind=blend-kind:rover digits=@ud places=@ud])  ~
+  =.  blends
+    ?~  blend-json  ~
+    =/  remaining  u.blend-json
+    =/  built=(list [kind=blend-kind:rover digits=@ud places=@ud])  ~
+    |-
+    ?~  remaining  (flop built)
+    =/  blend-object  (json-map i.remaining)
+    ?~  blend-object  ~
+    =/  kind-text  (json-string 'kind' u.blend-object)
+    =/  percent-text  (json-string 'percent' u.blend-object)
+    ?:  ?|  ?=(~ kind-text)
+            ?=(~ percent-text)
+        ==
+      ~
+    =/  kind-term  (slaw %tas u.kind-text)
+    =/  percent  (parse-decimal:render u.percent-text 3)
+    ?.  ?&  ?=(^ kind-term)
+            ?=(blend-kind:rover u.kind-term)
+            ?=(%& -.percent)
+        ==
+      ~
+    $(remaining t.remaining, built [[;;(blend-kind:rover u.kind-term) digits.p.percent places.p.percent] built])
+  ?:  ?&  ?=(^ blend-json)
+          !=((lent u.blend-json) (lent blends))
+      ==
+    [%| %bad-shape 'import.definitions.energy.subtypes.blends']
+  =/  grade-code  (optional-text 'gradeCode' u.object)
   =/  row=import-energy-subtype:rover
-    [u.label octane method cetane]
+    [u.label octane method cetane blends grade-code]
   $(values t.values, out [row out])
 ::
 ++  decode-import-energy
@@ -761,6 +975,85 @@
     ~
   `[part u.value]
 ::
+++  decode-import-brand-operators
+  |=  values=(list json)
+  ^-  (each (list [role=station-role:rover label=@t]) entry-verdict:rover)
+  =/  out=(list [role=station-role:rover label=@t])  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.places.stations.brandOperators']
+  =/  role-text  (json-string 'role' u.object)
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ role-text)
+          ?=(~ label)
+      ==
+    [%| %bad-shape 'import.places.stations.brandOperators']
+  =/  role-term  (slaw %tas u.role-text)
+  ?.  ?&  ?=(^ role-term)
+          ?=(station-role:rover u.role-term)
+      ==
+    [%| %bad-shape 'import.places.stations.brandOperators.role']
+  $(values t.values, out [[;;(station-role:rover u.role-term) u.label] out])
+::
+++  decode-import-identifiers
+  |=  values=(list json)
+  ^-  (each (list [provider=@tas external-id=@t]) entry-verdict:rover)
+  =/  out=(list [provider=@tas external-id=@t])  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.places.stations.identifiers']
+  =/  provider-text  (json-string 'provider' u.object)
+  =/  external-id  (json-string 'externalId' u.object)
+  ?:  ?|  ?=(~ provider-text)
+          ?=(~ external-id)
+      ==
+    [%| %bad-shape 'import.places.stations.identifiers']
+  =/  provider  (slaw %tas u.provider-text)
+  ?~  provider
+    [%| %bad-shape 'import.places.stations.identifiers.provider']
+  $(values t.values, out [[u.provider u.external-id] out])
+::
+++  decode-import-stations
+  |=  values=(list json)
+  ^-  (each (list import-station:rover) entry-verdict:rover)
+  =/  out=(list import-station:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.places.stations']
+  =/  label  (json-string 'label' u.object)
+  =/  kind-text  (json-string 'stationKind' u.object)
+  ?:  ?|  ?=(~ label)
+          ?=(~ kind-text)
+      ==
+    [%| %bad-shape 'import.places.stations']
+  =/  kind-term  (slaw %tas u.kind-text)
+  ?.  ?&  ?=(^ kind-term)
+          ?=(station-kind:rover u.kind-term)
+      ==
+    [%| %bad-shape 'import.places.stations.stationKind']
+  =/  brands-json  (json-array 'brandOperators' u.object)
+  =/  brands=(each (list [role=station-role:rover label=@t]) entry-verdict:rover)
+    ?~  brands-json  [%& ~]
+    (decode-import-brand-operators u.brands-json)
+  ?:  ?=(%| -.brands)  brands
+  =/  identifiers-json  (json-array 'identifiers' u.object)
+  =/  identifiers=(each (list [provider=@tas external-id=@t]) entry-verdict:rover)
+    ?~  identifiers-json  [%& ~]
+    (decode-import-identifiers u.identifiers-json)
+  ?:  ?=(%| -.identifiers)  identifiers
+  =/  row=import-station:rover
+    [u.label ;;(station-kind:rover u.kind-term) p.brands p.identifiers]
+  $(values t.values, out [row out])
+::
 ++  decode-import-places
   |=  values=(list json)
   ^-  (each (list import-place:rover) entry-verdict:rover)
@@ -816,10 +1109,19 @@
           parts
         ~
       parts
+    =/  source-text  (json-string 'source' u.address-object)
+    =/  source=address-source:rover
+      ?~  source-text  %imported
+      =/  source-term  (slaw %tas u.source-text)
+      ?.  ?&  ?=(^ source-term)
+              ?=(address-source:rover u.source-term)
+          ==
+        %imported
+      ;;(address-source:rover u.source-term)
     ?:  ?|  ?=(^ formatted)
             ?=(^ parts)
         ==
-      `[formatted parts]
+      `[formatted parts source]
     ~
   ?:  ?&  ?=(^ address-value)
           ?=(~ address)
@@ -856,13 +1158,33 @@
             =(%imported u.source-term)
         ==
       ~
-    `[(need latitude) (need longitude) ;;(coordinate-source:rover u.source-term)]
+    =/  accuracy-text  (json-string 'accuracy' u.coordinates-object)
+    =/  accuracy-unit-text  (json-string 'accuracyUnit' u.coordinates-object)
+    =/  accuracy=(unit [digits=@ud places=@ud unit=radius-unit:rover])
+      ?~  accuracy-text  ~
+      ?~  accuracy-unit-text  ~
+      =/  parsed  (parse-decimal:render u.accuracy-text 3)
+      ?:  ?=(%| -.parsed)  ~
+      =/  unit-term  (slaw %tas u.accuracy-unit-text)
+      ?.  ?&  ?=(^ unit-term)
+              ?=(radius-unit:rover u.unit-term)
+          ==
+        ~
+      `[digits.p.parsed places.p.parsed ;;(radius-unit:rover u.unit-term)]
+    `[(need latitude) (need longitude) ;;(coordinate-source:rover u.source-term) accuracy]
   ?:  ?&  ?=(^ coordinates-value)
           ?=(~ coordinates)
       ==
     [%| %bad-shape 'import.places.coordinates']
+  =/  station-json  (json-array 'stations' u.object)
+  =/  stations=(each (list import-station:rover) entry-verdict:rover)
+    ?~  station-json
+      [%& ~[[u.label ;;(station-kind:rover u.station-kind-term) ~ ~]]]
+    (decode-import-stations u.station-json)
+  ?:  ?=(%| -.stations)
+    stations
   =/  row=import-place:rover
-    [u.label ;;(station-kind:rover u.station-kind-term) address coordinates]
+    [u.label ;;(station-kind:rover u.station-kind-term) address coordinates p.stations]
   $(values t.values, out [row out])
 ::
 ++  decode-import-fills
@@ -881,19 +1203,29 @@
   ?.  =(vehicle vehicle-label.p.decoded)
     [%| %bad-shape 'import.vehicle.fills.vehicle']
   =/  app-text  (json-string 'sourceApp' u.object)
-  ?~  app-text
-    [%| %missing-key 'import.vehicle.fills.sourceApp']
-  =/  app-term  (slaw %tas u.app-text)
-  ?~  app-term
-    [%| %bad-shape 'import.vehicle.fills.sourceApp']
   =/  record-id  (json-string 'sourceRecordId' u.object)
-  ?:  ?|  ?=(~ record-id)
+  ?:  !=(?=(^ app-text) ?=(^ record-id))
+    [%| %bad-shape 'import.vehicle.fills.provenance']
+  =/  app-term=(unit @tas)
+    ?~  app-text  ~
+    (slaw %tas u.app-text)
+  ?:  ?&  ?=(^ app-text)
+          ?=(~ app-term)
+      ==
+    [%| %bad-shape 'import.vehicle.fills.sourceApp']
+  ?:  ?&  ?=(^ record-id)
           =(%.n (nonempty u.record-id))
       ==
-    [%| %missing-key 'import.vehicle.fills.sourceRecordId']
+    [%| %bad-shape 'import.vehicle.fills.sourceRecordId']
   =/  source-total  (optional-text 'sourceTotal' u.object)
+  =/  custom-json  (json-array 'customFields' u.object)
+  =/  custom-values=(each (list import-custom-value:rover) entry-verdict:rover)
+    ?~  custom-json  [%& ~]
+    (decode-import-custom-values u.custom-json)
+  ?:  ?=(%| -.custom-values)
+    custom-values
   =/  row=import-fill:rover
-    [p.decoded u.app-term u.record-id source-total]
+    [p.decoded app-term record-id source-total p.custom-values]
   $(values t.values, out [row out])
 ::
 ++  decode-import-events
@@ -912,17 +1244,74 @@
   ?.  =(vehicle vehicle-label.p.decoded)
     [%| %bad-shape 'import.vehicle.events.vehicle']
   =/  app-text  (json-string 'sourceApp' u.object)
-  ?~  app-text
-    [%| %missing-key 'import.vehicle.events.sourceApp']
-  =/  app-term  (slaw %tas u.app-text)
-  ?~  app-term
-    [%| %bad-shape 'import.vehicle.events.sourceApp']
   =/  record-id  (json-string 'sourceRecordId' u.object)
-  ?:  ?|  ?=(~ record-id)
-          =(%.n (nonempty u.record-id))
+  ?:  !=(?=(^ app-text) ?=(^ record-id))
+    [%| %bad-shape 'import.vehicle.events.provenance']
+  =/  app-term=(unit @tas)
+    ?~  app-text  ~
+    (slaw %tas u.app-text)
+  ?:  ?&  ?=(^ app-text)
+          ?=(~ app-term)
       ==
-    [%| %missing-key 'import.vehicle.events.sourceRecordId']
-  $(values t.values, out [[p.decoded u.app-term u.record-id] out])
+    [%| %bad-shape 'import.vehicle.events.sourceApp']
+  $(values t.values, out [[p.decoded app-term record-id] out])
+::
+++  decode-import-charges
+  |=  [vehicle=@t values=(list json)]
+  ^-  (each (list charge-entry:rover) entry-verdict:rover)
+  =/  out=(list charge-entry:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.chargingSessions']
+  =/  decoded  (decode-charge-object `u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.chargingSessions.vehicle']
+  $(values t.values, out [p.decoded out])
+::
+++  decode-import-consumable-acquisitions
+  |=  [vehicle=@t values=(list json)]
+  ^-  (each (list import-consumable:rover) entry-verdict:rover)
+  =/  out=(list import-consumable:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.consumableAcquisitions']
+  =/  decoded  (decode-consumable-object `u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.consumableAcquisitions.vehicle']
+  =/  station-text  (json-string 'station' u.object)
+  =/  station-label=(unit @t)
+    ?~  station-text  ~
+    ?:  =('none' u.station-text)  ~
+    ?:  (nonempty u.station-text)  `u.station-text
+    ~
+  $(values t.values, out [[p.decoded station-label] out])
+::
+++  decode-import-odometers
+  |=  [vehicle=@t values=(list json)]
+  ^-  (each (list odometer-entry:rover) entry-verdict:rover)
+  =/  out=(list odometer-entry:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.odometerReadings']
+  =/  decoded  (decode-odometer-object `u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.odometerReadings.vehicle']
+  $(values t.values, out [p.decoded out])
 ::
 ++  decode-import-reminders
   |=  [vehicle=@t values=(list json)]
@@ -1033,6 +1422,48 @@
     (decode-import-events u.label %note u.note-json)
   ?:  ?=(%| -.notes)
     notes
+  =/  expense-json  (json-array 'expenseEvents' u.object)
+  =/  expenses=(each (list import-event:rover) entry-verdict:rover)
+    ?~  expense-json
+      [%& ~]
+    (decode-import-events u.label %expense u.expense-json)
+  ?:  ?=(%| -.expenses)
+    expenses
+  =/  acquisition-json  (json-array 'acquisitionEvents' u.object)
+  =/  acquisitions=(each (list import-event:rover) entry-verdict:rover)
+    ?~  acquisition-json
+      [%& ~]
+    (decode-import-events u.label %acquisition u.acquisition-json)
+  ?:  ?=(%| -.acquisitions)
+    acquisitions
+  =/  disposal-json  (json-array 'disposalEvents' u.object)
+  =/  disposals=(each (list import-event:rover) entry-verdict:rover)
+    ?~  disposal-json
+      [%& ~]
+    (decode-import-events u.label %disposal u.disposal-json)
+  ?:  ?=(%| -.disposals)
+    disposals
+  =/  charge-json  (json-array 'chargingSessions' u.object)
+  =/  charges=(each (list charge-entry:rover) entry-verdict:rover)
+    ?~  charge-json
+      [%& ~]
+    (decode-import-charges u.label u.charge-json)
+  ?:  ?=(%| -.charges)
+    charges
+  =/  consumable-json  (json-array 'consumableAcquisitions' u.object)
+  =/  consumables=(each (list import-consumable:rover) entry-verdict:rover)
+    ?~  consumable-json
+      [%& ~]
+    (decode-import-consumable-acquisitions u.label u.consumable-json)
+  ?:  ?=(%| -.consumables)
+    consumables
+  =/  odometer-json  (json-array 'odometerReadings' u.object)
+  =/  odometers=(each (list odometer-entry:rover) entry-verdict:rover)
+    ?~  odometer-json
+      [%& ~]
+    (decode-import-odometers u.label u.odometer-json)
+  ?:  ?=(%| -.odometers)
+    odometers
   =/  reminder-json  (json-array 'reminders' u.object)
   =/  reminders=(each (list reminder-entry:rover) entry-verdict:rover)
     ?~  reminder-json
@@ -1040,6 +1471,29 @@
     (decode-import-reminders u.label u.reminder-json)
   ?:  ?=(%| -.reminders)
     reminders
+  =/  additional-energy=(list @t)
+    =/  values  (json-strings 'additionalEnergy' u.object)
+    ?~  values  ~
+    u.values
+  =/  driving-modes=(list @t)
+    =/  values  (json-strings 'drivingModes' u.object)
+    ?~  values  ~
+    u.values
+  =/  default-subtype  (optional-text 'defaultSubtype' u.object)
+  =/  reserve-text  (optional-text 'refillReserve' u.object)
+  =/  refill-reserve=(unit @ud)
+    ?~  reserve-text  ~
+    (slaw %ud u.reserve-text)
+  ?:  ?&  ?=(^ reserve-text)
+          ?=(~ refill-reserve)
+      ==
+    [%| %bad-shape 'import.vehicle.refillReserve']
+  =/  vehicle-consumable-json  (json-array 'consumables' u.object)
+  =/  vehicle-consumables=(each (list import-vehicle-consumable:rover) entry-verdict:rover)
+    ?~  vehicle-consumable-json  [%& ~]
+    (decode-import-vehicle-consumables u.vehicle-consumable-json)
+  ?:  ?=(%| -.vehicle-consumables)
+    vehicle-consumables
   =/  row=import-vehicle:rover
     :*  u.label
         ;;(distance-unit:rover u.distance-term)
@@ -1051,8 +1505,38 @@
         p.services
         p.notes
         p.reminders
+        additional-energy
+        driving-modes
+        default-subtype
+        refill-reserve
+        p.charges
+        p.consumables
+        p.expenses
+        p.acquisitions
+        p.disposals
+        p.odometers
+        p.vehicle-consumables
     ==
   $(values t.values, out [row out])
+::
+++  import-archives-from
+  |=  [family=@tas values=(list json)]
+  ^-  (list import-archive:rover)
+  =/  out=(list import-archive:rover)  ~
+  |-
+  ?~  values
+    (flop out)
+  =/  object  (json-map i.values)
+  ?~  object
+    $(values t.values)
+  =/  label  (json-string 'label' u.object)
+  =/  archived  (json-boolean 'archived' u.object)
+  ?:  ?&  ?=(^ label)
+          ?=(^ archived)
+          u.archived
+      ==
+    $(values t.values, out [[family u.label] out])
+  $(values t.values)
 ::
 ++  decode-import
   |=  body=@t
@@ -1083,6 +1567,9 @@
   =/  mode-json  (json-array 'driving-modes' u.definitions-object)
   =/  tag-json  (json-array 'tags' u.definitions-object)
   =/  payment-json  (json-array 'payment-methods' u.definitions-object)
+  =/  consumable-json  (json-array 'consumables' u.definitions-object)
+  =/  disposal-json  (json-array 'disposal-kinds' u.definitions-object)
+  =/  custom-json  (json-array 'custom-fields' u.definitions-object)
   ?:  ?|  ?=(~ energy-json)
           ?=(~ additive-json)
           ?=(~ mode-json)
@@ -1111,6 +1598,21 @@
   =/  payments  (decode-import-simple 'import.definitions.payment-methods' u.payment-json)
   ?:  ?=(%| -.payments)
     payments
+  =/  consumables=(each (list import-consumable-definition:rover) entry-verdict:rover)
+    ?~  consumable-json  [%& ~]
+    (decode-import-consumables u.consumable-json)
+  ?:  ?=(%| -.consumables)
+    consumables
+  =/  disposals=(each (list import-simple-definition:rover) entry-verdict:rover)
+    ?~  disposal-json  [%& ~]
+    (decode-import-simple 'import.definitions.disposal-kinds' u.disposal-json)
+  ?:  ?=(%| -.disposals)
+    disposals
+  =/  custom-fields=(each (list import-custom-definition:rover) entry-verdict:rover)
+    ?~  custom-json  [%& ~]
+    (decode-import-custom-definitions u.custom-json)
+  ?:  ?=(%| -.custom-fields)
+    custom-fields
   =/  place-json  (json-array 'places' u.object)
   ?~  place-json
     [%| %missing-key 'import.places']
@@ -1124,13 +1626,30 @@
   ?:  ?=(%| -.vehicles)
     vehicles
   =/  definitions=import-definitions:rover
-    [p.energy p.services p.additives p.modes p.tags p.payments]
-  [%& definitions p.places p.vehicles]
+    [p.energy p.services p.additives p.modes p.tags p.payments p.consumables p.disposals p.custom-fields]
+  =/  archives=(list import-archive:rover)
+    ;:  weld
+      (import-archives-from %energy u.energy-json)
+      ?~(service-json ~ (import-archives-from %service-subtype u.service-json))
+      (import-archives-from %additive u.additive-json)
+      (import-archives-from %driving-mode u.mode-json)
+      (import-archives-from %tag u.tag-json)
+      (import-archives-from %payment-method u.payment-json)
+      ?~(consumable-json ~ (import-archives-from %consumable u.consumable-json))
+      ?~(disposal-json ~ (import-archives-from %disposal-kind u.disposal-json))
+      ?~(custom-json ~ (import-archives-from %custom-field u.custom-json))
+      (import-archives-from %vehicle u.vehicle-json)
+    ==
+  [%& definitions p.places p.vehicles archives]
 ::
 ++  decode-consumable
   |=  body=@t
   ^-  (each consumable-entry:rover entry-verdict:rover)
-  =/  object  (json-object body)
+  (decode-consumable-object (json-object body))
+::
+++  decode-consumable-object
+  |=  object=(unit (map @t json))
+  ^-  (each consumable-entry:rover entry-verdict:rover)
   ?~  object
     [%| %bad-shape 'consumable']
   =/  vehicle  (json-string 'vehicle' u.object)
@@ -1476,12 +1995,14 @@
 ++  decode-odometer
   |=  body=@t
   ^-  (each odometer-entry:rover entry-verdict:rover)
-  =/  parsed  (de:json:html body)
-  ?~  parsed
+  (decode-odometer-object (json-object body))
+::
+++  decode-odometer-object
+  |=  wrapped=(unit (map @t json))
+  ^-  (each odometer-entry:rover entry-verdict:rover)
+  ?~  wrapped
     [%| %bad-shape 'odometer']
-  ?.  ?=(%o -.u.parsed)
-    [%| %bad-shape 'odometer']
-  =/  object=(map @t json)  +.u.parsed
+  =/  object=(map @t json)  u.wrapped
   =/  vehicle  (json-string 'vehicle' object)
   ?~  vehicle
     [%| %missing-key 'odometer.vehicle']
@@ -1521,12 +2042,14 @@
 ++  decode-charge
   |=  body=@t
   ^-  (each charge-entry:rover entry-verdict:rover)
-  =/  parsed  (de:json:html body)
-  ?~  parsed
+  (decode-charge-object (json-object body))
+::
+++  decode-charge-object
+  |=  wrapped=(unit (map @t json))
+  ^-  (each charge-entry:rover entry-verdict:rover)
+  ?~  wrapped
     [%| %bad-shape 'charge']
-  ?.  ?=(%o -.u.parsed)
-    [%| %bad-shape 'charge']
-  =/  object=(map @t json)  +.u.parsed
+  =/  object=(map @t json)  u.wrapped
   =/  vehicle  (json-string 'vehicle' object)
   ?~  vehicle
     [%| %missing-key 'charge.vehicle']

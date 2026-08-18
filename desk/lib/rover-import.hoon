@@ -130,6 +130,12 @@
         (scow %da observed-start.input.value.work)
       ==
     %reminder  (cat 3 'reminder ' subtype-label.value.work)
+    %consumable-definition  (cat 3 'consumable definition ' label.value.work)
+    %custom-definition  (cat 3 'custom field ' label.value.work)
+    %charge  (cat 3 'charge for ' vehicle-label.value.work)
+    %consumable  (cat 3 'consumable acquisition for ' vehicle-label.input.value.work)
+    %odometer  (cat 3 'odometer reading for ' vehicle-label.value.work)
+    %archive  (cat 3 'archive ' label.value.work)
   ==
 ::
 ++  fill-work-value
@@ -352,17 +358,21 @@
 ++  vehicle-energy-labels
   |=  vehicle=import-vehicle:rover
   ^-  (list @t)
-  =/  labels=(list @t)  [default-energy.vehicle ~]
+  =/  labels=(list @t)  [default-energy.vehicle additional-energy.vehicle]
   =/  fills  fills.vehicle
   |-
   ?~  fills
-    (unique-texts (flop labels))
+    =/  charges  charging-sessions.vehicle
+    |-
+    ?~  charges
+      (unique-texts (flop labels))
+    $(charges t.charges, labels [definition-label.i.charges labels])
   $(fills t.fills, labels [definition-label.input.i.fills labels])
 ::
 ++  vehicle-mode-labels
   |=  vehicle=import-vehicle:rover
   ^-  (list @t)
-  =/  labels=(list @t)  ~
+  =/  labels=(list @t)  driving-modes.vehicle
   =/  fills  fills.vehicle
   |-
   ?~  fills
@@ -372,6 +382,13 @@
       labels
     [u.driving-mode-label.input.i.fills labels]
   $(fills t.fills)
+::
+++  vehicle-consumable-labels
+  |=  vehicle=import-vehicle:rover
+  ^-  (list @t)
+  %+  turn  vehicle-consumables.vehicle
+  |=  value=import-vehicle-consumable:rover
+  label.value
 ::
 ++  station-kind-for
   |=  [label=@t vehicles=(list import-vehicle:rover)]
@@ -414,7 +431,18 @@
       (simples %driving-mode driving-modes.definitions.document)
       (simples %tag tags.definitions.document)
       (simples %payment-method payment-methods.definitions.document)
+      (simples %disposal-kind disposal-kinds.definitions.document)
     ==
+  =/  consumable-definition-work
+    %+  turn  consumables.definitions.document
+    |=  value=import-consumable-definition:rover
+    ^-  import-work:rover
+    [%consumable-definition value]
+  =/  custom-definition-work
+    %+  turn  custom-fields.definitions.document
+    |=  value=import-custom-definition:rover
+    ^-  import-work:rover
+    [%custom-definition value]
   =/  place-work
     %+  turn  places.document
     |=  value=import-place:rover
@@ -456,8 +484,64 @@
         |=  value=import-event:rover
         ^-  import-work:rover
         [%event value]
+      %+  weld
+        %+  turn  expense-events.vehicle
+        |=  value=import-event:rover
+        ^-  import-work:rover
+        [%event value]
+      %+  weld
+        %+  turn  acquisition-events.vehicle
+        |=  value=import-event:rover
+        ^-  import-work:rover
+        [%event value]
+      %+  weld
+        %+  turn  disposal-events.vehicle
+        |=  value=import-event:rover
+        ^-  import-work:rover
+        [%event value]
       $(values t.values)
     (build vehicles.document)
+  =/  charge-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values  ~
+      %+  weld
+        %+  turn  charging-sessions.i.values
+        |=  value=charge-entry:rover
+        ^-  import-work:rover
+        [%charge value]
+      $(values t.values)
+    (build vehicles.document)
+  =/  consumable-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values  ~
+      %+  weld
+        %+  turn  consumable-acquisitions.i.values
+        |=  value=import-consumable:rover
+        ^-  import-work:rover
+        [%consumable value]
+      $(values t.values)
+    (build vehicles.document)
+  =/  odometer-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values  ~
+      %+  weld
+        %+  turn  odometers.i.values
+        |=  value=odometer-entry:rover
+        ^-  import-work:rover
+        [%odometer value]
+      $(values t.values)
+    (build vehicles.document)
+  =/  archive-work
+    %+  turn  archives.document
+    |=  value=import-archive:rover
+    ^-  import-work:rover
+    [%archive value]
   =/  reminder-work
     =/  build
       |=  values=(list import-vehicle:rover)
@@ -475,11 +559,17 @@
     energy-work
     subtype-work
     simple-work
+    consumable-definition-work
+    custom-definition-work
     place-work
     vehicle-work
     fill-work
+    charge-work
+    consumable-work
     event-work
     reminder-work
+    odometer-work
+    archive-work
   ==
 ::
 ++  simple-table
@@ -494,6 +584,8 @@
       ['tag-definitions' 'tag-id']
     %payment-method
       ['payment-method-definitions' 'method-id']
+    %disposal-kind
+      ['disposal-kind-definitions' 'disposal-kind-id']
   ==
 ::
 ++  energy-lookup
@@ -539,6 +631,24 @@
     "FROM service-subtype-definitions S JOIN service-subtype-reminder-defaults D ON S.service-subtype-id = D.service-subtype-id WHERE S.label = '"
     quoted
     "' SELECT D.service-subtype-id, D.time-interval, D.time-unit, D.distance-digits, D.distance-decimals, D.distance-unit;"
+  ==
+::
+++  consumable-definition-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM consumable-definitions C WHERE C.label = '"
+    (sql-quote:act label)
+    "' SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;"
+  ==
+::
+++  custom-definition-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM custom-field-definitions C WHERE C.label = '"
+    (sql-quote:act label)
+    "' SELECT C.field-id, C.label, C.content-type, C.entry-type, C.mandatory, C.target, C.archived;"
   ==
 ::
 ++  place-lookup
@@ -625,7 +735,15 @@
     "' SELECT E.energy-definition-id, E.label, L.archived AS link-archived; "
     "FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE V.label = '"
     (sql-quote:act label.vehicle)
-    "' SELECT D.mode-id, D.label, L.archived AS link-archived;"
+    "' SELECT D.mode-id, D.label, L.archived AS link-archived; "
+    "FROM consumable-definitions C WHERE "
+    (active-label-predicate 'C' (vehicle-consumable-labels vehicle))
+    " SELECT C.consumable-id, C.label, C.quantity-unit, C.archived; "
+    "FROM energy-definition-subtypes S JOIN energy-definitions E ON S.energy-definition-id = E.energy-definition-id WHERE E.label = '"
+    (sql-quote:act default-energy.vehicle)
+    "' AND S.label = '"
+    (sql-quote:act ?~(default-subtype.vehicle '' u.default-subtype.vehicle))
+    "' AND S.archived = N SELECT S.subtype-id, S.label;"
   ==
 ::
 ++  work-lookup
@@ -648,6 +766,82 @@
       (event-import-lookup value.work)
     %reminder
       (reminder-import-lookup value.work)
+    %consumable-definition
+      (consumable-definition-lookup label.value.work)
+    %custom-definition
+      (custom-definition-lookup label.value.work)
+    %charge
+      (charge-import-lookup value.work)
+    %consumable
+      (consumable-import-lookup value.work)
+    %odometer
+      (odometer-import-lookup value.work)
+    %archive
+      (archive-import-lookup value.work)
+  ==
+::
+++  charge-import-lookup
+  |=  input=charge-entry:rover
+  ^-  tape
+  ;:  weld
+    "FROM energy-acquisitions A JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE V.label = '"
+    (sql-quote:act vehicle-label.input)
+    "' AND A.observed-start = "
+    (scow %da observed-start.input)
+    " AND A.observed-end = "
+    (scow %da observed-end.input)
+    " SELECT A.acquisition-id; "
+    (fill-lookup:act vehicle-label.input definition-label.input)
+  ==
+::
+++  consumable-import-lookup
+  |=  value=import-consumable:rover
+  ^-  tape
+  =/  input  input.value
+  ;:  weld
+    "FROM consumable-acquisitions A JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE V.label = '"
+    (sql-quote:act vehicle-label.input)
+    "' AND A.observed-start = "
+    (scow %da observed-start.input)
+    " SELECT A.consumable-acquisition-id; "
+    (consumable-lookup:act vehicle-label.input consumable-label.input)
+    " FROM stations S WHERE S.label = '"
+    (sql-quote:act ?~(station-label.value '' u.station-label.value))
+    "' AND S.archived = N SELECT S.station-id, S.label;"
+  ==
+::
+++  odometer-import-lookup
+  |=  input=odometer-entry:rover
+  ^-  tape
+  ;:  weld
+    "FROM odometer-observations O JOIN vehicles V ON O.vehicle-id = V.vehicle-id WHERE V.label = '"
+    (sql-quote:act vehicle-label.input)
+    "' AND O.observed-start = "
+    (scow %da observed-start.input)
+    " SELECT O.odometer-id; FROM vehicles V WHERE V.label = '"
+    (sql-quote:act vehicle-label.input)
+    "' SELECT V.vehicle-id;"
+  ==
+::
+++  archive-import-lookup
+  |=  value=import-archive:rover
+  ^-  tape
+  ?:  =(%vehicle family.value)
+    ;:  weld
+      "FROM vehicles V WHERE V.label = '"
+      (sql-quote:act label.value)
+      "' SELECT V.vehicle-id, V.archived;"
+    ==
+  =/  found  (definition-family-of:act family.value)
+  ?~  found  "FROM vehicles V WHERE V.label = '' SELECT V.vehicle-id;"
+  ;:  weld
+    "FROM "
+    (trip relation.u.found)
+    " D WHERE D.label = '"
+    (sql-quote:act label.value)
+    "' SELECT D."
+    (trip id-column.u.found)
+    ", D.archived;"
   ==
 ::
 ++  event-import-lookup
@@ -699,6 +893,33 @@
       ~
     =/  subtype-id  (fixture-id:act base (add 10 ordinal))
     =/  value  i.remaining
+    =/  blend-rows=tape
+      =/  build
+        |=  values=(list [kind=blend-kind:rover digits=@ud places=@ud])
+        ^-  tape
+        ?~  values  ~
+        ;:  weld
+          " INSERT INTO energy-subtype-blend VALUES ("
+          (scow %ux subtype-id)
+          ", "
+          (sql-term:act kind.i.values)
+          ", "
+          (sql-ud:act digits.i.values)
+          ", "
+          (sql-ud:act places.i.values)
+          ");"
+          $(values t.values)
+        ==
+      (build blends.value)
+    =/  grade-row=tape
+      ?~  grade-code.value  ~
+      ;:  weld
+        " INSERT INTO energy-subtype-grade-code VALUES ("
+        (scow %ux subtype-id)
+        ", '"
+        (sql-quote:act u.grade-code.value)
+        "');"
+      ==
     =/  rating=tape
       ?^  octane.value
         ;:  weld
@@ -730,6 +951,8 @@
       (scow %da recorded-at)
       ");"
       rating
+      blend-rows
+      grade-row
       $(remaining t.remaining, ordinal +(ordinal))
     ==
   (build values 0)
@@ -763,6 +986,59 @@
     "', N, "
     (scow %da recorded-at)
     ");"
+  ==
+::
+++  insert-consumable-definition
+  |=  [base=@ux input=import-consumable-definition:rover recorded-at=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO consumable-definitions VALUES ("
+    (scow %ux (fixture-id:act base 1))
+    ", '"
+    (sql-quote:act label.input)
+    "', "
+    (sql-term:act quantity-unit.input)
+    ", N, "
+    (scow %da recorded-at)
+    ");"
+  ==
+::
+++  insert-custom-options
+  |=  [field-id=@ux values=(list import-custom-option:rover)]
+  ^-  tape
+  ?~  values  ~
+  ;:  weld
+    " INSERT INTO custom-field-options VALUES ("
+    (scow %ux field-id)
+    ", "
+    (sql-ud:act ordinal.i.values)
+    ", '"
+    (sql-quote:act label.i.values)
+    "');"
+    $(values t.values)
+  ==
+::
+++  insert-custom-definition
+  |=  [base=@ux input=import-custom-definition:rover recorded-at=@da]
+  ^-  tape
+  =/  field-id  (fixture-id:act base 1)
+  ;:  weld
+    "INSERT INTO custom-field-definitions VALUES ("
+    (scow %ux field-id)
+    ", '"
+    (sql-quote:act label.input)
+    "', "
+    (sql-term:act content-type.input)
+    ", "
+    (sql-term:act entry-type.input)
+    ", "
+    ?:(mandatory.input "Y" "N")
+    ", "
+    (sql-term:act target.input)
+    ", N, "
+    (scow %da recorded-at)
+    ");"
+    (insert-custom-options field-id options.input)
   ==
 ::
 ++  insert-subtype-default
@@ -825,6 +1101,58 @@
     $(parts t.parts)
   ==
 ::
+++  insert-station-brands
+  |=  [station-id=@ux values=(list [role=station-role:rover label=@t])]
+  ^-  tape
+  ?~  values  ~
+  ;:  weld
+    " INSERT INTO station-brand-operator VALUES ("
+    (scow %ux station-id)
+    ", "
+    (sql-term:act role.i.values)
+    ", '"
+    (sql-quote:act label.i.values)
+    "');"
+    $(values t.values)
+  ==
+::
+++  insert-station-identifiers
+  |=  [station-id=@ux values=(list [provider=@tas external-id=@t])]
+  ^-  tape
+  ?~  values  ~
+  ;:  weld
+    " INSERT INTO station-identifiers VALUES ("
+    (scow %ux station-id)
+    ", "
+    (sql-term:act provider.i.values)
+    ", '"
+    (sql-quote:act external-id.i.values)
+    "');"
+    $(values t.values)
+  ==
+::
+++  insert-import-stations
+  |=  [base=@ux place-id=@ux values=(list import-station:rover) recorded-at=@da ordinal=@ud]
+  ^-  tape
+  ?~  values  ~
+  =/  station-id  (fixture-id:act base (add 20 ordinal))
+  ;:  weld
+    " INSERT INTO stations VALUES ("
+    (scow %ux station-id)
+    ", "
+    (scow %ux place-id)
+    ", '"
+    (sql-quote:act label.i.values)
+    "', "
+    (sql-term:act station-kind.i.values)
+    ", N, "
+    (scow %da recorded-at)
+    ");"
+    (insert-station-brands station-id brand-operators.i.values)
+    (insert-station-identifiers station-id identifiers.i.values)
+    $(values t.values, ordinal +(ordinal))
+  ==
+::
 ++  insert-place
   |=  $:  base=@ux
           input=import-place:rover
@@ -865,7 +1193,9 @@
     ;:  weld
       " INSERT INTO place-addresses VALUES ("
       (scow %ux place-id)
-      ", %imported, "
+      ", "
+      (sql-term:act source.address)
+      ", "
       (scow %da recorded-at)
       ");"
       formatted-row
@@ -876,6 +1206,20 @@
             ?=(~ coordinates.input)
         ==
       ~
+    =/  accuracy-row=tape
+      ?~  accuracy.u.coordinates.input
+        ~
+      ;:  weld
+        " INSERT INTO place-coordinate-accuracy VALUES ("
+        (scow %ux place-id)
+        ", "
+        (sql-ud:act digits.u.accuracy.u.coordinates.input)
+        ", "
+        (sql-ud:act places.u.accuracy.u.coordinates.input)
+        ", "
+        (sql-term:act unit.u.accuracy.u.coordinates.input)
+        ");"
+      ==
     ;:  weld
       " INSERT INTO place-coordinates VALUES ("
       (scow %ux place-id)
@@ -888,20 +1232,11 @@
       ", "
       (scow %da recorded-at)
       ");"
+      accuracy-row
     ==
   ;:  weld
     place-row
-    " INSERT INTO stations VALUES ("
-    (scow %ux (fixture-id:act base 2))
-    ", "
-    (scow %ux place-id)
-    ", '"
-    (sql-quote:act label.input)
-    "', "
-    (sql-term:act station-kind)
-    ", N, "
-    (scow %da recorded-at)
-    ");"
+    (insert-import-stations base place-id stations.input recorded-at 0)
     address-rows
     coordinate-row
   ==
@@ -912,6 +1247,8 @@
           default-definition-id=@ux
           definition-ids=(list @ux)
           mode-ids=(list @ux)
+          consumable-definitions=(list vector:ast)
+          default-subtype-id=(unit @ux)
           recorded-at=@da
       ==
   ^-  tape
@@ -930,6 +1267,59 @@
       (sql-term:act value-unit.u.tank-size.input)
       ");"
     ==
+  =/  reserve-row=tape
+    ?~  refill-reserve.input  ~
+    ;:  weld
+      " INSERT INTO vehicle-refill-reserve VALUES ("
+      (scow %ux vehicle-id)
+      ", "
+      (sql-ud:act u.refill-reserve.input)
+      ");"
+    ==
+  =/  subtype-row=tape
+    ?~  default-subtype-id  ~
+    ;:  weld
+      " INSERT INTO vehicle-default-energy-subtype VALUES ("
+      (scow %ux vehicle-id)
+      ", "
+      (scow %ux u.default-subtype-id)
+      ", "
+      (scow %da recorded-at)
+      ");"
+    ==
+  =/  consumable-rows=tape
+    =/  build
+      |=  values=(list import-vehicle-consumable:rover)
+      ^-  tape
+      ?~  values  ~
+      =/  found  (row-by-text:view %label label.i.values consumable-definitions)
+      ?>  ?=(^ found)
+      =/  consumable-id  (cell-atom:view %consumable-id u.found)
+      =/  size-row=tape
+        ?~  tank-size.i.values  ~
+        ;:  weld
+          " INSERT INTO vehicle-consumable-tank-size VALUES ("
+          (scow %ux vehicle-id)
+          ", "
+          (scow %ux consumable-id)
+          ", "
+          (sql-ud:act digits.u.tank-size.i.values)
+          ", "
+          (sql-ud:act places.u.tank-size.i.values)
+          ", "
+          (sql-term:act value-unit.u.tank-size.i.values)
+          ");"
+        ==
+      ;:  weld
+        " INSERT INTO vehicle-consumables VALUES ("
+        (scow %ux vehicle-id)
+        ", "
+        (scow %ux consumable-id)
+        ", N);"
+        size-row
+        $(values t.values)
+      ==
+    (build vehicle-consumables.input)
   ;:  weld
     %:  insert-vehicle:act
         vehicle-id
@@ -942,6 +1332,9 @@
         recorded-at
     ==
     tank-row
+    reserve-row
+    subtype-row
+    consumable-rows
     (spec-write:act vehicle-id specification.input recorded-at)
   ==
 ::
@@ -1035,78 +1428,79 @@
 ++  fill-existing-lookup
   |=  fill=import-fill:rover
   ^-  tape
-  =/  source
+  =/  identity=tape
+    ?~  source-app.fill
+      ;:  weld
+        "V.label = '"
+        (sql-quote:act vehicle-label.input.fill)
+        "' AND E.label = '"
+        (sql-quote:act definition-label.input.fill)
+        "' AND A.observed-start = "
+        (scow %da observed-start.input.fill)
+      ==
+    ?>  ?=(^ source-record-id.fill)
     ;:  weld
       "I.source-app = "
-      (sql-term:act source-app.fill)
+      (sql-term:act u.source-app.fill)
       " AND I.source-record-id = '"
-      (sql-quote:act source-record-id.fill)
+      (sql-quote:act u.source-record-id.fill)
       "'"
     ==
+  =/  base=tape
+    ?~  source-app.fill
+      "FROM energy-acquisitions A JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id"
+    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id"
   ;:  weld
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE "
-    source
+    base
+    " WHERE "
+    identity
     " SELECT A.acquisition-id, V.label AS vehicle, E.label AS definition, A.observed-start, A.observed-end, A.observed-precision, A.source-zone, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills;"
   ==
 ::
 ++  fill-comparison-lookup
-  |=  fill=import-fill:rover
+  |=  [fill=import-fill:rover acquisition-id=@ux]
   ^-  tape
-  =/  source
-    ;:  weld
-      "I.source-app = "
-      (sql-term:act source-app.fill)
-      " AND I.source-record-id = '"
-      (sql-quote:act source-record-id.fill)
-      "'"
-    ==
+  =/  id  (scow %ux acquisition-id)
   ;:  weld
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE "
-    source
+    "FROM odometer-observations O JOIN energy-acquisition-odometers L ON O.odometer-id = L.odometer-id WHERE L.acquisition-id = "
+    id
     " SELECT O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.observed-precision, O.source-zone; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE "
-    source
+    "FROM stations S JOIN energy-acquisition-stations L ON S.station-id = L.station-id WHERE L.acquisition-id = "
+    id
     " SELECT S.label AS station; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE "
-    source
+    "FROM energy-definition-subtypes S JOIN fuel-fill-subtype L ON S.subtype-id = L.subtype-id WHERE L.acquisition-id = "
+    id
     " SELECT S.label AS subtype; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE "
-    source
+    "FROM additive-definitions D JOIN fuel-fill-additives L ON D.additive-id = L.additive-id WHERE L.acquisition-id = "
+    id
     " SELECT D.label AS additive; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE "
-    source
+    "FROM economy-breaks B WHERE B.acquisition-id = "
+    id
     " SELECT B.reason; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE "
-    source
+    "FROM driving-mode-definitions D JOIN fuel-fill-driving-mode L ON D.mode-id = L.mode-id WHERE L.acquisition-id = "
+    id
     " SELECT D.label AS driving-mode;"
   ==
 ::
 ++  fill-comparison-tail-lookup
-  |=  fill=import-fill:rover
+  |=  [fill=import-fill:rover acquisition-id=@ux]
   ^-  tape
-  =/  source
-    ;:  weld
-      "I.source-app = "
-      (sql-term:act source-app.fill)
-      " AND I.source-record-id = '"
-      (sql-quote:act source-record-id.fill)
-      "'"
-    ==
+  =/  id  (scow %ux acquisition-id)
   ;:  weld
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE "
-    source
+    "FROM fuel-fill-average-speed S WHERE S.acquisition-id = "
+    id
     " SELECT S.digits, S.decimals, S.speed-unit; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE "
-    source
+    "FROM fuel-fill-drive-balance B WHERE B.acquisition-id = "
+    id
     " SELECT B.highway-percent; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE "
-    source
+    "FROM tag-definitions T JOIN fuel-fill-tags L ON T.tag-id = L.tag-id WHERE L.acquisition-id = "
+    id
     " SELECT T.label AS tag; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fill-notes Q ON A.acquisition-id = Q.acquisition-id WHERE "
-    source
+    "FROM fill-notes Q WHERE Q.acquisition-id = "
+    id
     " SELECT Q.note; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-payment-method L ON A.acquisition-id = L.acquisition-id JOIN payment-method-definitions P ON L.method-id = P.method-id WHERE "
-    source
+    "FROM payment-method-definitions P JOIN fuel-fill-payment-method L ON P.method-id = L.method-id WHERE L.acquisition-id = "
+    id
     " SELECT P.label AS payment-method;"
   ==
 ::
@@ -1149,7 +1543,8 @@
     " SELECT T.tag-id, T.label; "
     "FROM payment-method-definitions P WHERE "
     (label-predicate 'P' payment-labels)
-    " AND P.archived = N SELECT P.method-id, P.label;"
+    " AND P.archived = N SELECT P.method-id, P.label; "
+    "FROM custom-field-definitions C WHERE C.target = %fill AND C.archived = N SELECT C.field-id, C.label, C.content-type;"
   ==
 ::
 ++  row-texts
@@ -1299,11 +1694,23 @@
           tag-ids=(list @ux)
           payment-method-id=(unit @ux)
           input=fill-entry:rover
-          source-app=@tas
-          source-record-id=@t
+          source-app=(unit @tas)
+          source-record-id=(unit @t)
           recorded-at=@da
       ==
   ^-  tape
+  =/  provenance=tape
+    ?~  source-app  ~
+    ?>  ?=(^ source-record-id)
+    ;:  weld
+      " INSERT INTO acquisition-imports VALUES ("
+      (scow %ux acquisition.ids)
+      ", "
+      (sql-term:act u.source-app)
+      ", '"
+      (sql-quote:act u.source-record-id)
+      "');"
+    ==
   ;:  weld
     %:  insert-fill:act
         ids
@@ -1319,12 +1726,65 @@
         input
         recorded-at
     ==
-    " INSERT INTO acquisition-imports VALUES ("
-    (scow %ux acquisition.ids)
-    ", "
-    (sql-term:act source-app)
-    ", '"
-    (sql-quote:act source-record-id)
-    "');"
+    provenance
   ==
+::
+++  insert-import-custom-values
+  |=  [parent-id=@ux values=(list import-custom-value:rover) definitions=(list vector:ast)]
+  ^-  tape
+  ?~  values  ~
+  =/  found  (row-by-text:view %label label.i.values definitions)
+  ?>  ?=(^ found)
+  =/  field-id=@ux  `@ux`(cell-atom:view %field-id u.found)
+  =/  row=tape
+    ?:  =(%text content-type.i.values)
+      ;:  weld
+        " INSERT INTO custom-field-values-text VALUES ("
+        (scow %ux field-id)
+        ", "
+        (scow %ux parent-id)
+        ", '"
+        (sql-quote:act value-text.i.values)
+        "');"
+      ==
+    ?:  =(%boolean content-type.i.values)
+      ;:  weld
+        " INSERT INTO custom-field-values-boolean VALUES ("
+        (scow %ux field-id)
+        ", "
+        (scow %ux parent-id)
+        ", "
+        ?:(boolean-value.i.values "Y" "N")
+        ");"
+      ==
+    =/  parsed  (parse-decimal:render value-text.i.values 3)
+    ?>  ?=(%& -.parsed)
+    ;:  weld
+      " INSERT INTO custom-field-values-number VALUES ("
+      (scow %ux field-id)
+      ", "
+      (scow %ux parent-id)
+      ", "
+      (sql-ud:act digits.p.parsed)
+      ", "
+      (sql-ud:act places.p.parsed)
+      ", "
+      (sql-term:act value-unit.i.values)
+      ");"
+    ==
+  (weld row $(values t.values))
+::
+++  archive-import-script
+  |=  [value=import-archive:rover row=vector:ast]
+  ^-  tape
+  ?:  =(%vehicle family.value)
+    ;:  weld
+      "UPDATE vehicles SET archived = Y WHERE vehicle-id = "
+      (scow %ux (cell-atom:view %vehicle-id row))
+      ";"
+    ==
+  =/  found  (definition-family-of:act family.value)
+  ?>  ?=(^ found)
+  (set-definition-archived:act u.found `@ux`(cell-atom:view id-column.u.found row) %.y)
+::
 --
