@@ -37,6 +37,14 @@ class FuelType:
 
 
 @dataclasses.dataclass(frozen=True)
+class EventSubtype:
+    kind: str
+    name: str
+    default_time: str
+    default_distance: str
+
+
+@dataclasses.dataclass(frozen=True)
 class Correction:
     source_record_id: str
     field: str
@@ -55,9 +63,7 @@ class ReportStats:
     fills_dropped: int = 0
     event_records: int = 0
     trip_records: int = 0
-    reminders: int = 0
     trip_types: int = 0
-    event_subtypes: int = 0
     preferences: int = 0
     notes_imported: int = 0
     deleted_tags_suppressed: int = 0
@@ -96,6 +102,29 @@ class ReportStats:
     unmapped_nonempty: collections.Counter[str] = dataclasses.field(
         default_factory=collections.Counter
     )
+    service_events: int = 0
+    note_events: int = 0
+    expense_events: int = 0
+    events_out: int = 0
+    event_subtype_links: int = 0
+    event_zero_totals: int = 0
+    note_records_with_cost: list[str] = dataclasses.field(default_factory=list)
+    event_station_none: int = 0
+    event_notes_imported: int = 0
+    subtype_records: int = 0
+    subtype_labels: int = 0
+    subtype_labels_collapsed: int = 0
+    subtype_defaults_time: int = 0
+    subtype_defaults_distance: int = 0
+    subtype_expense_only: int = 0
+    reminders_in: int = 0
+    reminders_out: int = 0
+    reminder_time_of_day_dropped: int = 0
+    reminders_at_catalog_default: int = 0
+    specification_vehicles: int = 0
+    specification_fields: int = 0
+    specification_fields_absent: int = 0
+    insurance_policies: int = 0
 
 
 @dataclasses.dataclass
@@ -106,6 +135,9 @@ class VehicleSource:
     volume_unit: str
     tank_capacity: str
     records: list[dict[str, str]]
+    events: list[dict[str, object]] = dataclasses.field(default_factory=list)
+    reminders: list[dict[str, str]] = dataclasses.field(default_factory=list)
+    specification: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -153,6 +185,25 @@ RECORD_FIELDS = {
     "type",
 }
 
+# M7 T7 named thirteen specification fields. Each one is a source field of the
+# same meaning; the vehicle note is aCar's `notes`. The second member of each
+# pair is the Rover import payload key, not the relation name.
+SPECIFICATION_FIELDS = (
+    ("vin", "vin"),
+    ("license-plate", "plate"),
+    ("year", "modelYear"),
+    ("make", "make"),
+    ("model", "model"),
+    ("sub-model", "subModel"),
+    ("body-type", "bodyType"),
+    ("color", "color"),
+    ("engine", "engine"),
+    ("transmission", "transmission"),
+    ("drive-type", "driveType"),
+    ("bed-type", "bedType"),
+    ("notes", "note"),
+)
+
 VEHICLE_FIELDS = {
     "name",
     "distance-unit",
@@ -162,7 +213,9 @@ VEHICLE_FIELDS = {
     "vehicle-id",
     "type",
     "make",
+    "make-id",
     "model",
+    "model-id",
     "sub-model",
     "year",
     "vin",
@@ -171,12 +224,21 @@ VEHICLE_FIELDS = {
     "photo",
     "color",
     "engine",
+    "engine-id",
     "transmission",
+    "transmission-id",
     "body-type",
+    "body-type-id",
     "bed-type",
+    "bed-type-id",
     "drive-type",
+    "drive-type-id",
+    "generic-engine-base-id",
+    "generic-fuel-type-id",
     "insurance-policy",
+    "country-id",
     "country-name",
+    "region-id",
     "region-name",
     "city-name",
 }
@@ -193,24 +255,94 @@ UNMAPPED_VEHICLE_FIELDS = {
     "active",
     "vehicle-id",
     "type",
-    "make",
-    "model",
-    "sub-model",
-    "year",
-    "vin",
-    "license-plate",
-    "notes",
     "photo",
-    "color",
-    "engine",
-    "transmission",
-    "body-type",
-    "bed-type",
-    "drive-type",
+    "make-id",
+    "model-id",
+    "engine-id",
+    "transmission-id",
+    "body-type-id",
+    "bed-type-id",
+    "drive-type-id",
+    "generic-engine-base-id",
+    "generic-fuel-type-id",
     "insurance-policy",
+    "country-id",
     "country-name",
+    "region-id",
     "region-name",
     "city-name",
+}
+
+# Every unmapped field the report names carries the reason it stayed out. A
+# count on its own tells the owner something was dropped without telling them
+# whether that was a decision or an oversight.
+UNMAPPED_REASONS = {
+    "vehicle.active": (
+        "aCar's own show/hide flag. Rover has `archived`, and an import must "
+        "not decide that a vehicle is retired."
+    ),
+    "vehicle.vehicle-id": "aCar's internal row number. Rover keys on its own IDs.",
+    "vehicle.type": (
+        "aCar's vehicle category. Rover models make, model and body type "
+        "instead, and all three are imported."
+    ),
+    "vehicle.photo": (
+        "The vehicle photo, held inline as base64. Attachments are their own "
+        "task: the bytes are extracted to disk and no database row is written."
+    ),
+    "vehicle.make-id": "aCar's catalog row number behind `make`, which is imported.",
+    "vehicle.model-id": "aCar's catalog row number behind `model`, which is imported.",
+    "vehicle.engine-id": "aCar's catalog row number behind `engine`, which is imported.",
+    "vehicle.transmission-id": (
+        "aCar's catalog row number behind `transmission`, which is imported."
+    ),
+    "vehicle.body-type-id": (
+        "aCar's catalog row number behind `body-type`, which is imported."
+    ),
+    "vehicle.bed-type-id": (
+        "aCar's catalog row number behind `bed-type`, which is imported."
+    ),
+    "vehicle.drive-type-id": (
+        "aCar's catalog row number behind `drive-type`, which is imported."
+    ),
+    "vehicle.generic-engine-base-id": "aCar's internal engine catalog reference.",
+    "vehicle.generic-fuel-type-id": "aCar's internal fuel catalog reference.",
+    "vehicle.insurance-policy": (
+        "Insurance is fenced, ruled 2026-08-18. A bare policy string is a stub "
+        "of a feature rather than a feature."
+    ),
+    "vehicle.country-id": "aCar's catalog row number behind the country name.",
+    "vehicle.country-name": (
+        "Where the vehicle is registered. Rover models a place for a station, "
+        "not a home country for a vehicle."
+    ),
+    "vehicle.region-id": "aCar's catalog row number behind the region name.",
+    "vehicle.region-name": (
+        "Where the vehicle is registered. Rover has no relation for it."
+    ),
+    "vehicle.city-name": (
+        "Where the vehicle is registered. Rover has no relation for it."
+    ),
+    "fill.place-google-places-id": (
+        "A provider-namespaced directory ID. It is a machine value that never "
+        "reaches a person, and Rover already holds the label and the address."
+    ),
+    "fill.device-coordinate-pair": (
+        "Where the phone was standing, not where the station is. Ruled "
+        "2026-07-30 (import Q6): the grain is per visit and Rover models a "
+        "location per place."
+    ),
+    "event.place-google-places-id": (
+        "A provider-namespaced directory ID. It is a machine value that never "
+        "reaches a person, and Rover already holds the label and the address."
+    ),
+    "event.device-coordinate-pair": (
+        "Where the phone was standing, not where the shop is. Ruled "
+        "2026-07-30 (import Q6)."
+    ),
+    "event.fuel-efficiency": (
+        "A derived figure. Rover derives fuel economy and never stores it."
+    ),
 }
 
 
@@ -539,6 +671,371 @@ def read_fuel_types(path: pathlib.Path) -> dict[str, FuelType]:
     return fuel_types
 
 
+def read_event_subtypes(path: pathlib.Path) -> dict[str, EventSubtype]:
+    subtypes: dict[str, EventSubtype] = {}
+    for _, element in ET.iterparse(path, events=("end",)):
+        if local_name(element.tag) != "event-subtype":
+            continue
+        values = {
+            local_name(child.tag): (child.text or "").strip() for child in element
+        }
+        subtype_id = element.attrib.get("id", "").strip()
+        if not subtype_id:
+            raise ConversionError("event subtype without an id")
+        name = values.get("name", "")
+        if not name:
+            raise ConversionError(f"event subtype {subtype_id} has no name")
+        subtypes[subtype_id] = EventSubtype(
+            kind=element.attrib.get("type", "").strip(),
+            name=name,
+            default_time=values.get("default-time-reminder-interval", ""),
+            default_distance=values.get("default-distance-reminder-interval", ""),
+        )
+        element.clear()
+    return subtypes
+
+
+# aCar names its reminder unit in the plural. Rover's `reminder-time-unit` is
+# a singular term, and it is a calendar step rather than a count of seconds.
+REMINDER_TIME_UNITS = {
+    "days": "day",
+    "day": "day",
+    "weeks": "week",
+    "week": "week",
+    "months": "month",
+    "month": "month",
+    "years": "year",
+    "year": "year",
+}
+
+
+def reminder_time_unit(source_unit: str) -> str:
+    try:
+        return REMINDER_TIME_UNITS[source_unit.strip().lower()]
+    except KeyError as exc:
+        raise ConversionError(
+            f"unsupported aCar reminder time unit: {source_unit!r}"
+        ) from exc
+
+
+def build_service_subtypes(
+    event_subtypes: dict[str, EventSubtype],
+    stats: ReportStats | None = None,
+) -> tuple[list[dict[str, object]], ReportStats]:
+    """One definition per LABEL, matching the T2 starter pack.
+
+    The source catalog carries `Car Wash`, `Insurance` and `Registration`
+    twice, once as a service subtype and once as an expense subtype. Rover has
+    one service-subtype family and T2 seeded one row for each of those labels,
+    so a second row here would put a duplicate in every selector.
+
+    A definition carries its label and nothing else. aCar attaches a SUGGESTED
+    reminder interval to every catalog entry; Rover stores an interval on a
+    reminder, which is where the owner's own eight arrive. Emitting a key no
+    relation reads would be a stub, so the suggestions are counted here and
+    named in the report instead.
+    """
+    if stats is None:
+        stats = ReportStats()
+    collected: dict[str, dict[str, object]] = {}
+    for _, subtype in sorted(event_subtypes.items(), key=lambda item: item[1].name):
+        stats.subtype_records += 1
+        if subtype.kind == "expense":
+            stats.subtype_expense_only += 1
+        if subtype.default_time:
+            stats.subtype_defaults_time += 1
+        if subtype.default_distance:
+            stats.subtype_defaults_distance += 1
+        if subtype.name in collected:
+            stats.subtype_labels_collapsed += 1
+            continue
+        collected[subtype.name] = {"label": subtype.name}
+    stats.subtype_labels = len(collected)
+    return [collected[label] for label in sorted(collected)], stats
+
+
+def build_specification(
+    values: dict[str, str], *, stats: ReportStats
+) -> dict[str, str]:
+    """The thirteen T7 fields, and only the ones the source actually filled.
+
+    An empty source field writes NO key, so the importer never clears a value
+    the owner corrected in Rover after an earlier import.
+    """
+    specification: dict[str, str] = {}
+    for source_key, payload_key in SPECIFICATION_FIELDS:
+        value = values.get(source_key, "").strip()
+        if value:
+            specification[payload_key] = value
+            stats.specification_fields += 1
+        else:
+            stats.specification_fields_absent += 1
+    return specification
+
+
+def convert_event(
+    *,
+    record: dict[str, object],
+    vehicle_label: str,
+    vehicle_dir: str,
+    distance_unit: str,
+    event_subtypes: dict[str, EventSubtype],
+    zone: str,
+    stats: ReportStats,
+) -> dict[str, object]:
+    """One aCar event record as an `add-*-event` payload.
+
+    The KIND is not a member of this object. It is which section of the import
+    document the record lands in, exactly as the kind of a hand-entered event
+    is which route a browser posted to.
+    """
+    text_record = {
+        key: value for key, value in record.items() if isinstance(value, str)
+    }
+    rover_distance = distance_unit_label(distance_unit)
+    kind = text_trimmed(text_record, "type")
+    reference = record_ref(vehicle_dir, text_record)
+    remote_id = text_trimmed(text_record, "_remote_id")
+    if not remote_id:
+        raise ConversionError(f"{reference}: remote-id absent")
+    odometer = text_trimmed(text_record, "odometer-reading")
+    if not odometer:
+        raise ConversionError(f"{reference}: odometer-reading absent")
+    event: dict[str, object] = {
+        "mileage": fixed_decimal(odometer, 1),
+        "mileageUnit": rover_distance,
+        "observed": observed_start(text_trimmed(text_record, "date")),
+        "sourceApp": "acar",
+        "sourceRecordId": remote_id,
+        "station": "none",
+        "subtypes": [],
+        "tags": [],
+        "vehicle": vehicle_label,
+        "zone": zone,
+    }
+    source_total = text_trimmed(text_record, "total-cost")
+    if source_total:
+        # aCar's total is a mandatory numeric field and writes 0 when nothing
+        # was entered, so a zero cannot be told apart from a genuine free
+        # service. An absent cost row is visibly unknown; a stored 0.00 would
+        # be invisibly wrong, and the owner can enter the real figure later.
+        if parse_decimal(source_total).digits:
+            event["total"] = source_total
+        else:
+            stats.event_zero_totals += 1
+    if kind == "note" and source_total and parse_decimal(source_total).digits:
+        stats.note_records_with_cost.append(
+            f"{reference}: a record aCar typed `note` carries a total of "
+            f"{source_total}. It is imported as a note with that total and is "
+            "not reclassified as an expense."
+        )
+    subtype_ids = record.get("_subtype_ids", [])
+    labels: list[str] = []
+    for subtype_id in subtype_ids if isinstance(subtype_ids, list) else []:
+        subtype = event_subtypes.get(str(subtype_id))
+        if subtype is None:
+            raise ConversionError(f"{reference}: unknown event subtype")
+        if subtype.name not in labels:
+            labels.append(subtype.name)
+        stats.event_subtype_links += 1
+    event["subtypes"] = labels
+    tags = []
+    for tag in split_list(text_record.get("tags", "")):
+        if tag == "deleted":
+            stats.deleted_tags_suppressed += 1
+        elif tag not in tags:
+            tags.append(tag)
+    event["tags"] = tags
+    payment = text_trimmed(text_record, "payment-type")
+    if payment:
+        event["paymentMethod"] = payment
+    notes = text_record.get("notes", "")
+    if notes.strip():
+        event["notes"] = notes
+        stats.event_notes_imported += 1
+    label = resolve_place_label(text_record)
+    if label:
+        event["station"] = label
+    else:
+        # Q10 applied to an event: the address text names no station, and
+        # matching on it would invent which shop was visited.
+        formatted = text_trimmed(text_record, "place-full-address")
+        if formatted:
+            stats.unlabelled_station_addresses.append(formatted)
+        stats.event_station_none += 1
+    stats.events_out += 1
+    return event
+
+
+def convert_reminder(
+    *,
+    source: dict[str, str],
+    vehicle_label: str,
+    distance_unit: str,
+    event_subtypes: dict[str, EventSubtype],
+    stats: ReportStats,
+) -> dict[str, str]:
+    subtype_id = text_trimmed(source, "_subtype_id")
+    subtype = event_subtypes.get(subtype_id)
+    if subtype is None:
+        raise ConversionError(f"{vehicle_label}: reminder names an unknown subtype")
+    reminder: dict[str, str] = {
+        "subtype": subtype.name,
+        "vehicle": vehicle_label,
+    }
+    time_interval = text_trimmed(source, "time-interval")
+    time_due = text_trimmed(source, "time-due")
+    if time_interval and time_due:
+        reminder["timeInterval"] = time_interval
+        reminder["timeUnit"] = reminder_time_unit(text_trimmed(source, "time-unit"))
+        # T6 ruled the due point a calendar day rather than an instant, so the
+        # source's time of day has no home. The count is reported.
+        due = observed_start(time_due)
+        reminder["timeDue"] = due[:10]
+        if due[11:] != "00:00":
+            stats.reminder_time_of_day_dropped += 1
+    elif time_interval or time_due:
+        raise ConversionError(
+            f"{vehicle_label}: reminder carries half a time interval"
+        )
+    distance_interval = text_trimmed(source, "distance-interval")
+    distance_due = text_trimmed(source, "distance-due")
+    if distance_interval and distance_due:
+        reminder["distanceInterval"] = distance_interval
+        reminder["distanceDue"] = distance_due
+        reminder["distanceUnit"] = distance_unit_label(distance_unit)
+    elif distance_interval or distance_due:
+        raise ConversionError(
+            f"{vehicle_label}: reminder carries half a distance interval"
+        )
+    # Evidence that the catalog suggestion is exactly what a reminder carries:
+    # the owner either accepted it here or typed over it.
+    if subtype.default_time and time_interval == subtype.default_time:
+        stats.reminders_at_catalog_default += 1
+    if "timeInterval" not in reminder and "distanceInterval" not in reminder:
+        raise ConversionError(f"{vehicle_label}: reminder names no interval at all")
+    stats.reminders_out += 1
+    return reminder
+
+
+def build_notices(stats: ReportStats) -> list[dict[str, object]]:
+    """Every source record kind that did not become a Rover row.
+
+    The list travels inside the import document, so the report a person reads
+    after the import carries the same disclosure as the converter's own report.
+    A count with no reason leaves the owner unable to act on it.
+    """
+    candidates = [
+        (
+            "Trip types",
+            stats.trip_types,
+            "aCar's shipped defaults, carrying IRS mileage deduction rates. "
+            "Rover has no model for a deduction rate.",
+        ),
+        (
+            "Trip records",
+            stats.trip_records,
+            "The feature was never used, so there is nothing to carry.",
+        ),
+        (
+            "Insurance policies",
+            stats.insurance_policies,
+            "Insurance is fenced, ruled 2026-08-18. A bare policy string is a "
+            "stub of a feature rather than a feature.",
+        ),
+        (
+            "Photos",
+            stats.attachments,
+            "Attachments are their own task. The bytes are extracted to disk "
+            "beside this document with a manifest, and no database row holds "
+            "an image.",
+        ),
+        (
+            "PDF slots with content",
+            stats.nonempty_pdfs,
+            "The export defines PDF slots but none carries a document.",
+        ),
+        (
+            "Expense event records",
+            stats.expense_events,
+            "The corpus holds none. Rover records the kind, so a later export "
+            "carrying one would import.",
+        ),
+        (
+            "Expense-only subtype definitions",
+            stats.subtype_expense_only,
+            "Rover keeps one service-subtype catalog, so these arrive as "
+            "ordinary definitions rather than a second family.",
+        ),
+        (
+            "Duplicate subtype labels collapsed",
+            stats.subtype_labels_collapsed,
+            "The source names these labels twice, once under service and once "
+            "under expense. Rover's catalog holds one row per label, which is "
+            "what the starter pack already seeded.",
+        ),
+        (
+            "Event records with a source total of zero",
+            stats.event_zero_totals,
+            "aCar writes 0 when no amount was entered, so a stored 0.00 could "
+            "not be told apart from a genuine free service. These import with "
+            "no cost row, and the amount can be entered later.",
+        ),
+        (
+            "Service-subtype default reminder intervals",
+            stats.subtype_defaults_time,
+            "aCar suggests an interval on every catalog entry. Rover stores an "
+            "interval on a reminder, and the owner's own reminders carry "
+            f"theirs: {stats.reminders_at_catalog_default} of "
+            f"{stats.reminders_out} arrive holding exactly the suggestion for "
+            "their subtype. Creating a reminder for every catalog entry would "
+            "invent schedules nobody set.",
+        ),
+        (
+            "Reminder due points losing a time of day",
+            stats.reminder_time_of_day_dropped,
+            "A Rover reminder falls due on a calendar day rather than at an "
+            "instant, so the source's clock time has no home.",
+        ),
+        (
+            "Event records aCar typed `note` that carry money",
+            len(stats.note_records_with_cost),
+            "They import as notes with their total. Reclassifying one as an "
+            "expense would decide, on the owner's behalf, that aCar's own type "
+            "was wrong.",
+        ),
+        (
+            "Suppressed literal `deleted` tags",
+            stats.deleted_tags_suppressed,
+            "An aCar internal marker, not an owner tag. Ruled 2026-07-30 "
+            "(import Q8).",
+        ),
+        (
+            "Station-none fills with unmapped address text",
+            len(stats.unlabelled_station_addresses),
+            "The address text names no station, and several stations share one "
+            "address, so a match would invent which one was visited. Ruled "
+            "2026-07-30 (import Q10).",
+        ),
+    ]
+    notices = [
+        {"count": count, "kind": kind, "reason": reason}
+        for kind, count, reason in candidates
+        if count
+    ]
+    for field, count in sorted(stats.unmapped_nonempty.items()):
+        notices.append(
+            {
+                "count": count,
+                "kind": f"Source field {field}",
+                "reason": UNMAPPED_REASONS.get(
+                    field, "No Rover relation holds this fact."
+                ),
+            }
+        )
+    return notices
+
+
 def load_corrections(export_dir: pathlib.Path) -> dict[str, Correction]:
     path = export_dir / "corrections.json"
     if not path.is_file():
@@ -725,6 +1222,8 @@ def read_vehicles(
     stack: list[str] = []
     vehicle_values: dict[str, str] | None = None
     vehicle_records: list[dict[str, str]] | None = None
+    vehicle_events: list[dict[str, object]] | None = None
+    vehicle_reminders: list[dict[str, str]] | None = None
     vehicle_index = 0
     record: dict[str, str] | None = None
     record_kind = ""
@@ -737,6 +1236,8 @@ def read_vehicles(
                 vehicle_index += 1
                 vehicle_values = {}
                 vehicle_records = []
+                vehicle_events = []
+                vehicle_reminders = []
             elif tag in {"fillup-record", "event-record"}:
                 record = {}
                 record_kind = "fill" if tag == "fillup-record" else "event"
@@ -791,13 +1292,47 @@ def read_vehicles(
                 stats.fills_in += 1
                 vehicle_records.append(record)
             else:
+                if vehicle_events is None:
+                    raise ConversionError("event record found outside a vehicle")
                 stats.event_records += 1
+                # The typed children live under `<subtypes>`, not among the
+                # scalar fields, so they are read from the element itself.
+                subtype_ids = [
+                    child.attrib.get("id", "").strip()
+                    for container in element
+                    if local_name(container.tag) == "subtypes"
+                    for child in container
+                    if local_name(child.tag) == "subtype"
+                ]
+                if any(not value for value in subtype_ids):
+                    raise ConversionError("event subtype reference without an id")
+                kind = text_trimmed(record, "type")
+                if kind == "service":
+                    stats.service_events += 1
+                elif kind == "note":
+                    stats.note_events += 1
+                elif kind == "expense":
+                    stats.expense_events += 1
+                else:
+                    raise ConversionError(f"unsupported aCar event type: {kind!r}")
+                vehicle_events.append({**record, "_subtype_ids": subtype_ids})
             record = None
             record_kind = ""
             element.clear()
 
         elif tag == "reminder":
-            stats.reminders += 1
+            if vehicle_reminders is None:
+                raise ConversionError("reminder found outside a vehicle")
+            stats.reminders_in += 1
+            values = {
+                local_name(child.tag): (child.text or "").strip()
+                for child in element
+            }
+            values["_subtype_id"] = element.attrib.get(
+                "event-subtype-id", ""
+            ).strip()
+            values["_event_type"] = element.attrib.get("event-type", "").strip()
+            vehicle_reminders.append(values)
             element.clear()
         elif tag == "trip-record":
             stats.trip_records += 1
@@ -811,7 +1346,12 @@ def read_vehicles(
             vehicle_values[tag] = raw_text
             element.clear()
         elif tag == "vehicle":
-            if vehicle_values is None or vehicle_records is None:
+            if (
+                vehicle_values is None
+                or vehicle_records is None
+                or vehicle_events is None
+                or vehicle_reminders is None
+            ):
                 raise ConversionError("malformed vehicle element")
             label = vehicle_values.get("name", "")
             distance_unit = vehicle_values.get("distance-unit", "").strip()
@@ -821,6 +1361,11 @@ def read_vehicles(
             for field in UNMAPPED_VEHICLE_FIELDS:
                 if vehicle_values.get(field, "").strip():
                     stats.unmapped_nonempty[f"vehicle.{field}"] += 1
+            if vehicle_values.get("insurance-policy", "").strip():
+                stats.insurance_policies += 1
+            specification = build_specification(vehicle_values, stats=stats)
+            if specification:
+                stats.specification_vehicles += 1
             vehicles.append(
                 VehicleSource(
                     index=vehicle_index,
@@ -829,11 +1374,16 @@ def read_vehicles(
                     volume_unit=volume_unit,
                     tank_capacity=vehicle_values.get("fuel-tank-capacity", "").strip(),
                     records=vehicle_records,
+                    events=vehicle_events,
+                    reminders=vehicle_reminders,
+                    specification=specification,
                 )
             )
             stats.vehicles += 1
             vehicle_values = None
             vehicle_records = None
+            vehicle_events = None
+            vehicle_reminders = None
             element.clear()
 
         stack.pop()
@@ -1014,12 +1564,24 @@ def convert_fill(
 
 
 def build_places(vehicles: list[VehicleSource]) -> list[dict[str, object]]:
+    """One `places` row per label, over fills AND events alike.
+
+    A place is a place. Import rule 6 already matched them by label so two
+    fills at one forecourt make one row; an event at a repair shop obeys the
+    same rule, and a shop the owner also buys fuel at would be one place.
+    """
     accumulated: dict[str, dict[str, object]] = {}
+    fuelling: set[str] = set()
     for vehicle in vehicles:
-        for record in vehicle.records:
+        for record in list(vehicle.records) + [
+            {key: value for key, value in event.items() if isinstance(value, str)}
+            for event in vehicle.events
+        ]:
             label = resolve_place_label(record)
             if not label:
                 continue
+            if "volume" in record:
+                fuelling.add(label)
             place = accumulated.setdefault(label, {"label": label})
             formatted = text_trimmed(record, "place-full-address")
             source_parts = {
@@ -1044,12 +1606,20 @@ def build_places(vehicles: list[VehicleSource]) -> list[dict[str, object]]:
                     ),
                     "source": "directory",
                 }
+    # A place only a service visit ever names is not a filling station, and
+    # saying it were would put a forecourt in the Add Fill selector that sells
+    # nothing. `private` is what the Add Event form's own station control
+    # offers first, so an imported shop matches a hand-entered one.
+    for label, place in accumulated.items():
+        place["kind"] = "fuel" if label in fuelling else "private"
     return [accumulated[label] for label in sorted(accumulated)]
 
 
 def build_definitions(
     vehicles: list[VehicleSource],
     fuel_types: dict[str, FuelType],
+    event_subtypes: dict[str, EventSubtype] | None = None,
+    stats: ReportStats | None = None,
 ) -> dict[str, list[dict[str, object]]]:
     used_fuels: dict[str, FuelType] = {}
     additives: set[str] = set()
@@ -1077,6 +1647,20 @@ def build_definitions(
                 modes.add(mode)
             tags.update(tag for tag in split_list(record.get("tags", "")) if tag != "deleted")
             payment = text_trimmed(record, "payment-type")
+            if payment:
+                payment_methods.add(payment)
+        # An event reaches the same tag and payment-method catalogs a fill
+        # reaches. Only the link rows differ.
+        for event in vehicle.events:
+            text_event = {
+                key: value for key, value in event.items() if isinstance(value, str)
+            }
+            tags.update(
+                tag
+                for tag in split_list(text_event.get("tags", ""))
+                if tag != "deleted"
+            )
+            payment = text_trimmed(text_event, "payment-type")
             if payment:
                 payment_methods.add(payment)
 
@@ -1113,11 +1697,13 @@ def build_definitions(
         )
 
     simple = lambda labels: [{"label": label} for label in sorted(labels)]
+    service_subtypes, _ = build_service_subtypes(event_subtypes or {}, stats)
     return {
         "additives": simple(additives),
         "driving-modes": simple(modes),
         "energy": energy,
         "payment-methods": simple(payment_methods),
+        "service-subtypes": service_subtypes,
         "tags": simple(tags),
     }
 
@@ -1129,6 +1715,14 @@ def count_record_unmapped(vehicles: list[VehicleSource], stats: ReportStats) -> 
                 stats.unmapped_nonempty["fill.place-google-places-id"] += 1
             if text_trimmed(record, "device-latitude"):
                 stats.unmapped_nonempty["fill.device-coordinate-pair"] += 1
+        for event in vehicle.events:
+            text_event = {
+                key: value for key, value in event.items() if isinstance(value, str)
+            }
+            if text_trimmed(text_event, "place-google-places-id"):
+                stats.unmapped_nonempty["event.place-google-places-id"] += 1
+            if text_trimmed(text_event, "device-latitude"):
+                stats.unmapped_nonempty["event.device-coordinate-pair"] += 1
 
 
 def make_import_document(
@@ -1136,10 +1730,11 @@ def make_import_document(
     metadata: dict[str, str],
     vehicles: list[VehicleSource],
     fuel_types: dict[str, FuelType],
+    event_subtypes: dict[str, EventSubtype],
     zone: str,
     stats: ReportStats,
 ) -> dict[str, object]:
-    definitions = build_definitions(vehicles, fuel_types)
+    definitions = build_definitions(vehicles, fuel_types, event_subtypes, stats)
     places = build_places(vehicles)
     output_vehicles: list[dict[str, object]] = []
     for vehicle in vehicles:
@@ -1199,6 +1794,47 @@ def make_import_document(
             )
         output_vehicle["defaultEnergy"] = next(iter(referenced))
         check_efficiencies(f"vehicle-{vehicle.index}", vehicle.records, stats)
+        if vehicle.specification:
+            output_vehicle["specification"] = vehicle.specification
+        # One section per kind. The section is the route: a record never names
+        # its own kind, so it cannot disagree with the child row it becomes.
+        by_kind: dict[str, list[dict[str, object]]] = {
+            "service": [],
+            "expense": [],
+            "note": [],
+        }
+        for source_event in vehicle.events:
+            kind = str(source_event.get("type", "")).strip()
+            by_kind[kind].append(
+                convert_event(
+                    record=source_event,
+                    vehicle_label=vehicle.label,
+                    vehicle_dir=f"vehicle-{vehicle.index}",
+                    distance_unit=vehicle.distance_unit,
+                    event_subtypes=event_subtypes,
+                    zone=zone,
+                    stats=stats,
+                )
+            )
+        for kind, section in (
+            ("service", "serviceEvents"),
+            ("expense", "expenseEvents"),
+            ("note", "noteEvents"),
+        ):
+            if by_kind[kind]:
+                output_vehicle[section] = by_kind[kind]
+        reminders = [
+            convert_reminder(
+                source=source_reminder,
+                vehicle_label=vehicle.label,
+                distance_unit=vehicle.distance_unit,
+                event_subtypes=event_subtypes,
+                stats=stats,
+            )
+            for source_reminder in vehicle.reminders
+        ]
+        if reminders:
+            output_vehicle["reminders"] = reminders
         output_vehicles.append(output_vehicle)
 
     count_record_unmapped(vehicles, stats)
@@ -1210,6 +1846,7 @@ def make_import_document(
         raise ConversionError("metadata.inf lacks valid aCar source metadata") from exc
     return {
         "definitions": definitions,
+        "notices": build_notices(stats),
         "places": places,
         "rover-import": 1,
         "source": {
@@ -1245,11 +1882,17 @@ def render_report(
         "Records",
         f"Vehicles in/out: {stats.vehicles}/{len(document['vehicles'])}",
         f"Fills in/out/dropped: {stats.fills_in}/{stats.fills_out}/{stats.fills_dropped}",
-        f"Event records unmapped (M7): {stats.event_records}",
+        f"Event records in/out: {stats.event_records}/{stats.events_out}",
+        f"Service/note/expense events: {stats.service_events}/{stats.note_events}"
+        f"/{stats.expense_events}",
+        f"Event to subtype links: {stats.event_subtype_links}",
+        f"Events with no station: {stats.event_station_none}",
+        f"Reminders in/out: {stats.reminders_in}/{stats.reminders_out}",
+        f"Vehicles carrying a specification: {stats.specification_vehicles}",
+        f"Specification fields present/empty: {stats.specification_fields}"
+        f"/{stats.specification_fields_absent}",
         f"Trip records unmapped: {stats.trip_records}",
-        f"Reminders unmapped (M7): {stats.reminders}",
         f"Trip types unmapped: {stats.trip_types}",
-        f"Event subtype definitions unmapped (M7): {stats.event_subtypes}",
         f"Preferences ignored (application settings): {stats.preferences}",
         "",
         "Definitions and places",
@@ -1258,8 +1901,14 @@ def render_report(
         f"Driving-mode definitions: {len(definitions['driving-modes'])}",
         f"Tag definitions: {len(definitions['tags'])}",
         f"Payment-method definitions: {len(definitions['payment-methods'])}",
+        f"Service-subtype source records: {stats.subtype_records}",
+        f"Service-subtype definitions: {len(definitions.get('service-subtypes', []))}",
+        f"Duplicate subtype labels collapsed: {stats.subtype_labels_collapsed}",
+        f"Subtype default time/distance intervals carried: "
+        f"{stats.subtype_defaults_time}/{stats.subtype_defaults_distance}",
         f"Places: {len(places)}",
         f"Fill notes imported verbatim: {stats.notes_imported}",
+        f"Event notes imported verbatim: {stats.event_notes_imported}",
         f"Suppressed literal 'deleted' tags: {stats.deleted_tags_suppressed}",
         f"Parts-only addresses imported: {stats.parts_only_addresses}",
         f"Station-none fills with unmapped address text: {len(stats.unlabelled_station_addresses)}",
@@ -1318,16 +1967,21 @@ def render_report(
             f"Distinct filenames: {stats.attachments}",
             f"Files changed by APPn stripping: {stats.attachment_files_with_app_segments}",
             f"PDF tags/nonempty PDFs: {stats.pdf_tags}/{stats.nonempty_pdfs}",
-            "",
-            "Other nonempty unmapped fields",
         ]
     )
-    if stats.unmapped_nonempty:
+    # Nothing leaves the source without a line here. A count on its own tells
+    # the owner that something was dropped without telling them why, which is
+    # the loss they would otherwise find months later.
+    lines.extend(["", "Not imported, and why"])
+    notices = document.get("notices")
+    if isinstance(notices, list) and notices:
         lines.extend(
-            f"{field}: {count}" for field, count in sorted(stats.unmapped_nonempty.items())
+            f"{notice['kind']}: {notice['count']} - {notice['reason']}"
+            for notice in notices
         )
     else:
-        lines.append("None")
+        lines.append("Nothing. Every source record kind became a Rover row.")
+    lines.extend(f"Note: {item}" for item in stats.note_records_with_cost)
     return "\n".join(lines) + "\n"
 
 
@@ -1368,11 +2022,9 @@ def convert_export(
     ensure_output_outside_repo(output_dir)
     stats = ReportStats()
     stats.trip_types = count_elements(export_dir / "trip-types.xml", "trip-type")
-    stats.event_subtypes = count_elements(
-        export_dir / "event-subtypes.xml", "event-subtype"
-    )
     stats.preferences = count_elements(export_dir / "preferences.xml", "preference")
     fuel_types = read_fuel_types(export_dir / "fuel-types.xml")
+    event_subtypes = read_event_subtypes(export_dir / "event-subtypes.xml")
     corrections = load_corrections(export_dir)
     metadata = read_properties(export_dir / "metadata.inf")
     parsed = read_vehicles(
@@ -1386,6 +2038,7 @@ def convert_export(
         metadata=metadata,
         vehicles=parsed.vehicles,
         fuel_types=fuel_types,
+        event_subtypes=event_subtypes,
         zone=zone,
         stats=stats,
     )

@@ -338,6 +338,7 @@ class VehicleDefaultTests(unittest.TestCase):
                 },
                 vehicles=[vehicle],
                 fuel_types=FUEL_TYPES,
+                event_subtypes={},
                 zone="America/Chicago",
                 stats=convert.ReportStats(),
             )
@@ -461,6 +462,280 @@ class CrossCheckTests(unittest.TestCase):
         self.assertEqual(stats.efficiency_pairs, 2)
         self.assertEqual(stats.efficiency_beyond, 1)
         self.assertIn("2026-07-03T09:00", stats.efficiency_mismatches[0])
+
+
+EVENT_SUBTYPES = {
+    "1": convert.EventSubtype(
+        kind="service",
+        name="Engine Oil",
+        default_time="3",
+        default_distance="3000",
+    ),
+    "2": convert.EventSubtype(
+        kind="service", name="Car Wash", default_time="1", default_distance="1000"
+    ),
+    "3": convert.EventSubtype(
+        kind="expense", name="Car Wash", default_time="", default_distance=""
+    ),
+    "4": convert.EventSubtype(
+        kind="service", name="Tire Rotation", default_time="", default_distance=""
+    ),
+}
+
+
+def synthetic_event(**overrides):
+    record = {
+        "type": "service",
+        "date": "07/30/2026 - 11:20",
+        "odometer-reading": "23456.7",
+        "total-cost": "412.75",
+        "payment-type": "Amex",
+        "notes": "",
+        "tags": "",
+        "_remote_id": "synthetic-event-1",
+        "_subtype_ids": ["1", "4"],
+    }
+    record.update(overrides)
+    return record
+
+
+class ServiceSubtypeTests(unittest.TestCase):
+    def test_duplicate_labels_collapse_to_one_definition(self):
+        definitions, stats = convert.build_service_subtypes(EVENT_SUBTYPES)
+        labels = [entry["label"] for entry in definitions]
+        self.assertEqual(labels, ["Car Wash", "Engine Oil", "Tire Rotation"])
+        self.assertEqual(stats.subtype_records, 4)
+        self.assertEqual(stats.subtype_labels_collapsed, 1)
+
+    def test_a_definition_carries_a_label_and_nothing_else(self):
+        definitions, stats = convert.build_service_subtypes(EVENT_SUBTYPES)
+        for entry in definitions:
+            self.assertEqual(sorted(entry), ["label"])
+        self.assertEqual(stats.subtype_defaults_time, 2)
+        self.assertEqual(stats.subtype_defaults_distance, 2)
+
+    def test_the_catalog_suggestions_are_counted_for_the_report(self):
+        stats = convert.ReportStats()
+        convert.build_service_subtypes(EVENT_SUBTYPES, stats)
+        notices = {item["kind"]: item for item in convert.build_notices(stats)}
+        self.assertEqual(
+            notices["Service-subtype default reminder intervals"]["count"], 2
+        )
+
+    def test_a_reminder_taking_the_catalog_suggestion_is_counted(self):
+        stats = convert.ReportStats()
+        convert.convert_reminder(
+            source={
+                "_subtype_id": "1",
+                "time-interval": "3",
+                "time-unit": "months",
+                "time-due": "10/01/2025 - 10:45",
+                "distance-interval": "3000.0",
+                "distance-due": "83169.0",
+            },
+            vehicle_label="Synthetic Vehicle",
+            distance_unit="mile",
+            event_subtypes=EVENT_SUBTYPES,
+            stats=stats,
+        )
+        self.assertEqual(stats.reminders_at_catalog_default, 1)
+
+
+class EventMappingTests(unittest.TestCase):
+    def make_event(self, record, kind="service"):
+        stats = convert.ReportStats()
+        event = convert.convert_event(
+            record=record,
+            vehicle_label="Synthetic Vehicle",
+            vehicle_dir="vehicle-1",
+            distance_unit="mile",
+            event_subtypes=EVENT_SUBTYPES,
+            zone="America/Chicago",
+            stats=stats,
+        )
+        return event, stats
+
+    def test_event_carries_odometer_total_and_subtype_labels(self):
+        event, _ = self.make_event(synthetic_event())
+        self.assertEqual(event["vehicle"], "Synthetic Vehicle")
+        self.assertEqual(event["observed"], "2026-07-30T11:20")
+        self.assertEqual(event["mileage"], "23456.7")
+        self.assertEqual(event["mileageUnit"], "mi")
+        self.assertEqual(event["total"], "412.75")
+        self.assertEqual(event["paymentMethod"], "Amex")
+        self.assertEqual(sorted(event["subtypes"]), ["Engine Oil", "Tire Rotation"])
+        self.assertEqual(event["station"], "none")
+
+    def test_absent_optional_fields_stay_absent(self):
+        event, _ = self.make_event(synthetic_event())
+        for key in ("notes", "newStationLabel"):
+            self.assertNotIn(key, event)
+        self.assertEqual(event["tags"], [])
+
+    def test_a_zero_source_total_writes_no_total_and_is_reported(self):
+        event, stats = self.make_event(synthetic_event(**{"total-cost": "0.0"}))
+        self.assertNotIn("total", event)
+        self.assertEqual(stats.event_zero_totals, 1)
+
+    def test_a_note_record_carrying_money_is_reported_and_never_reclassified(self):
+        event, stats = self.make_event(
+            synthetic_event(type="note", _subtype_ids=[], **{"total-cost": "811.88"}),
+            kind="note",
+        )
+        self.assertEqual(event["total"], "811.88")
+        self.assertEqual(event["subtypes"], [])
+        self.assertEqual(len(stats.note_records_with_cost), 1)
+        self.assertIn("811.88", stats.note_records_with_cost[0])
+
+    def test_deleted_tag_is_suppressed_on_an_event_too(self):
+        event, stats = self.make_event(
+            synthetic_event(tags="deleted,Scheduled Maintenance")
+        )
+        self.assertEqual(event["tags"], ["Scheduled Maintenance"])
+        self.assertEqual(stats.deleted_tags_suppressed, 1)
+
+    def test_a_named_place_becomes_a_private_station_by_label(self):
+        event, _ = self.make_event(
+            synthetic_event(
+                **{"place-name": "Synthetic Garage", "place-city": "Sampletown"}
+            )
+        )
+        self.assertEqual(event["station"], "Synthetic Garage")
+
+
+class ReminderMappingTests(unittest.TestCase):
+    def test_a_reminder_carries_both_intervals_and_a_day_due_point(self):
+        stats = convert.ReportStats()
+        reminder = convert.convert_reminder(
+            source={
+                "_subtype_id": "1",
+                "time-interval": "3",
+                "time-unit": "months",
+                "time-due": "10/01/2025 - 10:45",
+                "distance-interval": "3000.0",
+                "distance-due": "83169.0",
+            },
+            vehicle_label="Synthetic Vehicle",
+            distance_unit="mile",
+            event_subtypes=EVENT_SUBTYPES,
+            stats=stats,
+        )
+        self.assertEqual(reminder["vehicle"], "Synthetic Vehicle")
+        self.assertEqual(reminder["subtype"], "Engine Oil")
+        self.assertEqual(reminder["timeInterval"], "3")
+        self.assertEqual(reminder["timeUnit"], "month")
+        self.assertEqual(reminder["timeDue"], "2025-10-01")
+        self.assertEqual(reminder["distanceInterval"], "3000.0")
+        self.assertEqual(reminder["distanceDue"], "83169.0")
+        self.assertEqual(reminder["distanceUnit"], "mi")
+        self.assertEqual(stats.reminder_time_of_day_dropped, 1)
+
+    def test_an_absent_interval_writes_no_key(self):
+        stats = convert.ReportStats()
+        reminder = convert.convert_reminder(
+            source={
+                "_subtype_id": "1",
+                "time-interval": "",
+                "time-unit": "",
+                "time-due": "",
+                "distance-interval": "3000.0",
+                "distance-due": "83169.0",
+            },
+            vehicle_label="Synthetic Vehicle",
+            distance_unit="mile",
+            event_subtypes=EVENT_SUBTYPES,
+            stats=stats,
+        )
+        for key in ("timeInterval", "timeUnit", "timeDue"):
+            self.assertNotIn(key, reminder)
+
+
+class SpecificationTests(unittest.TestCase):
+    def test_only_the_fields_the_source_filled_become_keys(self):
+        stats = convert.ReportStats()
+        specification = convert.build_specification(
+            {
+                "vin": "SYNTHETICVIN00001",
+                "license-plate": "FAKE-001",
+                "year": "1981",
+                "make": "Examplemobile",
+                "model": "Prototype",
+                "sub-model": "",
+                "body-type": "pickup",
+                "color": "",
+                "engine": "5.7L V8",
+                "transmission": "4-speed manual",
+                "drive-type": "RWD",
+                "bed-type": "8 ft",
+                "notes": "",
+            },
+            stats=stats,
+        )
+        self.assertEqual(specification["vin"], "SYNTHETICVIN00001")
+        self.assertEqual(specification["modelYear"], "1981")
+        self.assertEqual(specification["bedType"], "8 ft")
+        for key in ("subModel", "color", "note"):
+            self.assertNotIn(key, specification)
+        self.assertEqual(stats.specification_fields, 10)
+        self.assertEqual(stats.specification_fields_absent, 3)
+
+    def test_a_vehicle_with_no_specification_field_emits_no_section(self):
+        stats = convert.ReportStats()
+        specification = convert.build_specification(
+            {key: "" for key in convert.SPECIFICATION_FIELDS}, stats=stats
+        )
+        self.assertEqual(specification, {})
+
+
+class NoticeTests(unittest.TestCase):
+    def test_every_unmapped_kind_is_named_with_a_count_and_a_reason(self):
+        stats = convert.ReportStats()
+        stats.trip_types = 6
+        stats.reminders_in = 8
+        stats.insurance_policies = 2
+        stats.attachments = 121
+        stats.unmapped_nonempty["vehicle.insurance-policy"] = 2
+        notices = convert.build_notices(stats)
+        by_kind = {notice["kind"]: notice for notice in notices}
+        self.assertIn("Trip types", by_kind)
+        self.assertEqual(by_kind["Trip types"]["count"], 6)
+        self.assertTrue(by_kind["Trip types"]["reason"])
+        self.assertIn("Insurance policies", by_kind)
+        self.assertEqual(by_kind["Insurance policies"]["count"], 2)
+        for notice in notices:
+            self.assertTrue(notice["reason"].strip())
+            self.assertIsInstance(notice["count"], int)
+
+    def test_every_unmapped_field_the_report_names_carries_a_reason(self):
+        for field in convert.UNMAPPED_REASONS:
+            self.assertTrue(convert.UNMAPPED_REASONS[field].strip())
+        stats = convert.ReportStats()
+        stats.unmapped_nonempty["vehicle.insurance-policy"] = 2
+        stats.unmapped_nonempty["fill.device-coordinate-pair"] = 318
+        document = {
+            "definitions": {
+                "additives": [],
+                "driving-modes": [],
+                "energy": [],
+                "payment-methods": [],
+                "service-subtypes": [],
+                "tags": [],
+            },
+            "notices": convert.build_notices(stats),
+            "places": [],
+            "vehicles": [],
+        }
+        report = convert.render_report(document=document, stats=stats, dry_run=True)
+        self.assertIn(
+            f"vehicle.insurance-policy: 2 - "
+            f"{convert.UNMAPPED_REASONS['vehicle.insurance-policy']}",
+            report,
+        )
+        self.assertIn(
+            f"fill.device-coordinate-pair: 318 - "
+            f"{convert.UNMAPPED_REASONS['fill.device-coordinate-pair']}",
+            report,
+        )
 
 
 class AttachmentTests(unittest.TestCase):
