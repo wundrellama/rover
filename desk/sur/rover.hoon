@@ -291,12 +291,18 @@
       custom-values-written=@ud
       messages=(list @t)
   ==
+::  `comparing` holds the row the comparison is reading. A comparison lookup
+::  filters on that one identifier rather than finding the row again through
+::  the vehicle or the provenance, because the pinned engine crashes on a join
+::  chain that goes empty with another join still to come, and every child of
+::  a fill is optional. Ruled by the T10 round trip.
 +$  import-run
   $:  eyre-id=@ta
       writing=?
       serial=@ud
       remaining=(list import-work)
       report=import-report
+      comparing=(unit @ux)
   ==
 +$  delivered-energy
   $:  digits=@ud

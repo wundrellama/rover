@@ -28,6 +28,7 @@
       [%16 state-16]
       [%17 state-17]
       [%18 state-18]
+      [%19 state-19]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -419,6 +420,26 @@
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
+      import-run=(unit *)
+      bootstrap-ready=?
+  ==
+::  M7 T10 again. `import-run` now carries the row a comparison is reading,
+::  so the noun changed shape a second time. The rule is the same: the
+::  archival mold reads it as a bare noun, and the migration drops an import
+::  that a code reload already interrupted.
++$  state-19
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
       import-run=(unit import-run:rover)
       bootstrap-ready=?
   ==
@@ -604,26 +625,26 @@
   ==
 ::
 ++  import-comparison-cards
-  |=  [our=@p serial=@ud fill=import-fill:rover]
+  |=  [our=@p serial=@ud acquisition-id=@ux]
   ^-  (list card)
   =/  wir=wire  /rover-import-comparison/(scot %ud serial)
-  =/  jon  !>([%script %rover %vector (fill-comparison-lookup:imp fill)])
+  =/  jon  !>([%script %rover %vector (fill-comparison-lookup:imp acquisition-id)])
   :~  [%pass wir %agent [our %obelisk] %watch /server]
       [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
   ==
 ::
 ++  import-comparison-tail-cards
-  |=  [our=@p serial=@ud fill=import-fill:rover]
+  |=  [our=@p serial=@ud acquisition-id=@ux]
   ^-  (list card)
   =/  wir=wire  /rover-import-comparison-tail/(scot %ud serial)
-  =/  jon  !>([%script %rover %vector (fill-comparison-tail-lookup:imp fill)])
+  =/  jon  !>([%script %rover %vector (fill-comparison-tail-lookup:imp acquisition-id)])
   :~  [%pass wir %agent [our %obelisk] %watch /server]
       [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
   ==
 ::
 ++  continue-import
-  |=  [sat=state-18 our=@p run=import-run:rover]
-  ^-  [(list card) state-18]
+  |=  [sat=state-19 our=@p run=import-run:rover]
+  ^-  [(list card) state-19]
   ?~  remaining.run
     :_  sat(import-run ~)
     %:  http-give
@@ -651,8 +672,8 @@
   ==
 ::
 ++  handle-http
-  |=  [sat=state-18 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-18]
+  |=  [sat=state-19 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-19]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -703,6 +724,7 @@
             1
             (import-works:imp p.decoded)
             (initial-report:imp p.decoded)
+            ~
         ==
       (continue-import sat our.bowl run)
     ::
@@ -1189,7 +1211,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-18
+=|  state-19
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -1207,7 +1229,7 @@
       [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
   ==
 ::
-++  on-save  !>([%18 state])
+++  on-save  !>([%19 state])
 ::
 ++  on-load
   |=  old=vase
@@ -1233,7 +1255,8 @@
       %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
       %16  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
       %17  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s])
-      %18  this(state +.s)
+      %18  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s])
+      %19  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -3315,7 +3338,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-18]
+        =/  continued=[(list card) state-19]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3696,9 +3719,10 @@
             (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
           ?^  existing
             =/  differences  (existing-main-differences:imp value.work commands)
+            =/  found=@ux  `@ux`(cell-atom:view %acquisition-id i.existing)
             ?~  differences
-              :_  this
-              (import-comparison-cards our.bowl serial.run value.work)
+              :_  this(import-run `run(comparing `found))
+              (import-comparison-cards our.bowl serial.run found)
             =/  report
               %_  report.run
                 conflicts  +(conflicts.report.run)
@@ -4063,7 +4087,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-18]
+        =/  continued=[(list card) state-19]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4085,8 +4109,10 @@
         (fail 'incomplete database comparison lookup result')
       =/  differences  (existing-child-differences:imp fill p.res)
       ?~  differences
+        ?~  comparing.run
+          (fail 'internal comparison lost the row it was reading')
         :_  this
-        (import-comparison-tail-cards our.bowl serial.run fill)
+        (import-comparison-tail-cards our.bowl serial.run u.comparing.run)
       =/  report
         %_  report.run
           conflicts  +(conflicts.report.run)
@@ -4115,7 +4141,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-18]
+        =/  continued=[(list card) state-19]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4168,7 +4194,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-18]
+        =/  continued=[(list card) state-19]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4346,7 +4372,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-18]
+        =/  continued=[(list card) state-19]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  phase=@ta
@@ -4404,7 +4430,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-18]
+        =/  continued=[(list card) state-19]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -4436,7 +4462,7 @@
         ==
       =/  next
         run(writing %.n, remaining t.remaining.run, report report)
-      =/  continued=[(list card) state-18]
+      =/  continued=[(list card) state-19]
         (continue-import state our.bowl next)
       [-.continued this(state +.continued)]
     ::

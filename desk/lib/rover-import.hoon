@@ -1711,84 +1711,65 @@
     " SELECT A.acquisition-id, V.label AS vehicle, E.label AS definition, A.observed-start, A.observed-end, A.observed-precision, A.source-zone, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills;"
   ==
 ::
+::  M7 T10. EVERY COMPARISON READ BELOW FILTERS ON ONE ACQUISITION.
+::
+::  The pinned engine runs a join over whole relations and applies the WHERE
+::  at the end. When a join step matches nothing and another join follows, the
+::  script crashes rather than returning no rows. Every child of a fill is
+::  optional, so `fuel-fill-subtype` and `economy-breaks` are empty on a
+::  database whose fills never used them, and a read that reached the child
+::  through the vehicle or the provenance crashed the whole comparison.
+::
+::  The caller already knows which acquisition it found. Passing that one
+::  identifier down cuts every read to a single join, which the engine
+::  answers with no rows when the child is absent. The T10 round trip found
+::  this: a database rebuilt from an export holds only what the export
+::  carried, and the whole-relation join went empty.
 ++  fill-comparison-lookup
-  |=  fill=import-fill:rover
+  |=  acquisition-id=@ux
   ^-  tape
-  =/  source
-    %:  provenance-predicate
-        provenance.fill
-        vehicle-label.input.fill
-        observed-start.input.fill
-    ==
-  =/  join  (provenance-join provenance.fill)
+  =/  mine  (weld " WHERE L.acquisition-id = " (scow %ux acquisition-id))
   ;:  weld
-    "FROM energy-acquisitions A"
-    join
-    " JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE "
-    source
+    "FROM odometer-observations O JOIN energy-acquisition-odometers L ON O.odometer-id = L.odometer-id"
+    mine
     " SELECT O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.observed-precision, O.source-zone; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE "
-    source
+    "FROM stations S JOIN energy-acquisition-stations L ON S.station-id = L.station-id"
+    mine
     " SELECT S.label AS station; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE "
-    source
+    "FROM energy-definition-subtypes S JOIN fuel-fill-subtype L ON S.subtype-id = L.subtype-id"
+    mine
     " SELECT S.label AS subtype; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE "
-    source
+    "FROM additive-definitions D JOIN fuel-fill-additives L ON D.additive-id = L.additive-id"
+    mine
     " SELECT D.label AS additive; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE "
-    source
+    "FROM economy-breaks B WHERE B.acquisition-id = "
+    (scow %ux acquisition-id)
     " SELECT B.reason; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE "
-    source
+    "FROM driving-mode-definitions D JOIN fuel-fill-driving-mode L ON D.mode-id = L.mode-id"
+    mine
     " SELECT D.label AS driving-mode;"
   ==
 ::
 ++  fill-comparison-tail-lookup
-  |=  fill=import-fill:rover
+  |=  acquisition-id=@ux
   ^-  tape
-  =/  source
-    %:  provenance-predicate
-        provenance.fill
-        vehicle-label.input.fill
-        observed-start.input.fill
-    ==
-  =/  join  (provenance-join provenance.fill)
+  =/  id  (scow %ux acquisition-id)
+  =/  mine  (weld " WHERE L.acquisition-id = " id)
   ;:  weld
-    "FROM energy-acquisitions A"
-    join
-    " JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE "
-    source
+    "FROM fuel-fill-average-speed S WHERE S.acquisition-id = "
+    id
     " SELECT S.digits, S.decimals, S.speed-unit; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE "
-    source
+    "FROM fuel-fill-drive-balance B WHERE B.acquisition-id = "
+    id
     " SELECT B.highway-percent; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE "
-    source
+    "FROM tag-definitions T JOIN fuel-fill-tags L ON T.tag-id = L.tag-id"
+    mine
     " SELECT T.label AS tag; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN fill-notes Q ON A.acquisition-id = Q.acquisition-id WHERE "
-    source
+    "FROM fill-notes Q WHERE Q.acquisition-id = "
+    id
     " SELECT Q.note; "
-    "FROM energy-acquisitions A"
-    join
-    " JOIN fuel-fill-payment-method L ON A.acquisition-id = L.acquisition-id JOIN payment-method-definitions P ON L.method-id = P.method-id WHERE "
-    source
+    "FROM payment-method-definitions P JOIN fuel-fill-payment-method L ON P.method-id = L.method-id"
+    mine
     " SELECT P.label AS payment-method;"
   ==
 ::
