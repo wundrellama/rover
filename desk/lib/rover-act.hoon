@@ -599,6 +599,217 @@
     ::  M7 T4. The disposal-kind catalog. A disposal names one of these rows;
     ::  a kind the catalog does not hold is refused, never invented.
     " FROM disposal-kind-definitions K SELECT K.disposal-kind-id, K.label, K.archived;"
+    " FROM service-reminders R SELECT R.reminder-id, R.vehicle-id, R.service-subtype-id, R.archived;"
+    " FROM reminder-time-intervals T SELECT T.reminder-id, T.interval, T.time-unit, T.due-at;"
+    " FROM reminder-distance-intervals D SELECT D.reminder-id, D.interval-digits, D.interval-decimals, D.due-digits, D.due-decimals, D.distance-unit;"
+    " FROM reminder-service-events L SELECT L.reminder-id, L.event-id;"
+  ==
+::
+++  reminder-lookup
+  |=  [vehicle-label=@t subtype-label=@t]
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT V.vehicle-id;"
+    " FROM service-subtype-definitions S WHERE S.label = '"
+    (sql-quote subtype-label)
+    "' AND S.archived = N SELECT S.service-subtype-id;"
+  ==
+::
+++  insert-reminder
+  |=  $:  reminder-id=@ux
+          vehicle-id=@ux
+          service-subtype-id=@ux
+          input=reminder-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  reminder  (scow %ux reminder-id)
+  =/  time-row=tape
+    ?~  time.input
+      ~
+    ;:  weld
+      " INSERT INTO reminder-time-intervals VALUES ("
+      reminder
+      ", "
+      (sql-ud interval.u.time.input)
+      ", "
+      (sql-term unit.u.time.input)
+      ", "
+      (scow %da due-at.u.time.input)
+      ");"
+    ==
+  =/  distance-row=tape
+    ?~  distance.input
+      ~
+    ;:  weld
+      " INSERT INTO reminder-distance-intervals VALUES ("
+      reminder
+      ", "
+      (sql-ud digits.interval.u.distance.input)
+      ", "
+      (sql-ud places.interval.u.distance.input)
+      ", "
+      (sql-ud digits.due.u.distance.input)
+      ", "
+      (sql-ud places.due.u.distance.input)
+      ", "
+      (sql-term odo-unit.due.u.distance.input)
+      ");"
+    ==
+  ;:  weld
+    "INSERT INTO service-reminders VALUES ("
+    reminder
+    ", "
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux service-subtype-id)
+    ", N, "
+    (scow %da recorded-at)
+    ");"
+    time-row
+    distance-row
+  ==
+::
+++  advance-reminder-time
+  |=  [date=@da interval=@ud unit=reminder-time-unit:rover]
+  ^-  @da
+  ?-  unit
+    %days
+      (add date `@dr`(yule `tarp`[interval 0 0 0 ~]))
+    %weeks
+      (add date `@dr`(yule `tarp`[(mul interval 7) 0 0 0 ~]))
+    %months
+      =/  parts  (yore date)
+      =/  total  (add (add (mul y.parts 12) (dec m.parts)) interval)
+      %-  year
+      :+  [a=%.y y=(div total 12)]
+          m=(add 1 (mod total 12))
+          t=t.parts
+    %years
+      =/  parts  (yore date)
+      %-  year
+      :+  [a=%.y y=(add y.parts interval)]
+          m=m.parts
+          t=t.parts
+  ==
+::
+++  converted-distance-digits
+  |=  [digits=@ud source=@tas target=@tas]
+  ^-  @ud
+  ?:  =(source target)
+    digits
+  =/  numerator
+    ?:  =(%mi source)
+      (mul digits 1.609.344)
+    (mul digits 1.000.000)
+  =/  denominator  ?:(=(%mi source) 1.000.000 1.609.344)
+  (round-div-half-up numerator denominator)
+::
+++  vector-atom
+  |=  [key=@tas row=vector:ast]
+  ^-  @
+  (need (vector-key key row))
+::
+++  vector-term
+  |=  [key=@tas row=vector:ast]
+  ^-  @tas
+  `@tas`(vector-atom key row)
+::
+++  vectors-by
+  |=  [key=@tas value=@ rows=(list vector:ast)]
+  ^-  (list vector:ast)
+  %+  skim  rows
+  |=  row=vector:ast
+  =/  found  (vector-key key row)
+  ?~(found %.n =(value u.found))
+::
+::  A matching service advances every active reminder for the vehicle and
+::  selected subtype. The reset link is replaced in the same atomic script as
+::  the service event. A service with no mileage advances time but deliberately
+::  leaves distance without a usable baseline; the read path says so.
+++  reset-reminders
+  |=  $:  event-id=@ux
+          vehicle-id=@ux
+          subtype-ids=(list @ux)
+          reminders=(list vector:ast)
+          times=(list vector:ast)
+          distances=(list vector:ast)
+          input=event-entry:rover
+      ==
+  ^-  tape
+  ?.  ?=(%service kind.input)
+    ~
+  ?~  reminders
+    ~
+  =/  row  i.reminders
+  =/  rest
+    $(reminders t.reminders)
+  ?:  ?|  !=(vehicle-id (vector-atom %vehicle-id row))
+          =(0 (vector-atom %archived row))
+          !(lien subtype-ids |=(id=@ux =(id `@ux`(vector-atom %service-subtype-id row))))
+      ==
+    rest
+  =/  reminder-id=@ux  `@ux`(vector-atom %reminder-id row)
+  =/  reminder  (scow %ux reminder-id)
+  =/  time-rows  (vectors-by %reminder-id reminder-id times)
+  =/  time-update=tape
+    ?~  time-rows
+      ~
+    =/  time-row  i.time-rows
+    =/  unit=reminder-time-unit:rover
+      ;;(reminder-time-unit:rover (vector-term %time-unit time-row))
+    =/  due
+      (advance-reminder-time observed-start.input (vector-atom %interval time-row) unit)
+    ;:  weld
+      " UPDATE reminder-time-intervals SET due-at = "
+      (scow %da due)
+      " WHERE reminder-id = "
+      reminder
+      ";"
+    ==
+  =/  distance-rows  (vectors-by %reminder-id reminder-id distances)
+  =/  distance-update=tape
+    ?:  ?|  ?=(~ distance-rows)
+            ?=(~ mileage.input)
+        ==
+      ~
+    =/  distance-row  i.distance-rows
+    =/  target  (vector-term %distance-unit distance-row)
+    =/  current-digits
+      (converted-distance-digits digits.u.mileage.input odo-unit.u.mileage.input target)
+    =/  current-places  places.u.mileage.input
+    =/  interval-places  (vector-atom %interval-decimals distance-row)
+    =/  due-places  (max current-places interval-places)
+    =/  due-digits
+      %+  add
+        (mul current-digits (pow-ten (sub due-places current-places)))
+      (mul (vector-atom %interval-digits distance-row) (pow-ten (sub due-places interval-places)))
+    ;:  weld
+      " UPDATE reminder-distance-intervals SET due-digits = "
+      (sql-ud due-digits)
+      ", due-decimals = "
+      (sql-ud due-places)
+      " WHERE reminder-id = "
+      reminder
+      ";"
+    ==
+  =/  reset-row=tape
+    ;:  weld
+      " DELETE FROM reminder-service-events WHERE reminder-id = "
+      reminder
+      "; INSERT INTO reminder-service-events VALUES ("
+      reminder
+      ", "
+      (scow %ux event-id)
+      ");"
+    ==
+  ;:  weld
+    time-update
+    distance-update
+    reset-row
+    rest
   ==
 ::
 ::  One atomic script for one vehicle event, shaped after +insert-consumable.
@@ -613,6 +824,7 @@
           subtype-ids=(list @ux)
           disposal-kind-id=(unit @ux)
           payment-method-id=(unit @ux)
+          reminder-reset=tape
           input=event-entry:rover
           recorded-at=@da
       ==
@@ -808,6 +1020,7 @@
     (insert-event-subtypes event.ids subtype-ids)
     payment-row
     notes-row
+    reminder-reset
   ==
 ::
 ++  insert-event-tags
@@ -1059,6 +1272,27 @@
       ::  has no row here.
       :-  %vehicle-event-service-subtypes
       "CREATE TABLE rover..vehicle-event-service-subtypes (event-id @ux, service-subtype-id @ux) PRIMARY KEY (event-id, service-subtype-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M7 T6. The reminder is its own family parent. Vehicle and service
+      ::  subtype are mandatory references; optional interval kinds are absent
+      ::  child rows, never zeroes or sentinels.
+      :-  %service-reminders
+      "CREATE TABLE rover..service-reminders (reminder-id @ux, vehicle-id @ux, service-subtype-id @ux, archived @f, recorded-at @da) PRIMARY KEY (reminder-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %reminder-time-intervals
+      "CREATE TABLE rover..reminder-time-intervals (reminder-id @ux, interval @ud, time-unit @tas, due-at @da) PRIMARY KEY (reminder-id) FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %reminder-distance-intervals
+      "CREATE TABLE rover..reminder-distance-intervals (reminder-id @ux, interval-digits @ud, interval-decimals @ud, due-digits @ud, due-decimals @ud, distance-unit @tas) PRIMARY KEY (reminder-id) FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  Which service last advanced this reminder is provenance, not a
+      ::  column on either populated family. It gives ownership-bounded due
+      ::  evaluation the observed date and linked odometer to start from.
+      :-  %reminder-service-events
+      "CREATE TABLE rover..reminder-service-events (reminder-id @ux, event-id @ux) PRIMARY KEY (reminder-id) FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  T2 left these child relations possible by giving the subtype parent
+      ::  a one-column key. T9 can import the 52 catalog defaults without
+      ::  changing the populated definition relation.
+      :-  %service-subtype-time-defaults
+      "CREATE TABLE rover..service-subtype-time-defaults (service-subtype-id @ux, interval @ud, time-unit @tas) PRIMARY KEY (service-subtype-id) FOREIGN KEY (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %service-subtype-distance-defaults
+      "CREATE TABLE rover..service-subtype-distance-defaults (service-subtype-id @ux, interval-digits @ud, interval-decimals @ud, distance-unit @tas) PRIMARY KEY (service-subtype-id) FOREIGN KEY (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       ::  M7 T4. An owner-editable name for how a vehicle left, shaped exactly
       ::  like service-subtype-definitions. The primary key is ONE column, so a
       ::  later child can reference the complete primary key, which is all
@@ -1209,6 +1443,15 @@
     " FROM vehicle-acquisitions A SELECT A.event-id;"
     " FROM disposal-kind-definitions K JOIN vehicle-disposals X ON K.disposal-kind-id = X.disposal-kind-id SELECT X.event-id, K.label AS disposal-kind;"
     " FROM disposal-kind-definitions K SELECT K.disposal-kind-id, K.label, K.archived;"
+    ::  M7 T6. Keep the optional children and reset provenance separate. The
+    ::  view assembles them in Gall because the pinned engine has no outer
+    ::  joins, and computes due from these facts at read time.
+    " FROM service-subtype-definitions S JOIN service-reminders R ON S.service-subtype-id = R.service-subtype-id SELECT R.reminder-id, R.vehicle-id, S.label AS service-subtype, R.archived, R.recorded-at;"
+    " FROM reminder-time-intervals T SELECT T.reminder-id, T.interval, T.time-unit, T.due-at;"
+    " FROM reminder-distance-intervals D SELECT D.reminder-id, D.interval-digits, D.interval-decimals, D.due-digits, D.due-decimals, D.distance-unit;"
+    " FROM reminder-service-events L SELECT L.reminder-id, L.event-id;"
+    " FROM service-subtype-time-defaults T SELECT T.service-subtype-id, T.interval, T.time-unit;"
+    " FROM service-subtype-distance-defaults D SELECT D.service-subtype-id, D.interval-digits, D.interval-decimals, D.distance-unit;"
   ==
 ::
 ++  sql-quote

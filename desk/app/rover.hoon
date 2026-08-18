@@ -703,6 +703,28 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ::  M7 T6. The body stays in the generic pending map across the label
+    ::  lookup and atomic write, so this adds no durable Gall state and needs
+    ::  no state migration.
+    ?:  =('/apps/rover/add-reminder' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: reminder')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  decoded  (decode-reminder:entry body-text)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      =/  wir=wire  /rover-reminder-lookup/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%script %rover %vector (reminder-lookup:act vehicle-label.p.decoded service-subtype-label.p.decoded)])
+      =/  next
+        %_  sat
+          pending  (~(put by pending.sat) wir body-text)
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+        ==
+      :_  next
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ::  M7 T1. One endpoint for all three event kinds. The kind selects which
     ::  typed child the write creates; every association attaches to the parent,
     ::  so the three kinds share one lookup and one insert.
@@ -1484,6 +1506,86 @@
       `this
     ==
   ::
+      [%rover-reminder-lookup *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by pending) wire)
+      =/  cleared
+        this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: reminder'))
+      =/  decoded  (decode-reminder:entry u.body)
+      ?:  ?=(%| -.decoded)
+        :_  cleared
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: reminder'))
+      ?.  =(2 (lent p.res))
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: reminder'))
+      =/  vehicles  (rows-at:view p.res 0)
+      =/  subtypes  (rows-at:view p.res 1)
+      ?.  =(1 (lent vehicles))
+        :_  cleared
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: reminder.vehicle'))
+      ?.  =(1 (lent subtypes))
+        :_  cleared
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: reminder.subtype'))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  write-wire=path  /rover-reminder-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  script=tape
+        %:  insert-reminder:act
+            (fixture-id:act base 9.401)
+            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+            `@ux`(cell-atom:view %service-subtype-id (snag 0 subtypes))
+            p.decoded
+            now.bowl
+        ==
+      =/  jon  !>([%script %rover %vector script])
+      =/  next-pending
+        (~(put by (~(del by pending) wire)) write-wire u.body)
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+      :_  this(pending next-pending, http-pending next-http)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-reminder-write *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  cleared
+        this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: reminder'))
+      :_  cleared
+      (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs 'Saved reminder'))
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       [%rover-event-lookup ?(%service %expense %note %acquisition %disposal) *]
     ?+  -.sign  (on-agent:def wire sign)
         %fact
@@ -1504,7 +1606,7 @@
       ?:  ?=(%| -.decoded)
         :_  cleared
         (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event'))
-      ?.  (gte (lent p.res) 6)
+      ?.  (gte (lent p.res) 10)
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: event'))
       =/  vehicles  (rows-at:view p.res 0)
@@ -1513,6 +1615,9 @@
       =/  payment-rows  (rows-at:view p.res 3)
       =/  subtype-rows  (rows-at:view p.res 4)
       =/  disposal-kind-rows  (rows-at:view p.res 5)
+      =/  reminder-rows  (rows-at:view p.res 6)
+      =/  reminder-time-rows  (rows-at:view p.res 7)
+      =/  reminder-distance-rows  (rows-at:view p.res 8)
       ?.  =(1 (lent vehicles))
         :_  cleared
         (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: event.vehicle'))
@@ -1585,6 +1690,16 @@
         ==
       =/  write-wire=path  /rover-event-write/[i.t.wire]/(scot %da now.bowl)/[u.eyre-id]
       =/  script=tape
+        =/  reminder-reset=tape
+          %:  reset-reminders:act
+              event.ids
+              `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+              p.subtype-proof
+              reminder-rows
+              reminder-time-rows
+              reminder-distance-rows
+              p.decoded
+          ==
         %:  insert-event:act
             ids
             `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
@@ -1593,6 +1708,7 @@
             p.subtype-proof
             disposal-kind-id
             payment-method-id
+            reminder-reset
             p.decoded
             now.bowl
         ==
@@ -3932,7 +4048,7 @@
           u.eyre-id
           200
           headers
-          `(as-octs:mimes:html (page:view our.bowl history-page selected-label p.res))
+          `(as-octs:mimes:html (page:view our.bowl now.bowl history-page selected-label p.res))
       ==
     ::
         %kick

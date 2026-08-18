@@ -1228,6 +1228,99 @@
     [%| %bad-shape 'odometer.zone']
   [%& u.vehicle [digits.p.parsed-reading places.p.parsed-reading odo-unit] u.observed-start u.zone]
 ::
+++  decode-reminder
+  |=  body=@t
+  ^-  (each reminder-entry:rover entry-verdict:rover)
+  =/  object  (json-object body)
+  ?~  object
+    [%| %bad-shape 'reminder']
+  =/  vehicle  (json-string 'vehicle' u.object)
+  ?~  vehicle
+    [%| %missing-key 'reminder.vehicle']
+  ?.  (nonempty u.vehicle)
+    [%| %bad-shape 'reminder.vehicle']
+  =/  subtype  (json-string 'subtype' u.object)
+  ?~  subtype
+    [%| %missing-key 'reminder.subtype']
+  ?.  (nonempty u.subtype)
+    [%| %bad-shape 'reminder.subtype']
+  =/  time-interval-text  (optional-text 'timeInterval' u.object)
+  =/  time-unit-text  (optional-text 'timeUnit' u.object)
+  =/  time-due-text  (optional-text 'timeDue' u.object)
+  =/  time=(unit reminder-time-entry:rover)
+    ?:  ?&  ?=(~ time-interval-text)
+            ?=(~ time-unit-text)
+            ?=(~ time-due-text)
+        ==
+      ~
+    ?:  ?|  ?=(~ time-interval-text)
+            ?=(~ time-unit-text)
+            ?=(~ time-due-text)
+        ==
+      ~
+    =/  interval  (slaw %ud u.time-interval-text)
+    =/  unit  (slaw %tas u.time-unit-text)
+    =/  due-input=@t
+      ?:  =(10 (lent (trip u.time-due-text)))
+        (cat 3 u.time-due-text 'T00:00')
+      u.time-due-text
+    =/  due  (local-da due-input)
+    ?.  ?&  ?=(^ interval)
+            (gth u.interval 0)
+            ?=(^ unit)
+            ?=(reminder-time-unit:rover u.unit)
+            ?=(^ due)
+        ==
+      ~
+    `[u.interval ;;(reminder-time-unit:rover u.unit) u.due]
+  ?:  ?&  ?|  ?=(^ time-interval-text)
+              ?=(^ time-unit-text)
+              ?=(^ time-due-text)
+          ==
+          ?=(~ time)
+      ==
+    [%| %bad-shape 'reminder.time']
+  =/  distance-interval-text  (optional-text 'distanceInterval' u.object)
+  =/  distance-due-text  (optional-text 'distanceDue' u.object)
+  =/  distance-unit-text  (optional-text 'distanceUnit' u.object)
+  =/  distance=(unit reminder-distance-entry:rover)
+    ?:  ?&  ?=(~ distance-interval-text)
+            ?=(~ distance-due-text)
+            ?=(~ distance-unit-text)
+        ==
+      ~
+    ?:  ?|  ?=(~ distance-interval-text)
+            ?=(~ distance-due-text)
+            ?=(~ distance-unit-text)
+        ==
+      ~
+    =/  interval  (parse-decimal:render u.distance-interval-text 3)
+    =/  due  (parse-decimal:render u.distance-due-text 3)
+    =/  unit  (slaw %tas u.distance-unit-text)
+    ?.  ?&  ?=(%& -.interval)
+            (gth digits.p.interval 0)
+            ?=(%& -.due)
+            ?=(^ unit)
+            ?|  =(%mi u.unit)
+                =(%km u.unit)
+            ==
+        ==
+      ~
+    =/  odo-unit=distance-unit:rover  ;;(distance-unit:rover u.unit)
+    `[[digits.p.interval places.p.interval odo-unit] [digits.p.due places.p.due odo-unit]]
+  ?:  ?&  ?|  ?=(^ distance-interval-text)
+              ?=(^ distance-due-text)
+              ?=(^ distance-unit-text)
+          ==
+          ?=(~ distance)
+      ==
+    [%| %bad-shape 'reminder.distance']
+  ?:  ?&  ?=(~ time)
+          ?=(~ distance)
+      ==
+    [%| %missing-key 'reminder.interval']
+  [%& u.vehicle u.subtype time distance]
+::
 ++  decode-charge
   |=  body=@t
   ^-  (each charge-entry:rover entry-verdict:rover)

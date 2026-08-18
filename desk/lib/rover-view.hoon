@@ -52,6 +52,8 @@
 ::  and an absent end reaches the present.
 +$  ownership-interval
   [start=(unit @da) end=(unit @da)]
++$  reminder-component-status
+  [state=?(%due %pending %unavailable) text=tape]
 ++  result-rows
   |=  command=cmd-result:ast
   ^-  (list vector:ast)
@@ -906,6 +908,24 @@
     rest
   ==
 ::
+++  service-subtype-select-options
+  |=  rows=(list vector:ast)
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest  (service-subtype-select-options t.rows)
+  ?:  =(0 (cell-atom %archived i.rows))
+    rest
+  =/  label  (escape (cell-text %label i.rows))
+  ;:  weld
+    "<option value=\""
+    label
+    "\">"
+    label
+    "</option>"
+    rest
+  ==
+::
 ++  payment-options
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1293,6 +1313,208 @@
   'The vehicle was not owned for part of this interval, so it is unavailable.'
   ==
 ::
+++  current-odometer-fact
+  |=  rows=(list vector:ast)
+  ^-  (each vector:ast @t)
+  =/  ordered  (order-vectors:act %observed-start %.y rows)
+  ?~  ordered
+    [%| 'No odometer readings are recorded for this vehicle.']
+  =/  latest  i.ordered
+  =/  ambiguous
+    ?~  t.ordered
+      %.n
+    (gth (cell-atom %observed-end i.t.ordered) (cell-atom %observed-start latest))
+  ?:  ambiguous
+    [%| 'The latest odometer observation times overlap.']
+  [%& latest]
+::
+++  date-only
+  |=  value=@da
+  ^-  tape
+  (scag 10 (trip (format-da:render value)))
+::
+::  Compare distances without floating point or a lossy display conversion.
+::  The two integer factors put miles and kilometres in one exact ratio.
+++  distance-gte
+  |=  $:  left-digits=@ud
+          left-places=@ud
+          left-unit=@tas
+          right-digits=@ud
+          right-places=@ud
+          right-unit=@tas
+      ==
+  ^-  ?
+  =/  places  (max left-places right-places)
+  =/  left-factor  ?:(=(%mi left-unit) 1.609.344 1.000.000)
+  =/  right-factor  ?:(=(%mi right-unit) 1.609.344 1.000.000)
+  =/  left
+    (mul left-digits (mul left-factor (pow-ten:render (sub places left-places))))
+  =/  right
+    (mul right-digits (mul right-factor (pow-ten:render (sub places right-places))))
+  (gte left right)
+::
+++  distance-remaining
+  |=  [current=vector:ast distance=vector:ast]
+  ^-  tape
+  =/  target  (cell-term %distance-unit distance)
+  =/  shown
+    %:  convert-distance:render
+        (cell-atom %value-digits current)
+        (cell-atom %decimal-places current)
+        (cell-term %unit current)
+        target
+    ==
+  =/  places  (max converted-places.shown (cell-atom %due-decimals distance))
+  =/  current-scaled
+    (mul converted-digits.shown (pow-ten:render (sub places converted-places.shown)))
+  =/  due-scaled
+    (mul (cell-atom %due-digits distance) (pow-ten:render (sub places (cell-atom %due-decimals distance))))
+  ?:  (gte current-scaled due-scaled)
+    "0 "
+  =/  remaining  (sub due-scaled current-scaled)
+  (trip (format-distance:render remaining places target %.n))
+::
+++  reminder-time-status
+  |=  [row=vector:ast now=@da]
+  ^-  reminder-component-status
+  =/  due=@da  `@da`(cell-atom %due-at row)
+  =/  date  (date-only due)
+  ?:  (gte now due)
+    [%due ;:(weld "Time due since " date)]
+  [%pending ;:(weld "Time due " date)]
+::
+++  reminder-distance-status
+  |=  $:  reminder=vector:ast
+          distance=vector:ast
+          resets=(list vector:ast)
+          odometers=(list vector:ast)
+          events=event-rows
+          ownership=(map @ (list ownership-interval))
+      ==
+  ^-  reminder-component-status
+  =/  vehicle  (cell-atom %vehicle-id reminder)
+  =/  current  (current-odometer-fact (rows-for vehicle odometers))
+  ?:  ?=(%| -.current)
+    [%unavailable (trip p.current)]
+  =/  latest  p.current
+  =/  spans=(list ownership-interval)  (~(gut by ownership) vehicle ~)
+  =/  reset-rows  (rows-by %reminder-id (cell-atom %reminder-id reminder) resets)
+  =/  ownership-reason=(unit tape)
+    ?~  reset-rows
+      ?:(?=(^ spans) `"Ownership history does not establish this reminder's distance baseline." ~)
+    =/  event-id  (cell-atom %event-id i.reset-rows)
+    =/  event-row  (rows-by %event-id event-id events.events)
+    =/  event-odo  (rows-by %event-id event-id odometers.events)
+    ?:  ?|  !=(1 (lent event-row))
+            !=(1 (lent event-odo))
+        ==
+      `"The service that reset this reminder has no usable odometer reading."
+    =/  after=@da  `@da`(cell-atom %observed-start (snag 0 event-row))
+    =/  through=@da  `@da`(cell-atom %observed-start latest)
+    ?:  (ownership-gap spans after through)
+      `"The vehicle was not owned for part of this reminder interval."
+    ~
+  ?^  ownership-reason
+    [%unavailable u.ownership-reason]
+  =/  due
+    %:  distance-gte
+        (cell-atom %value-digits latest)
+        (cell-atom %decimal-places latest)
+        (cell-term %unit latest)
+        (cell-atom %due-digits distance)
+        (cell-atom %due-decimals distance)
+        (cell-term %distance-unit distance)
+    ==
+  ?:  due
+    =/  threshold
+      %:  format-distance:render
+          (cell-atom %due-digits distance)
+          (cell-atom %due-decimals distance)
+          (cell-term %distance-unit distance)
+          %.n
+      ==
+    [%due ;:(weld "Distance due now - threshold " (trip threshold))]
+  =/  remaining  (distance-remaining latest distance)
+  [%pending ;:(weld "Due in " remaining)]
+::
+++  reminder-card
+  |=  $:  reminder=vector:ast
+          times=(list vector:ast)
+          distances=(list vector:ast)
+          resets=(list vector:ast)
+          odometers=(list vector:ast)
+          events=event-rows
+          ownership=(map @ (list ownership-interval))
+          now=@da
+      ==
+  ^-  tape
+  =/  reminder-id  (cell-atom %reminder-id reminder)
+  =/  time-row  (rows-by %reminder-id reminder-id times)
+  =/  distance-row  (rows-by %reminder-id reminder-id distances)
+  =/  time-status=(unit reminder-component-status)
+    ?~(time-row ~ `(reminder-time-status i.time-row now))
+  =/  distance-status=(unit reminder-component-status)
+    ?~  distance-row
+      ~
+    `(reminder-distance-status reminder i.distance-row resets odometers events ownership)
+  =/  due
+    ?|  ?~(time-status %.n =(%due state.u.time-status))
+        ?~(distance-status %.n =(%due state.u.distance-status))
+    ==
+  =/  unavailable
+    ?|  ?~(time-status %.n =(%unavailable state.u.time-status))
+        ?~(distance-status %.n =(%unavailable state.u.distance-status))
+    ==
+  =/  state=@tas  ?:(due %due ?:(unavailable %unavailable %not-due))
+  =/  component
+    |=  status=(unit reminder-component-status)
+    ^-  tape
+    ?~  status
+      ~
+    ;:  weld
+      "<li data-reminder-component-state=\""
+      (trip (scot %tas state.u.status))
+      "\">"
+      (escape (crip text.u.status))
+      "</li>"
+    ==
+  ;:  weld
+    "<article class=\"reminder-card\" data-reminder=\""
+    (escape (cell-text %service-subtype reminder))
+    "\" data-reminder-state=\""
+    (trip (scot %tas state))
+    "\"><header><h3>"
+    (escape (cell-text %service-subtype reminder))
+    "</h3><strong>"
+    ?:(=(%due state) "DUE" ?:(=(%unavailable state) "UNAVAILABLE" "NOT DUE"))
+    "</strong></header><ul>"
+    (component time-status)
+    (component distance-status)
+    "</ul></article>"
+  ==
+::
+++  reminder-cards
+  |=  $:  rows=(list vector:ast)
+          vehicle-id=@
+          times=(list vector:ast)
+          distances=(list vector:ast)
+          resets=(list vector:ast)
+          odometers=(list vector:ast)
+          events=event-rows
+          ownership=(map @ (list ownership-interval))
+          now=@da
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  =/  rest
+    $(rows t.rows)
+  ?:  ?|  !=(vehicle-id (cell-atom %vehicle-id i.rows))
+          =(0 (cell-atom %archived i.rows))
+      ==
+    rest
+  (weld (reminder-card i.rows times distances resets odometers events ownership now) rest)
+::
 ++  main-hub
   |=  $:  app-default=(list vector:ast)
           definition-rows=(list vector:ast)
@@ -1306,6 +1528,12 @@
           def-odometers=(list vector:ast)
           derivations=(map @ derived-fill)
           ownership=(map @ (list ownership-interval))
+          reminders=(list vector:ast)
+          reminder-times=(list vector:ast)
+          reminder-distances=(list vector:ast)
+          reminder-resets=(list vector:ast)
+          events=event-rows
+          now=@da
       ==
   ^-  tape
   =/  default-id=(unit @)
@@ -1379,6 +1607,20 @@
     ?~  default-id
       "Unavailable"
     (current-odometer (rows-for u.default-id odometers) ~)
+  =/  reminder-html=tape
+    ?~  default-id
+      ~
+    %:  reminder-cards
+        reminders
+        u.default-id
+        reminder-times
+        reminder-distances
+        reminder-resets
+        odometers
+        events
+        ownership
+        now
+    ==
   =/  tank-reason=tape
     ?~  default-id
       "No default vehicle is set."
@@ -1442,6 +1684,7 @@
     ?:(has-charge "<button type=\"button\" data-open-screen=\"add-charge\">Add Charge</button>" "")
     "<button type=\"button\" data-open-screen=\"add-consumable\">Add Consumable</button>"
     "<button type=\"button\" data-open-screen=\"add-event\">Add Event</button>"
+    "<button type=\"button\" data-open-screen=\"add-reminder\">Add Reminder</button>"
     ?:  ?|(has-fill has-charge)
       ""
     "<button type=\"button\" data-open-screen=\"vehicles-screen\">Configure a vehicle</button>"
@@ -1499,6 +1742,8 @@
     "</strong><small>"
     ?:(available.def-status "Consecutive odometer-linked DEF purchases." (escape reason.def-status))
     "</small></article>"
+    "</section><section class=\"reminder-list\" aria-label=\"Service reminders\"><h2>REMINDERS</h2>"
+    ?:(?=(~ reminder-html) "<p class=\"empty\">No reminders for this vehicle.</p>" reminder-html)
     "</section></section>"
   ==
 ::
@@ -1522,6 +1767,7 @@
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
   =/  service-subtype-html  (service-subtype-options service-subtypes)
+  =/  service-subtype-select-html  (service-subtype-select-options service-subtypes)
   =/  disposal-kind-html  (disposal-kind-options disposal-kinds)
   =/  definition-html  (definition-options definitions vehicles)
   =/  station-html  (station-options stations localities)
@@ -1677,6 +1923,16 @@
     "</div><label>New tag<input name=\"newTag\" autocomplete=\"off\"></label></fieldset><label>Payment method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
     payment-html
     "</select></label><label>Note <span class=\"optional\">optional</span><input name=\"notes\" autocomplete=\"off\"></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save event</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"event-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+    "<section id=\"add-reminder\" class=\"entry-screen app-screen\" hidden>"
+    "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
+    "<header><p class=\"eyebrow\">SERVICE SCHEDULE</p><h2>Add reminder</h2></header>"
+    "<form id=\"reminder-form\"><label>Vehicle<select name=\"vehicle\" required>"
+    vehicle-html
+    "</select></label><label>Service subtype<select name=\"subtype\" required><option value=\"\">Choose one</option>"
+    service-subtype-select-html
+    "</select></label><fieldset><legend>Time interval <span class=\"optional\">optional</span></legend><div class=\"form-grid\"><label>Every<input name=\"timeInterval\" inputmode=\"numeric\"></label><label>Unit<select name=\"timeUnit\"><option value=\"months\">months</option><option value=\"days\">days</option><option value=\"weeks\">weeks</option><option value=\"years\">years</option></select></label></div><label>Due date<input name=\"timeDue\" type=\"date\"></label></fieldset>"
+    "<fieldset><legend>Distance interval <span class=\"optional\">optional</span></legend><div class=\"form-grid\"><label>Every<input name=\"distanceInterval\" inputmode=\"decimal\"></label><label>Due reading<input name=\"distanceDue\" inputmode=\"decimal\"></label></div><label>Unit<select name=\"distanceUnit\"><option value=\"mi\">mi</option><option value=\"km\">km</option></select></label></fieldset>"
+    "<p class=\"field-note\">Set time, distance, or both. When both are set, either one can make the reminder due.</p><div class=\"form-actions\"><button type=\"submit\">Save reminder</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"reminder-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
     "<section id=\"add-odometer\" class=\"entry-screen app-screen\" hidden>"
     "<button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button>"
     "<header><p class=\"eyebrow\">NEW OBSERVATION</p><h2>Add odometer reading</h2></header>"
@@ -3206,6 +3462,7 @@
 ::
 ++  page
   |=  $:  ship=@p
+          now=@da
           history-page=@ud
           selected-label=(unit @t)
           commands=(list cmd-result:ast)
@@ -3269,6 +3526,10 @@
     ==
   =/  service-subtypes  (rows-at commands 53)
   =/  disposal-kinds  (rows-at commands 56)
+  =/  reminders  (rows-at commands 57)
+  =/  reminder-times  (rows-at commands 58)
+  =/  reminder-distances  (rows-at commands 59)
+  =/  reminder-resets  (rows-at commands 60)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -3341,7 +3602,7 @@
       ==
       "></span>"
       (address-locality-data localities)
-      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations ownership)
+      (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations ownership reminders reminder-times reminder-distances reminder-resets events now)
       (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes disposal-kinds)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))

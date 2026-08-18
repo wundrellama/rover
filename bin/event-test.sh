@@ -267,7 +267,10 @@ report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
 for relation in vehicle-events service-events expense-events note-events \
   vehicle-event-costs vehicle-event-cost-totals vehicle-event-odometers \
   vehicle-event-stations vehicle-event-tags vehicle-event-payment-method \
-  vehicle-event-notes energy-acquisition-odometers; do
+  vehicle-event-notes energy-acquisition-odometers service-reminders \
+  reminder-time-intervals reminder-distance-intervals \
+  reminder-service-events service-subtype-time-defaults \
+  service-subtype-distance-defaults; do
   grep -q "%name %tas %$relation" <<<"$report" \
     || fail "fixture 2 the pour is missing $relation"
 done
@@ -1223,6 +1226,166 @@ grep -qF 'The vehicle was not owned for part of this interval' <<<"$view" \
 note "fixture 42 PASS - consumable economy respects ownership gaps the same way fuel economy does"
 
 # ---------------------------------------------------------------------------
+# M7 T6 - reminders are stored facts with a read-time due derivation. These
+# three vehicles separate an ordinary odometer crossing, no-reading state, and
+# a buy-sell-rebuy ownership gap. Every name carries this run's stamp.
+# ---------------------------------------------------------------------------
+REMINDER_VEHICLE="Reminder Vehicle $STAMP"
+REMINDER_EMPTY_VEHICLE="Reminder Empty Vehicle $STAMP"
+REMINDER_GAP_VEHICLE="Reminder Gap Vehicle $STAMP"
+
+reminder_payload() {
+  # vehicle subtype timeInterval timeUnit timeDue distanceInterval distanceDue unit
+  printf '{"vehicle":"%s","subtype":"%s","timeInterval":"%s","timeUnit":"%s","timeDue":"%s","distanceInterval":"%s","distanceDue":"%s","distanceUnit":"%s"}' \
+    "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
+}
+
+add_reminder() {
+  eyre_post add-reminder "$1" $'Saved reminder\n201' "$2"
+}
+
+add_reminder_odometer() {
+  # vehicle reading observed
+  local response
+  response="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw "$(printf '{"vehicle":"%s","reading":"%s","unit":"mi","observed":"%s","zone":"America/Chicago"}' "$1" "$2" "$3")" \
+    "$URL/apps/rover/add-odometer")"
+  case "$response" in
+    Saved\ odometer\ -*$'\n'201) ;;
+    *) fail "$4: $response" ;;
+  esac
+}
+
+reminder_card() {
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+label = sys.argv[1]
+for match in re.finditer(r"<article class=\"reminder-card\".*?</article>", document, re.S):
+    if match.group(0).find("data-reminder=\"%s\"" % label) >= 0:
+        sys.stdout.write(match.group(0))
+        break
+' "$1"
+}
+
+own_add_vehicle "$REMINDER_VEHICLE" Gasoline
+own_add_vehicle "$REMINDER_EMPTY_VEHICLE" Gasoline
+own_add_vehicle "$REMINDER_GAP_VEHICLE" Gasoline
+
+# ---------------------------------------------------------------------------
+# fixture 44 - time, distance, and both shapes save through Eyre. The
+# time-only reminder has no distance child row at all, not a zero row.
+# ---------------------------------------------------------------------------
+add_reminder_odometer "$REMINDER_VEHICLE" 900 '2026-08-10T09:00' 'fixture 44 initial odometer'
+add_reminder "$(reminder_payload "$REMINDER_VEHICLE" 'Engine Oil' '' '' '' 100 1000 mi)" 'fixture 44 distance reminder'
+add_reminder "$(reminder_payload "$REMINDER_VEHICLE" 'Oil Filter' 3 months '2025-10-01' '' '' '')" 'fixture 44 time reminder'
+add_reminder "$(reminder_payload "$REMINDER_VEHICLE" 'Tire Rotation' 1 years '2099-01-01' 500 950 mi)" 'fixture 44 combined reminder'
+report="$(rover_report "FROM vehicles V JOIN service-reminders R ON V.vehicle-id = R.vehicle-id JOIN service-subtype-definitions S ON R.service-subtype-id = S.service-subtype-id WHERE V.label = '$REMINDER_VEHICLE' SELECT R.reminder-id, S.label; FROM vehicles V JOIN service-reminders R ON V.vehicle-id = R.vehicle-id JOIN service-subtype-definitions S ON R.service-subtype-id = S.service-subtype-id JOIN reminder-distance-intervals D ON R.reminder-id = D.reminder-id WHERE V.label = '$REMINDER_VEHICLE' AND S.label = 'Oil Filter' SELECT R.reminder-id, D.due-digits;")"
+[ "$(count_rows "$report" '%reminder-id')" = 3 ] \
+  || fail "fixture 44 reminder parent count is wrong: $report"
+grep -q '%due-digits' <<<"$(tail -c +1 <<<"$report" | sed 's/\[%action/\n[%action/g' | tail -1)" \
+  && fail "fixture 44 the time-only reminder wrote a distance row: $report"
+note "fixture 44 PASS - time, distance, and combined reminders save, and time-only writes no distance row or zero"
+
+# ---------------------------------------------------------------------------
+# fixture 45 - the distance threshold reads the real derived odometer. It is
+# pending below the threshold, then due only after a product odometer write.
+# ---------------------------------------------------------------------------
+set_default_vehicle "$REMINDER_VEHICLE"
+view="$(eyre_view)"
+card="$(reminder_card 'Engine Oil' <<<"$view")"
+grep -q 'data-reminder-state="not-due"' <<<"$card" \
+  || fail "fixture 45 the below-threshold reminder is not pending: $card"
+grep -q 'Due in 100 mi' <<<"$card" \
+  || fail "fixture 45 the pending reminder is not human-readable: $card"
+add_reminder_odometer "$REMINDER_VEHICLE" 1001 '2026-08-11T09:00' 'fixture 45 crossing odometer'
+view="$(eyre_view)"
+card="$(reminder_card 'Engine Oil' <<<"$view")"
+grep -q 'data-reminder-state="due"' <<<"$card" \
+  || fail "fixture 45 the real odometer crossing did not make the reminder due: $card"
+note "fixture 45 PASS - a real odometer observation crosses the threshold and changes the distance reminder from pending to due"
+
+# ---------------------------------------------------------------------------
+# fixture 46 - real ship time makes a past date due. A combined reminder is
+# due because its distance fired even though its time date is still future.
+# ---------------------------------------------------------------------------
+card="$(reminder_card 'Oil Filter' <<<"$view")"
+grep -q 'data-reminder-state="due"' <<<"$card" \
+  || fail "fixture 46 the past date is not due against the real ship clock: $card"
+grep -q 'Time due since 2025-10-01' <<<"$card" \
+  || fail "fixture 46 the due date is not rendered as a date: $card"
+card="$(reminder_card 'Tire Rotation' <<<"$view")"
+grep -q 'data-reminder-state="due"' <<<"$card" \
+  || fail "fixture 46 either did not make the combined reminder due: $card"
+grep -q 'Time due 2099-01-01' <<<"$card" \
+  || fail "fixture 46 the future time component disappeared: $card"
+note "fixture 46 PASS - real ship time fires a past date, and either component makes a combined reminder due"
+
+# ---------------------------------------------------------------------------
+# fixture 47 - no odometer is a third state. It is neither due nor not due and
+# names the missing evidence in ordinary language.
+# ---------------------------------------------------------------------------
+add_reminder "$(reminder_payload "$REMINDER_EMPTY_VEHICLE" 'Engine Oil' '' '' '' 500 500 mi)" 'fixture 47 unavailable reminder'
+set_default_vehicle "$REMINDER_EMPTY_VEHICLE"
+view="$(eyre_view)"
+card="$(reminder_card 'Engine Oil' <<<"$view")"
+grep -q 'data-reminder-state="unavailable"' <<<"$card" \
+  || fail "fixture 47 no-reading reminder is not unavailable: $card"
+grep -q 'No odometer readings are recorded for this vehicle' <<<"$card" \
+  || fail "fixture 47 no-reading reminder gives no human reason: $card"
+grep -q 'data-reminder-state="due"\|data-reminder-state="not-due"' <<<"$card" \
+  && fail "fixture 47 unavailable was collapsed to a two-state answer: $card"
+note "fixture 47 PASS - a distance reminder with no readings renders unavailable with a human reason"
+
+# ---------------------------------------------------------------------------
+# fixture 48 - reset a reminder by a real service, then sell and buy back. The
+# post-repurchase odometer is above the threshold, but the interval crosses an
+# ownership gap and must remain unavailable instead of counting those miles.
+# ---------------------------------------------------------------------------
+own_add_ownership_event add-acquisition-event "$REMINDER_GAP_VEHICLE" '2026-01-01T09:00' '$10,000.00' 1000 ''
+add_reminder "$(reminder_payload "$REMINDER_GAP_VEHICLE" 'Engine Oil' '' '' '' 500 1500 mi)" 'fixture 48 gap reminder'
+eyre_post add-service-event "$(printf '{"vehicle":"%s","observed":"2026-01-10T09:00","zone":"America/Chicago","total":"","currency":"usd","mileage":"1000","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":["Engine Oil"],"disposalKind":"","notes":"Reminder baseline %s"}' "$REMINDER_GAP_VEHICLE" "$STAMP")" \
+  $'Saved service event\n201' 'fixture 48 baseline service'
+own_add_ownership_event add-disposal-event "$REMINDER_GAP_VEHICLE" '2026-02-01T09:00' '$9,000.00' 1100 'Sold'
+own_add_ownership_event add-acquisition-event "$REMINDER_GAP_VEHICLE" '2026-03-01T09:00' '$8,500.00' 2000 ''
+add_reminder_odometer "$REMINDER_GAP_VEHICLE" 2100 '2026-03-02T09:00' 'fixture 48 post-gap odometer'
+set_default_vehicle "$REMINDER_GAP_VEHICLE"
+view="$(eyre_view)"
+card="$(reminder_card 'Engine Oil' <<<"$view")"
+grep -q 'data-reminder-state="unavailable"' <<<"$card" \
+  || fail "fixture 48 the cross-gap reminder was treated as due or pending: $card"
+grep -q 'not owned for part of this reminder interval' <<<"$card" \
+  || fail "fixture 48 the cross-gap reminder gives no ownership reason: $card"
+note "fixture 48 PASS - a service-reset distance reminder does not count an ownership gap's miles"
+
+# ---------------------------------------------------------------------------
+# fixture 49 - recording the named service advances each supplied interval.
+# Time advances from the service date; distance advances from its real linked
+# odometer. The reset link records which event supplied that provenance.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event "$(printf '{"vehicle":"%s","observed":"2026-08-12T09:00","zone":"America/Chicago","total":"","currency":"usd","mileage":"1001.5","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":["Oil Filter"],"disposalKind":"","notes":"Time reset %s"}' "$REMINDER_VEHICLE" "$STAMP")" \
+  $'Saved service event\n201' 'fixture 49 time reset service'
+eyre_post add-service-event "$(printf '{"vehicle":"%s","observed":"2026-08-13T09:00","zone":"America/Chicago","total":"","currency":"usd","mileage":"1002","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":["Engine Oil"],"disposalKind":"","notes":"Distance reset %s"}' "$REMINDER_VEHICLE" "$STAMP")" \
+  $'Saved service event\n201' 'fixture 49 distance reset service'
+set_default_vehicle "$REMINDER_VEHICLE"
+view="$(eyre_view)"
+card="$(reminder_card 'Oil Filter' <<<"$view")"
+grep -q 'data-reminder-state="not-due"' <<<"$card" \
+  || fail "fixture 49 the time reminder did not advance after service: $card"
+grep -q 'Time due 2026-11-12' <<<"$card" \
+  || fail "fixture 49 the time reset due point is wrong: $card"
+card="$(reminder_card 'Engine Oil' <<<"$view")"
+grep -q 'data-reminder-state="not-due"' <<<"$card" \
+  || fail "fixture 49 the distance reminder did not advance after service: $card"
+grep -q 'Due in 100 mi' <<<"$card" \
+  || fail "fixture 49 the distance reset did not add the interval: $card"
+report="$(rover_report "FROM vehicles V JOIN service-reminders R ON V.vehicle-id = R.vehicle-id JOIN reminder-service-events L ON R.reminder-id = L.reminder-id WHERE V.label = '$REMINDER_VEHICLE' SELECT R.reminder-id, L.event-id;")"
+[ "$(count_rows "$report" '%reminder-id')" = 2 ] \
+  || fail "fixture 49 reset provenance links are missing: $report"
+note "fixture 49 PASS - recording the named service advances time and distance due points with event provenance"
+
+# ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
 # The pier may be the pane's own process or a child of it. Which one it is
@@ -1406,6 +1569,32 @@ grep -qF "data-def-economy-unavailable=\"$DEF_GAP_VEHICLE\"" <<<"$view" \
 note "fixture 43 PASS - the derived ownership break, the bounded aggregates, and the untouched control vehicle all survived a ship restart"
 
 # ---------------------------------------------------------------------------
+# fixture 50 - reminder facts and all three derived states survive the same
+# real ship restart. There is no timer to duplicate and no wire to orphan;
+# serving the page recomputes each state from the persisted facts.
+# ---------------------------------------------------------------------------
+set_default_vehicle "$REMINDER_VEHICLE"
+view="$(eyre_view)"
+card="$(reminder_card 'Engine Oil' <<<"$view")"
+grep -q 'data-reminder-state="not-due"' <<<"$card" \
+  || fail "fixture 50 the reset distance reminder changed over restart: $card"
+card="$(reminder_card 'Oil Filter' <<<"$view")"
+grep -q 'data-reminder-state="not-due"' <<<"$card" \
+  || fail "fixture 50 the reset time reminder changed over restart: $card"
+card="$(reminder_card 'Tire Rotation' <<<"$view")"
+grep -q 'data-reminder-state="due"' <<<"$card" \
+  || fail "fixture 50 the combined OR reminder changed over restart: $card"
+set_default_vehicle "$REMINDER_EMPTY_VEHICLE"
+view="$(eyre_view)"
+grep -q 'data-reminder="Engine Oil" data-reminder-state="unavailable"' <<<"$view" \
+  || fail "fixture 50 the no-reading state changed over restart"
+set_default_vehicle "$REMINDER_GAP_VEHICLE"
+view="$(eyre_view)"
+grep -q 'data-reminder="Engine Oil" data-reminder-state="unavailable"' <<<"$view" \
+  || fail "fixture 50 the ownership-gap state changed over restart"
+note "fixture 50 PASS - reminders, reset provenance, and due, pending, and unavailable derivations survived a ship restart"
+
+# ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut
 # ---------------------------------------------------------------------------
 arms="$(python3 - "$REPO/desk/sur/rover.hoon" <<'PY'
@@ -1527,5 +1716,25 @@ report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = 
 grep -qF "%chosen-kind 116 'Gifted'" <<<"$report" \
   || fail "fixture 35 the browser-chosen disposal kind is not in the database: $report"
 note "fixture 35 PASS - a person records a purchase and a sale from the form and sees both in history"
+
+# ---------------------------------------------------------------------------
+# fixture 51 - a person opens Add Reminder, chooses a vehicle and service
+# subtype, saves a time-only interval, and sees the rendered state reload.
+# ---------------------------------------------------------------------------
+set_default_vehicle "$REMINDER_VEHICLE"
+reminder_browser_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/reminder-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$REMINDER_VEHICLE" 'Inspection'
+} 2>&1)" || fail "fixture 51 the browser could not save a reminder: $reminder_browser_out"
+grep -q 'REMINDER_VERDICT=Saved reminder' <<<"$reminder_browser_out" \
+  || fail "fixture 51 the reminder form verdict is wrong: $reminder_browser_out"
+grep -q 'REMINDER_STATE=not-due' <<<"$reminder_browser_out" \
+  || fail "fixture 51 the saved reminder did not render after reload: $reminder_browser_out"
+report="$(rover_report "FROM vehicles V JOIN service-reminders R ON V.vehicle-id = R.vehicle-id JOIN service-subtype-definitions S ON R.service-subtype-id = S.service-subtype-id JOIN reminder-time-intervals T ON R.reminder-id = T.reminder-id WHERE V.label = '$REMINDER_VEHICLE' AND S.label = 'Inspection' SELECT R.reminder-id, T.interval, T.time-unit, T.due-at;")"
+grep -q '%reminder-id' <<<"$report" \
+  || fail "fixture 51 the browser-entered reminder is absent from Obelisk: $report"
+note "fixture 51 PASS - a person saves a reminder from the form and sees its pending state after reload"
 
 . "$(dirname "$0")/event-coverage-gate.sh"

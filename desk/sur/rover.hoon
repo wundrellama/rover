@@ -250,6 +250,21 @@
       observed-start=@da
       source-zone=@t
   ==
+::
+::  M7 T6. A reminder is one parent keyed to a service subtype, with either
+::  optional child present. Time and distance keep their source interval and
+::  due point; the derived due state is never stored here.
++$  reminder-time-unit  ?(%days %weeks %months %years)
++$  reminder-time-entry
+  [interval=@ud unit=reminder-time-unit due-at=@da]
++$  reminder-distance-entry
+  [interval=odo-reading due=odo-reading]
++$  reminder-entry
+  $:  vehicle-label=@t
+      service-subtype-label=@t
+      time=(unit reminder-time-entry)
+      distance=(unit reminder-distance-entry)
+  ==
 ::  Which typed child of `vehicle-events` a new event creates. The kind is not
 ::  a column: it is which child row exists. This term never reaches the
 ::  database - it selects the INSERT target and nothing else.

@@ -2140,6 +2140,39 @@
         });
       }
 
+      const reminderForm = app.querySelector('#reminder-form');
+      if (reminderForm) {
+        if (defaultVehicle) reminderForm.elements.vehicle.value = defaultVehicle;
+        reminderForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const verdict = app.querySelector('#reminder-verdict');
+          verdict.value = 'Saving…';
+          try {
+            const payload = Object.fromEntries(new FormData(reminderForm).entries());
+            if (!payload.timeInterval && !payload.timeDue) {
+              delete payload.timeInterval;
+              delete payload.timeUnit;
+              delete payload.timeDue;
+            }
+            if (!payload.distanceInterval && !payload.distanceDue) {
+              delete payload.distanceInterval;
+              delete payload.distanceUnit;
+              delete payload.distanceDue;
+            }
+            const response = await fetch('/apps/rover/add-reminder', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {'content-type': 'application/json'},
+              body: JSON.stringify(payload)
+            });
+            verdict.value = await response.text();
+            if (response.ok) await loadView();
+          } catch (error) {
+            verdict.value = `%unavailable: reminder · ${error.message}`;
+          }
+        });
+      }
+
       const odometerForm = app.querySelector('#odometer-form');
       if (odometerForm) {
         if (defaultVehicle) odometerForm.elements.vehicle.value = defaultVehicle;
