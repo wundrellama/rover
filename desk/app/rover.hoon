@@ -2,7 +2,7 @@
 ::  One path, proven. Other actions land as separate proven increments.
 ::
 /-  ast=obelisk-ast, rover
-/+  act=rover-act, default-agent, dbug, entry=rover-entry, imp=rover-import, render=rover-render, view=rover-view
+/+  act=rover-act, default-agent, dbug, entry=rover-entry, exp=rover-export, imp=rover-import, render=rover-render, view=rover-view
 /*  shell-html  %html  /app/rover/shell/html
 /*  tile-png    %png   /app/rover/assets/tile/png
 /*  font-regular       %woff2x  /app/rover/assets/fonts/jetbrainsmono-regular/woff2x
@@ -27,6 +27,7 @@
       [%15 state-15]
       [%16 state-16]
       [%17 state-17]
+      [%18 state-18]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -382,9 +383,30 @@
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
-      import-run=(unit import-run:rover)
+      import-run=(unit *)
   ==
+::  M7 T10 widened the import document, so `import-run` holds a different
+::  noun than it did. The flag is transient - it is `~` except during an
+::  import that is in flight - so the archival mold reads it as a bare noun
+::  and the migration drops it rather than reshaping work that a code reload
+::  has already interrupted.
 +$  state-17
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+      import-run=(unit *)
+      bootstrap-ready=?
+  ==
++$  state-18
   $:  pending=(map wire @t)
       last=(unit (each (list cmd-result:ast) tang))
       preview=(unit price-preview:rover)
@@ -600,8 +622,8 @@
   ==
 ::
 ++  continue-import
-  |=  [sat=state-17 our=@p run=import-run:rover]
-  ^-  [(list card) state-17]
+  |=  [sat=state-18 our=@p run=import-run:rover]
+  ^-  [(list card) state-18]
   ?~  remaining.run
     :_  sat(import-run ~)
     %:  http-give
@@ -629,8 +651,8 @@
   ==
 ::
 ++  handle-http
-  |=  [sat=state-17 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-17]
+  |=  [sat=state-18 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-18]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -1139,6 +1161,17 @@
     [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-regular-octs) sat]
   ?:  =('/apps/rover/assets/fonts/JetBrainsMono-Bold.woff2' url.request.req)
     [(http-give eyre-id 200 ['content-type' 'font/woff2']~ `font-bold-octs) sat]
+  ::  M7 T10. The whole history as one file. It is a GET because a download
+  ::  control is a link, and it is read-only: nothing about an export mutates.
+  ::  The owner's Eyre session is already required above, so the file the
+  ::  browser receives is the owner's own and reaches nobody else.
+  ?:  =('/apps/rover/export' url.request.req)
+    =/  wir=wire  /rover-export/(scot %da now.bowl)/[eyre-id]
+    =/  jon  !>([%script %rover %vector export-view:exp])
+    :_  sat(http-pending (~(put by http-pending.sat) wir eyre-id))
+    :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+        [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+    ==
   ?:  =('/apps/rover/view' url.request.req)
     =/  wir=wire
       ?:  bootstrap-ready.sat
@@ -1156,7 +1189,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-17
+=|  state-18
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -1174,7 +1207,7 @@
       [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
   ==
 ::
-++  on-save  !>([%17 state])
+++  on-save  !>([%18 state])
 ::
 ++  on-load
   |=  old=vase
@@ -1198,8 +1231,9 @@
       %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
       %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
       %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
-      %16  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s %.n])
-      %17  this(state +.s)
+      %16  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
+      %17  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s])
+      %18  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -1489,6 +1523,42 @@
     ::
         %kick
       `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-export *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  cleared  this(http-pending (~(del by http-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: export'))
+      =/  payload  (export-json:exp p.res our.bowl now.bowl)
+      =/  filename
+        %-  crip
+        ;:  weld
+          "attachment; filename=\"rover-export-"
+          (trip (export-day:exp now.bowl))
+          ".json\""
+        ==
+      :_  cleared
+      %:  http-give
+          u.eyre-id
+          200
+          :~  ['content-type' 'application/json']
+              ['content-disposition' filename]
+          ==
+          `(as-octs:mimes:html payload)
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire))
     ::
         %watch-ack
       `this
@@ -3245,7 +3315,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3279,14 +3349,37 @@
               %+  skim  subtypes.value.work
               |=  subtype=import-energy-subtype:rover
               ?=(~ (rows-by-text:view %label label.subtype subtype-rows))
-            =/  report
-              report.run(definitions-reused +(definitions-reused.report.run))
-            ?~  missing
-              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
-            =/  base=@ux  (cut 7 [0 1] eny.bowl)
             =/  definition-id=@ux
               `@ux`(cell-atom:view %energy-definition-id i.rows)
+            ::  M7 T10. An archived definition stays archived across a round
+            ::  trip, and one the receiving ship holds in the other state is
+            ::  corrected. This is the only place the flag can be honoured
+            ::  for a definition the import did not create.
+            =/  archive-script
+              ;:  weld
+                %:  archive-sync:imp
+                    %energy
+                    definition-id
+                    (stored-archived:imp i.rows)
+                    archived.value.work
+                ==
+                (subtype-archive-sync:imp subtypes.value.work subtype-rows)
+              ==
+            =/  report
+              %_  report.run
+                definitions-reused  +(definitions-reused.report.run)
+                definitions-archived
+                  ?~  archive-script
+                    definitions-archived.report.run
+                  +(definitions-archived.report.run)
+              ==
+            ?:  ?&  ?=(~ missing)
+                    ?=(~ archive-script)
+                ==
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+            =/  base=@ux  (cut 7 [0 1] eny.bowl)
             =/  script
+              %+  weld  archive-script
               (insert-energy-subtypes:imp base definition-id missing now.bowl)
             =/  next
               run(writing %.y, serial +(serial.run), report report)
@@ -3311,10 +3404,27 @@
               ==
             (fail 'ambiguous existing service subtype label')
           ?^  definitions
+            =/  archive-script
+              %:  archive-sync:imp
+                  %service-subtype
+                  `@ux`(cell-atom:view %service-subtype-id i.definitions)
+                  (stored-archived:imp i.definitions)
+                  archived.value.work
+              ==
             =/  report
-              report.run(definitions-reused +(definitions-reused.report.run))
+              %_  report.run
+                definitions-reused  +(definitions-reused.report.run)
+                definitions-archived
+                  ?~  archive-script
+                    definitions-archived.report.run
+                  +(definitions-archived.report.run)
+              ==
             ?~  default.value.work
-              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+              ?~  archive-script
+                (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+              =/  next  run(writing %.y, serial +(serial.run), report report)
+              :_  this(import-run `next)
+              (import-write-cards our.bowl serial.run archive-script)
             ?^  defaults
               ?:  (subtype-default-matches:imp u.default.value.work i.defaults)
                 =/  reused
@@ -3351,12 +3461,31 @@
           ?:  (gth (lent rows) 1)
             (fail 'ambiguous existing label')
           ?^  rows
+            =/  meta  (simple-table:imp kind.work)
+            =/  archive-script
+              %:  archive-sync:imp
+                  kind.work
+                  `@ux`(cell-atom:view `@tas`id.meta i.rows)
+                  (stored-archived:imp i.rows)
+                  archived.value.work
+              ==
             =/  report
-              report.run(definitions-reused +(definitions-reused.report.run))
-            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+              %_  report.run
+                definitions-reused  +(definitions-reused.report.run)
+                definitions-archived
+                  ?~  archive-script
+                    definitions-archived.report.run
+                  +(definitions-archived.report.run)
+              ==
+            ?~  archive-script
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+            =/  next
+              run(writing %.y, serial +(serial.run), report report)
+            :_  this(import-run `next)
+            (import-write-cards our.bowl serial.run archive-script)
           =/  base=@ux  (cut 7 [0 1] eny.bowl)
           =/  script
-            (insert-simple:imp base kind.work label.value.work now.bowl)
+            (insert-simple:imp base kind.work value.work now.bowl)
           =/  report
             report.run(definitions-created +(definitions-created.report.run))
           =/  next
@@ -3364,38 +3493,127 @@
           :_  this(import-run `next)
           (import-write-cards our.bowl serial.run script)
         ::
+        ::  M7 T10. A consumable definition and a custom field are two more
+        ::  create-if-absent definition families. Neither is a `%simple` one:
+        ::  a consumable carries the unit its quantity is measured in, and a
+        ::  custom field carries its content type and whether it is mandatory.
+        %consumable-definition
+          =/  rows  (rows-at:view commands 0)
+          ?:  (gth (lent rows) 1)
+            (fail 'ambiguous existing label')
+          ?^  rows
+            =/  archive-script
+              %:  archive-sync:imp
+                  %consumable
+                  `@ux`(cell-atom:view %consumable-id i.rows)
+                  (stored-archived:imp i.rows)
+                  archived.value.work
+              ==
+            =/  report
+              %_  report.run
+                definitions-reused  +(definitions-reused.report.run)
+                definitions-archived
+                  ?~  archive-script
+                    definitions-archived.report.run
+                  +(definitions-archived.report.run)
+              ==
+            ?~  archive-script
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+            =/  next
+              run(writing %.y, serial +(serial.run), report report)
+            :_  this(import-run `next)
+            (import-write-cards our.bowl serial.run archive-script)
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script
+            (insert-consumable-definition:imp base value.work now.bowl)
+          =/  report
+            report.run(definitions-created +(definitions-created.report.run))
+          =/  next
+            run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        %custom-field
+          =/  rows  (rows-at:view commands 0)
+          ?:  (gth (lent rows) 1)
+            (fail 'ambiguous existing label')
+          ?^  rows
+            ::  The content type is immutable once a value exists, so a
+            ::  document that disagrees with the field already here is a
+            ::  conflict rather than an update.
+            ?.  =(content-type.value.work (cell-term:view %content-type i.rows))
+              =/  conflicted
+                %_  report.run
+                  conflicts  +(conflicts.report.run)
+                  messages
+                    [(import-detail 'Conflict' work 'content type differs') messages.report.run]
+                ==
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report conflicted))
+            =/  archive-script
+              %:  archive-sync:imp
+                  %custom-field
+                  `@ux`(cell-atom:view %field-id i.rows)
+                  (stored-archived:imp i.rows)
+                  archived.value.work
+              ==
+            =/  report
+              %_  report.run
+                definitions-reused  +(definitions-reused.report.run)
+                definitions-archived
+                  ?~  archive-script
+                    definitions-archived.report.run
+                  +(definitions-archived.report.run)
+              ==
+            ?~  archive-script
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+            =/  next
+              run(writing %.y, serial +(serial.run), report report)
+            :_  this(import-run `next)
+            (import-write-cards our.bowl serial.run archive-script)
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script  (insert-custom-field:imp base value.work now.bowl)
+          =/  report
+            report.run(definitions-created +(definitions-created.report.run))
+          =/  next
+            run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        ::  M7 T10. A place holds one or more stations, and a station carries
+        ::  a label of its own. The lookup returns every station of the place,
+        ::  so the write adds the ones the document names that are missing and
+        ::  leaves the rest alone.
         %place
           =/  places  (rows-at:view commands 0)
           =/  stations  (rows-at:view commands 1)
-          ?:  ?|  (gth (lent places) 1)
-                  (gth (lent stations) 1)
-              ==
+          ?:  (gth (lent places) 1)
             (fail 'ambiguous existing label')
-          ?^  stations
-            ?~  places
-              (fail 'station label exists without the matching place label')
-            ?.  =((cell-atom:view %place-id i.places) (cell-atom:view %place-id i.stations))
-              (fail 'station label is linked to a different place')
-            =/  report
-              report.run(places-reused +(places-reused.report.run))
-            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
           =/  existing-place-id=(unit @ux)
             ?~  places
               ~
             ``@ux`(cell-atom:view %place-id i.places)
+          =/  existing-stations  (row-texts:imp %label stations)
           =/  report
             ?^  existing-place-id
               report.run(places-reused +(places-reused.report.run))
             report.run(places-created +(places-created.report.run))
           =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  archive-script
+            ?~  places
+              ""
+            (place-archive-sync:imp value.work i.places stations)
           =/  script
+            %+  weld  archive-script
             %:  insert-place:imp
                 base
                 value.work
                 station-kind.value.work
                 existing-place-id
+                existing-stations
                 now.bowl
             ==
+          ?~  script
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
           =/  next
             run(writing %.y, serial +(serial.run), report report)
           :_  this(import-run `next)
@@ -3624,6 +3842,205 @@
           =/  next  run(writing %.y, serial +(serial.run))
           :_  this(import-run `next)
           (import-write-cards our.bowl serial.run script)
+        ::
+        ::  M7 T10. A charging session lands through the same lookup the entry
+        ::  path uses, so every invariant it enforces - the definition must be
+        ::  electricity, the subtype must exist - is enforced once.
+        %charge
+          ?.  (gte (lent commands) 5)
+            (fail 'incomplete charge lookup result')
+          =/  existing  (rows-at:view commands 0)
+          ?^  existing
+            =/  report
+              report.run(charges-already-imported +(charges-already-imported.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  support-rows  (rows-at:view commands 1)
+          ?.  =(1 (lent support-rows))
+            (fail 'charge vehicle or energy definition was not found')
+          =/  support=vector:ast  (snag 0 support-rows)
+          ?.  =(%electricity (cell-term:view %physical-kind support))
+            (fail 'charge definition is not an electricity source')
+          =/  charge-subtype-id=(unit @ux)
+            ?~  subtype-label.input.value.work
+              ~
+            =/  found
+              %+  row-by-text:view  %label
+              [u.subtype-label.input.value.work (rows-at:view commands 4)]
+            ?~  found
+              ~
+            ``@ux`(cell-atom:view %subtype-id u.found)
+          ?:  ?&  ?=(^ subtype-label.input.value.work)
+                  ?=(~ charge-subtype-id)
+              ==
+            (fail 'charge subtype was not found')
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  ids=charge-ids:act
+            :*  (fixture-id:act base 701)
+                (fixture-id:act base 702)
+                (fixture-id:act base 703)
+                (fixture-id:act base 704)
+                (fixture-id:act base 705)
+                (charging-component-ids:act base (lent components.input.value.work) 710)
+            ==
+          =/  provenance-script=tape
+            ?~  provenance.value.work
+              ~
+            ;:  weld
+              " INSERT INTO acquisition-imports VALUES ("
+              (scow %ux acquisition.ids)
+              ", "
+              (sql-term:act source-app.u.provenance.value.work)
+              ", '"
+              (sql-quote:act source-record-id.u.provenance.value.work)
+              "');"
+            ==
+          =/  script
+            %+  weld
+              %:  insert-charge:act
+                  ids
+                  `@ux`(cell-atom:view %vehicle-id support)
+                  `@ux`(cell-atom:view %energy-definition-id support)
+                  charge-subtype-id
+                  input.value.work
+                  now.bowl
+              ==
+            provenance-script
+          =/  report
+            report.run(charges-imported +(charges-imported.report.run))
+          =/  next  run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        %consumable-purchase
+          ?.  (gte (lent commands) 3)
+            (fail 'incomplete consumable purchase lookup result')
+          =/  existing  (rows-at:view commands 0)
+          ?^  existing
+            =/  report
+              report.run(purchases-already-imported +(purchases-already-imported.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  purchase-vehicles  (rows-at:view commands 1)
+          =/  purchase-definitions  (rows-at:view commands 2)
+          ?.  ?&  =(1 (lent purchase-vehicles))
+                  =(1 (lent purchase-definitions))
+              ==
+            (fail 'consumable purchase vehicle or definition was not found')
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script
+            %:  insert-consumable:act
+                (fixture-id:act base 801)
+                (fixture-id:act base 802)
+                `@ux`(cell-atom:view %vehicle-id (snag 0 purchase-vehicles))
+                `@ux`(cell-atom:view %consumable-id (snag 0 purchase-definitions))
+                (cell-term:view %quantity-unit (snag 0 purchase-definitions))
+                value.work
+                now.bowl
+            ==
+          =/  report
+            report.run(purchases-imported +(purchases-imported.report.run))
+          =/  next  run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        ::  M7 T10. Everything a vehicle holds that is not a record: the
+        ::  display preference, the refill reserve, the default subtype, and
+        ::  the three link families. It runs last, so every definition it
+        ::  names by label already exists.
+        %vehicle-extras
+          ?.  (gte (lent commands) 12)
+            (fail 'incomplete vehicle settings lookup result')
+          =/  extras-vehicles  (rows-at:view commands 0)
+          ?.  =(1 (lent extras-vehicles))
+            (fail 'vehicle was not found')
+          =/  extras-vehicle-id=@ux
+            `@ux`(cell-atom:view %vehicle-id (snag 0 extras-vehicles))
+          =/  energy-catalog  (rows-at:view commands 1)
+          =/  mode-catalog  (rows-at:view commands 2)
+          =/  consumable-catalog  (rows-at:view commands 3)
+          =/  subtype-catalog  (rows-at:view commands 4)
+          =/  linked-consumables  (rows-at:view commands 5)
+          =/  tank-rows  (rows-at:view commands 9)
+          =/  linked-energy  (rows-at:view commands 10)
+          =/  linked-modes  (rows-at:view commands 11)
+          =/  resolve
+            |*  [links=(list import-vehicle-link:rover) catalog=(list vector:ast) column=@tas linked=(list vector:ast)]
+            ^-  (list [target=@ux archived=? linked=?])
+            %+  murn  links
+            |=  link=import-vehicle-link:rover
+            ^-  (unit [target=@ux archived=? linked=?])
+            =/  found  (row-by-text:view %label label.link catalog)
+            ?~  found
+              ~
+            =/  target  `@ux`(cell-atom:view column u.found)
+            :-  ~
+            :+  target
+              archived.link
+            ?=(^ (rows-by:view column target linked))
+          =/  energy-links
+            (resolve energy-links.value.work energy-catalog %energy-definition-id linked-energy)
+          =/  mode-links
+            (resolve mode-links.value.work mode-catalog %mode-id linked-modes)
+          =/  consumable-links
+            ^-  (list [target=@ux archived=? linked=? tank=(unit scaled-entry:rover)])
+            %+  murn  consumable-links.value.work
+            |=  link=import-vehicle-consumable:rover
+            ^-  (unit [target=@ux archived=? linked=? tank=(unit scaled-entry:rover)])
+            =/  found  (row-by-text:view %label label.link consumable-catalog)
+            ?~  found
+              ~
+            =/  target  `@ux`(cell-atom:view %consumable-id u.found)
+            :-  ~
+            :^    target
+                archived.link
+              ?=(^ (rows-by:view %consumable-id target linked-consumables))
+            tank-size.link
+          =/  default-subtype-id=(unit @ux)
+            ?~  default-subtype.value.work
+              ~
+            =/  found
+              (row-by-text:view %label u.default-subtype.value.work subtype-catalog)
+            ?~  found
+              ~
+            ``@ux`(cell-atom:view %subtype-id u.found)
+          =/  script
+            %:  vehicle-extras-write:imp
+                extras-vehicle-id
+                value.work
+                energy-links
+                mode-links
+                consumable-links
+                default-subtype-id
+                now.bowl
+            ==
+          =/  written
+            ;:  add
+              (lent energy-links)
+              (lent mode-links)
+              (lent consumable-links)
+            ==
+          =/  report
+            report.run(vehicle-links-written (add vehicle-links-written.report.run written))
+          ?~  script
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  next  run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
+        %app-default
+          ?.  (gte (lent commands) 2)
+            (fail 'incomplete default vehicle lookup result')
+          =/  default-vehicles  (rows-at:view commands 0)
+          ?.  =(1 (lent default-vehicles))
+            (fail 'default vehicle was not found')
+          =/  script
+            %:  app-default-write:imp
+                `@ux`(cell-atom:view %vehicle-id (snag 0 default-vehicles))
+                ?=(^ (rows-at:view commands 1))
+                now.bowl
+            ==
+          =/  next  run(writing %.y, serial +(serial.run))
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
       ==
     ::
         %kick
@@ -3646,7 +4063,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3698,7 +4115,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3751,7 +4168,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3857,6 +4274,15 @@
         ?~  command-note
           input
         input(notes `'Rover import note placeholder')
+      ::  M7 T10. The owner-defined field values this fill carries. A value
+      ::  naming a field that is not here, or one the field's content type
+      ::  cannot hold, is named in the report rather than guessed at.
+      =/  custom-proof
+        %:  custom-value-script:imp
+            acquisition.ids
+            custom-values.fill
+            (rows-at:view commands 7)
+        ==
       =/  script
         %:  insert-import-fill:imp
             ids
@@ -3870,12 +4296,24 @@
             p.tag-proof
             payment-method-id
             script-input
-            source-app.fill
-            source-record-id.fill
+            provenance.fill
+            script.custom-proof
             now.bowl
         ==
       =/  next
-        run(writing %.y, serial +(serial.run))
+        %_  run
+          writing  %.y
+          serial   +(serial.run)
+          report
+            %_  report.run
+              custom-values-written
+                (add custom-values-written.report.run written.custom-proof)
+              messages
+                %+  weld  messages.report.run
+                %+  turn  skipped.custom-proof
+                |=(label=@t (import-detail 'Unmapped' work label))
+            ==
+        ==
       :_  this(import-run `next)
       ?~  command-note
         (import-write-cards our.bowl serial.run script)
@@ -3908,7 +4346,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  phase=@ta
@@ -3926,12 +4364,18 @@
               (replace-fill-note:imp p.parsed (need notes.input.fill))
             %event
               (replace-event-note:imp p.parsed (need notes.input.value.work))
-            %energy           !!
-            %service-subtype  !!
-            %simple           !!
-            %place            !!
-            %vehicle          !!
-            %reminder         !!
+            %energy                 !!
+            %service-subtype        !!
+            %simple                 !!
+            %place                  !!
+            %vehicle                !!
+            %reminder               !!
+            %consumable-definition  !!
+            %custom-field           !!
+            %charge                 !!
+            %consumable-purchase    !!
+            %vehicle-extras         !!
+            %app-default            !!
           ==
         ?:  ?=(%| -.patched)
           (advance-failure p.patched)
@@ -3946,15 +4390,21 @@
               report.run(events-imported +(events-imported.report.run))
             %reminder
               report.run(reminders-imported +(reminders-imported.report.run))
-            %energy           report.run
-            %service-subtype  report.run
-            %simple           report.run
-            %place            report.run
-            %vehicle          report.run
+            %energy                 report.run
+            %service-subtype        report.run
+            %simple                 report.run
+            %place                  report.run
+            %vehicle                report.run
+            %consumable-definition  report.run
+            %custom-field           report.run
+            %charge                 report.run
+            %consumable-purchase    report.run
+            %vehicle-extras         report.run
+            %app-default            report.run
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -3972,15 +4422,21 @@
             report.run(events-imported +(events-imported.report.run))
           %reminder
             report.run(reminders-imported +(reminders-imported.report.run))
-          %energy           report.run
-          %service-subtype  report.run
-          %simple           report.run
-          %place            report.run
-          %vehicle          report.run
+          %energy                 report.run
+          %service-subtype        report.run
+          %simple                 report.run
+          %place                  report.run
+          %vehicle                report.run
+          %consumable-definition  report.run
+          %custom-field           report.run
+          %charge                 report.run
+          %consumable-purchase    report.run
+          %vehicle-extras         report.run
+          %app-default            report.run
         ==
       =/  next
         run(writing %.n, remaining t.remaining.run, report report)
-      =/  continued=[(list card) state-17]
+      =/  continued=[(list card) state-18]
         (continue-import state our.bowl next)
       [-.continued this(state +.continued)]
     ::

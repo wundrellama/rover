@@ -104,8 +104,17 @@
       notes=(unit @t)
       payment-method-label=(unit @t)
   ==
+::  M7 T10. Every definition family carries its archived flag through the
+::  format, because the export format IS the import format and an archived
+::  definition that came back active would be a resurrection. `%.n` is the
+::  honest default for a document that does not mention the flag at all,
+::  which is what every converter written before T10 emits.
 +$  import-simple-definition
-  [label=@t]
+  [label=@t archived=?]
++$  import-consumable-definition
+  [label=@t quantity-unit=@tas archived=?]
++$  import-custom-field
+  [label=@t content-type=@tas mandatory=? archived=?]
 +$  import-subtype-default
   $:  time-interval=@ud
       time-unit=reminder-time-unit
@@ -114,15 +123,17 @@
       distance-unit=distance-unit
   ==
 +$  import-service-subtype
-  [label=@t default=(unit import-subtype-default)]
+  [label=@t archived=? default=(unit import-subtype-default)]
 +$  import-energy-subtype
   $:  label=@t
+      archived=?
       octane=(unit @ud)
       octane-method=(unit octane-method)
       cetane=(unit @ud)
   ==
 +$  import-energy-definition
   $:  label=@t
+      archived=?
       physical-kind=physical-kind
       quantity-unit=@tas
       subtypes=(list import-energy-subtype)
@@ -136,33 +147,71 @@
       longitude=@sd
       source=coordinate-source
   ==
+::  A station is NOT its place. The two carry their own labels, and a document
+::  that names only the place gets one station of the same label - which is
+::  what every pre-T10 converter meant and what T9 wrote.
++$  import-station
+  [label=@t station-kind=station-kind archived=?]
 +$  import-place
   $:  label=@t
+      archived=?
       station-kind=station-kind
       address=(unit import-place-address)
       coordinates=(unit import-place-coordinates)
+      stations=(list import-station)
   ==
+::  Which foreign record a row came from, when it came from one. ABSENT means
+::  owner-entered, which is the ratified meaning of a missing
+::  `acquisition-imports` row, and it is what a Rover export carries for every
+::  record a person typed in. Export is not a provenance-laundering step: it
+::  never invents a source app for a row that had none.
++$  import-provenance
+  (unit [source-app=@tas source-record-id=@t])
 +$  import-fill
   $:  input=fill-entry
-      source-app=@tas
-      source-record-id=@t
+      provenance=import-provenance
       source-total=(unit @t)
+      custom-values=(list [label=@t value=@t])
   ==
 +$  import-event
   $:  input=event-entry
-      source-app=@tas
-      source-record-id=@t
+      provenance=import-provenance
   ==
++$  import-charge
+  $:  input=charge-entry
+      provenance=import-provenance
+  ==
+::  One vehicle-level link, by label, with the archived state the link row
+::  itself holds. The definition's own archived flag is a separate fact and
+::  travels with the definition.
++$  import-vehicle-link
+  [label=@t archived=?]
++$  import-vehicle-consumable
+  [label=@t archived=? tank-size=(unit scaled-entry)]
++$  import-vehicle-preference
+  [distance-unit=(unit distance-unit) currency=currency]
 +$  import-vehicle
   $:  label=@t
+      archived=?
       distance-unit=distance-unit
       volume-unit=@tas
       tank-size=(unit scaled-entry)
+      refill-reserve=(unit @ud)
       default-energy=@t
+      default-subtype=(unit @t)
+      preference=(unit import-vehicle-preference)
+      energy-links=(list import-vehicle-link)
+      mode-links=(list import-vehicle-link)
+      consumable-links=(list import-vehicle-consumable)
       specification=vehicle-spec-entry
       fills=(list import-fill)
+      charges=(list import-charge)
+      consumable-purchases=(list consumable-entry)
       service-events=(list import-event)
+      expense-events=(list import-event)
       note-events=(list import-event)
+      acquisition-events=(list import-event)
+      disposal-events=(list import-event)
       reminders=(list reminder-entry)
   ==
 +$  import-definitions
@@ -172,13 +221,18 @@
       driving-modes=(list import-simple-definition)
       tags=(list import-simple-definition)
       payment-methods=(list import-simple-definition)
+      disposal-kinds=(list import-simple-definition)
+      consumables=(list import-consumable-definition)
+      custom-fields=(list import-custom-field)
   ==
 +$  import-document
   $:  definitions=import-definitions
       places=(list import-place)
       vehicles=(list import-vehicle)
+      app-default=(unit @t)
   ==
-+$  import-simple-kind  ?(%additive %driving-mode %tag %payment-method)
++$  import-simple-kind
+  ?(%additive %driving-mode %tag %payment-method %disposal-kind)
 +$  import-work
   $%  [%energy value=import-energy-definition]
       [%service-subtype value=import-service-subtype]
@@ -192,6 +246,17 @@
       ==
       [%event value=import-event]
       [%reminder value=reminder-entry]
+      [%consumable-definition value=import-consumable-definition]
+      [%custom-field value=import-custom-field]
+      [%charge value=import-charge]
+      [%consumable-purchase value=consumable-entry]
+      ::  Everything a vehicle carries that is not a record of its own: the
+      ::  display preference, the refill reserve, the default subtype, and the
+      ::  links to energy sources, driving modes and consumables. It runs
+      ::  AFTER every definition and every vehicle, because each member names
+      ::  a definition by label.
+      [%vehicle-extras value=import-vehicle]
+      [%app-default label=@t]
   ==
 +$  import-report
   $:  imported=@ud
@@ -216,6 +281,14 @@
       reminders-already-imported=@ud
       subtype-defaults-created=@ud
       subtype-defaults-reused=@ud
+      ::  M7 T10. The kinds the export round trip carries beside fuel fills.
+      charges-imported=@ud
+      charges-already-imported=@ud
+      purchases-imported=@ud
+      purchases-already-imported=@ud
+      definitions-archived=@ud
+      vehicle-links-written=@ud
+      custom-values-written=@ud
       messages=(list @t)
   ==
 +$  import-run

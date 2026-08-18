@@ -52,6 +52,46 @@
     ~
   `+.u.value
 ::
+::  M7 T10. A document written before the archived flag existed does not carry
+::  one, and every such definition was active. So an absent key reads `%.n`
+::  rather than refusing the document.
+++  json-bool
+  |=  [key=@t object=(map @t json)]
+  ^-  (unit ?)
+  =/  value  (~(get by object) key)
+  ?~  value
+    ~
+  ?.  ?=(%b -.u.value)
+    ~
+  `+.u.value
+::
+++  archived-flag
+  |=  object=(map @t json)
+  ^-  ?
+  =/  found  (json-bool 'archived' object)
+  ?~(found %.n u.found)
+::
+::  The provenance pair, when the document carries one. Both halves must be
+::  present together: half a provenance names no foreign record.
+++  decode-provenance
+  |=  object=(map @t json)
+  ^-  (each import-provenance:rover entry-verdict:rover)
+  =/  app-text  (json-string 'sourceApp' object)
+  =/  record-id  (json-string 'sourceRecordId' object)
+  ?:  ?&  ?=(~ app-text)
+          ?=(~ record-id)
+      ==
+    [%& ~]
+  ?:  ?|  ?=(~ app-text)
+          ?=(~ record-id)
+          =(%.n (nonempty u.record-id))
+      ==
+    [%| %bad-shape 'import.sourceApp']
+  =/  app-term  (slaw %tas u.app-text)
+  ?~  app-term
+    [%| %bad-shape 'import.sourceApp']
+  [%& `[u.app-term u.record-id]]
+::
 ++  json-map
   |=  value=json
   ^-  (unit (map @t json))
@@ -580,7 +620,71 @@
           =(%.n (nonempty u.label))
       ==
     [%| %bad-shape field]
-  $(values t.values, out [[u.label] out])
+  $(values t.values, out [[u.label (archived-flag u.object)] out])
+::
+::  M7 T10. A consumable definition carries the unit its quantity is measured
+::  in, so it is its own list rather than a simple one.
+++  decode-import-consumables
+  |=  values=(list json)
+  ^-  (each (list import-consumable-definition:rover) entry-verdict:rover)
+  =/  out=(list import-consumable-definition:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.definitions.consumables']
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.definitions.consumables.label']
+  =/  unit-text  (json-string 'quantityUnit' u.object)
+  ?~  unit-text
+    [%| %missing-key 'import.definitions.consumables.quantityUnit']
+  =/  unit-term  (slaw %tas u.unit-text)
+  ?~  unit-term
+    [%| %bad-shape 'import.definitions.consumables.quantityUnit']
+  =/  row=import-consumable-definition:rover
+    [u.label u.unit-term (archived-flag u.object)]
+  $(values t.values, out [row out])
+::
+::  M7 T10. An owner-defined field. Its content type is immutable once values
+::  exist, so it travels with the definition and never with a value.
+++  decode-import-custom-fields
+  |=  values=(list json)
+  ^-  (each (list import-custom-field:rover) entry-verdict:rover)
+  =/  out=(list import-custom-field:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.definitions.custom-fields']
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.definitions.custom-fields.label']
+  =/  content-text  (json-string 'contentType' u.object)
+  ?~  content-text
+    [%| %missing-key 'import.definitions.custom-fields.contentType']
+  =/  content-term  (slaw %tas u.content-text)
+  ?.  ?&  ?=(^ content-term)
+          ?|  =(%text u.content-term)
+              =(%number u.content-term)
+              =(%boolean u.content-term)
+          ==
+      ==
+    [%| %bad-shape 'import.definitions.custom-fields.contentType']
+  =/  mandatory  (json-bool 'mandatory' u.object)
+  =/  row=import-custom-field:rover
+    :*  u.label
+        u.content-term
+        ?~(mandatory %.n u.mandatory)
+        (archived-flag u.object)
+    ==
+  $(values t.values, out [row out])
 ::
 ++  decode-import-service-subtypes
   |=  values=(list json)
@@ -645,7 +749,7 @@
           ?=(~ default)
       ==
     [%| %bad-shape 'import.definitions.service-subtypes.default']
-  $(values t.values, out [[u.label default] out])
+  $(values t.values, out [[u.label (archived-flag u.object) default] out])
 ::
 ++  decode-import-subtypes
   |=  values=(list json)
@@ -703,7 +807,7 @@
       ==
     [%| %bad-shape 'import.definitions.energy.subtypes.method']
   =/  row=import-energy-subtype:rover
-    [u.label octane method cetane]
+    [u.label (archived-flag u.object) octane method cetane]
   $(values t.values, out [row out])
 ::
 ++  decode-import-energy
@@ -745,6 +849,7 @@
     subtypes
   =/  row=import-energy-definition:rover
     :*  u.label
+        (archived-flag u.object)
         ;;(physical-kind:rover u.kind-term)
         u.unit-term
         p.subtypes
@@ -861,8 +966,45 @@
           ?=(~ coordinates)
       ==
     [%| %bad-shape 'import.places.coordinates']
+  =/  place-kind  ;;(station-kind:rover u.station-kind-term)
+  =/  archived  (archived-flag u.object)
+  ::  A document that names no stations means the one station the place is
+  ::  known by, which is what every pre-T10 converter emits.
+  =/  station-json  (json-array 'stations' u.object)
+  =/  stations=(each (list import-station:rover) entry-verdict:rover)
+    ?~  station-json
+      [%& [u.label place-kind archived]~]
+    =/  out=(list import-station:rover)  ~
+    |-
+    ?~  u.station-json
+      [%& (flop out)]
+    =/  station-object  (json-map i.u.station-json)
+    ?~  station-object
+      [%| %bad-shape 'import.places.stations']
+    =/  station-label  (json-string 'label' u.station-object)
+    ?:  ?|  ?=(~ station-label)
+            =(%.n (nonempty u.station-label))
+        ==
+      [%| %bad-shape 'import.places.stations.label']
+    =/  kind-value  (json-string 'kind' u.station-object)
+    =/  kind-term=(unit @tas)
+      ?~  kind-value
+        `place-kind
+      (slaw %tas u.kind-value)
+    ?.  ?&  ?=(^ kind-term)
+            ?=(station-kind:rover u.kind-term)
+        ==
+      [%| %bad-shape 'import.places.stations.kind']
+    =/  station=import-station:rover
+      :*  u.station-label
+          ;;(station-kind:rover u.kind-term)
+          (archived-flag u.station-object)
+      ==
+    $(u.station-json t.u.station-json, out [station out])
+  ?:  ?=(%| -.stations)
+    stations
   =/  row=import-place:rover
-    [u.label ;;(station-kind:rover u.station-kind-term) address coordinates]
+    [u.label archived place-kind address coordinates p.stations]
   $(values t.values, out [row out])
 ::
 ++  decode-import-fills
@@ -880,21 +1022,34 @@
     decoded
   ?.  =(vehicle vehicle-label.p.decoded)
     [%| %bad-shape 'import.vehicle.fills.vehicle']
-  =/  app-text  (json-string 'sourceApp' u.object)
-  ?~  app-text
-    [%| %missing-key 'import.vehicle.fills.sourceApp']
-  =/  app-term  (slaw %tas u.app-text)
-  ?~  app-term
-    [%| %bad-shape 'import.vehicle.fills.sourceApp']
-  =/  record-id  (json-string 'sourceRecordId' u.object)
-  ?:  ?|  ?=(~ record-id)
-          =(%.n (nonempty u.record-id))
-      ==
-    [%| %missing-key 'import.vehicle.fills.sourceRecordId']
+  =/  provenance  (decode-provenance u.object)
+  ?:  ?=(%| -.provenance)
+    provenance
   =/  source-total  (optional-text 'sourceTotal' u.object)
   =/  row=import-fill:rover
-    [p.decoded u.app-term u.record-id source-total]
+    [p.decoded p.provenance source-total (custom-values u.object)]
   $(values t.values, out [row out])
+::
+::  M7 T10. Every `custom-<label>` key a fill carries, in the same shape the
+::  browser entry form sends. The label is the address of the field; the
+::  machine ID it stands for never crosses this boundary.
+++  custom-values
+  |=  object=(map @t json)
+  ^-  (list [label=@t value=@t])
+  %+  murn  ~(tap by object)
+  |=  [key=@t value=json]
+  ^-  (unit [label=@t value=@t])
+  =/  chars=tape  (trip key)
+  ?.  =("custom-" (scag 7 chars))
+    ~
+  ?.  ?=(%s -.value)
+    ~
+  =/  label  (crip (slag 7 chars))
+  ?.  (nonempty label)
+    ~
+  ?.  (nonempty +.value)
+    ~
+  `[label +.value]
 ::
 ++  decode-import-events
   |=  [vehicle=@t kind=event-kind:rover values=(list json)]
@@ -911,18 +1066,52 @@
     decoded
   ?.  =(vehicle vehicle-label.p.decoded)
     [%| %bad-shape 'import.vehicle.events.vehicle']
-  =/  app-text  (json-string 'sourceApp' u.object)
-  ?~  app-text
-    [%| %missing-key 'import.vehicle.events.sourceApp']
-  =/  app-term  (slaw %tas u.app-text)
-  ?~  app-term
-    [%| %bad-shape 'import.vehicle.events.sourceApp']
-  =/  record-id  (json-string 'sourceRecordId' u.object)
-  ?:  ?|  ?=(~ record-id)
-          =(%.n (nonempty u.record-id))
-      ==
-    [%| %missing-key 'import.vehicle.events.sourceRecordId']
-  $(values t.values, out [[p.decoded u.app-term u.record-id] out])
+  =/  provenance  (decode-provenance u.object)
+  ?:  ?=(%| -.provenance)
+    provenance
+  $(values t.values, out [[p.decoded p.provenance] out])
+::
+::  M7 T10. A charging session in a document, shaped exactly like the one the
+::  entry form posts. The session is an energy acquisition, so it carries the
+::  same optional provenance a fuel fill does.
+++  decode-import-charges
+  |=  [vehicle=@t values=(list json)]
+  ^-  (each (list import-charge:rover) entry-verdict:rover)
+  =/  out=(list import-charge:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.charges']
+  =/  decoded  (decode-charge-object u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.charges.vehicle']
+  =/  provenance  (decode-provenance u.object)
+  ?:  ?=(%| -.provenance)
+    provenance
+  $(values t.values, out [[p.decoded p.provenance] out])
+::
+::  M7 T10. A consumable purchase. It has no provenance relation of its own,
+::  so a repeated import recognises it by vehicle, consumable and instant.
+++  decode-import-purchases
+  |=  [vehicle=@t values=(list json)]
+  ^-  (each (list consumable-entry:rover) entry-verdict:rover)
+  =/  out=(list consumable-entry:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.consumablePurchases']
+  =/  decoded  (decode-consumable-object `u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.consumablePurchases.vehicle']
+  $(values t.values, out [p.decoded out])
 ::
 ++  decode-import-reminders
   |=  [vehicle=@t values=(list json)]
@@ -1019,20 +1208,42 @@
   =/  fills  (decode-import-fills u.label u.fill-json)
   ?:  ?=(%| -.fills)
     fills
-  =/  service-json  (json-array 'serviceEvents' u.object)
-  =/  services=(each (list import-event:rover) entry-verdict:rover)
-    ?~  service-json
+  =/  charge-json  (json-array 'charges' u.object)
+  =/  charges=(each (list import-charge:rover) entry-verdict:rover)
+    ?~  charge-json
       [%& ~]
-    (decode-import-events u.label %service u.service-json)
+    (decode-import-charges u.label u.charge-json)
+  ?:  ?=(%| -.charges)
+    charges
+  =/  purchase-json  (json-array 'consumablePurchases' u.object)
+  =/  purchases=(each (list consumable-entry:rover) entry-verdict:rover)
+    ?~  purchase-json
+      [%& ~]
+    (decode-import-purchases u.label u.purchase-json)
+  ?:  ?=(%| -.purchases)
+    purchases
+  =/  events-of
+    |=  [key=@t kind=event-kind:rover]
+    ^-  (each (list import-event:rover) entry-verdict:rover)
+    =/  found  (json-array key u.object)
+    ?~  found
+      [%& ~]
+    (decode-import-events u.label kind u.found)
+  =/  services  (events-of 'serviceEvents' %service)
   ?:  ?=(%| -.services)
     services
-  =/  note-json  (json-array 'noteEvents' u.object)
-  =/  notes=(each (list import-event:rover) entry-verdict:rover)
-    ?~  note-json
-      [%& ~]
-    (decode-import-events u.label %note u.note-json)
+  =/  expenses  (events-of 'expenseEvents' %expense)
+  ?:  ?=(%| -.expenses)
+    expenses
+  =/  notes  (events-of 'noteEvents' %note)
   ?:  ?=(%| -.notes)
     notes
+  =/  purchases-of-vehicle  (events-of 'acquisitionEvents' %acquisition)
+  ?:  ?=(%| -.purchases-of-vehicle)
+    purchases-of-vehicle
+  =/  disposals  (events-of 'disposalEvents' %disposal)
+  ?:  ?=(%| -.disposals)
+    disposals
   =/  reminder-json  (json-array 'reminders' u.object)
   =/  reminders=(each (list reminder-entry:rover) entry-verdict:rover)
     ?~  reminder-json
@@ -1040,19 +1251,127 @@
     (decode-import-reminders u.label u.reminder-json)
   ?:  ?=(%| -.reminders)
     reminders
+  =/  reserve-text  (optional-text 'refillReserve' u.object)
+  =/  refill-reserve=(unit @ud)
+    ?~  reserve-text
+      ~
+    =/  parsed  (slaw %ud u.reserve-text)
+    ?~  parsed
+      ~
+    ?:((gth u.parsed 100) ~ parsed)
+  =/  default-subtype  (optional-text 'defaultSubtype' u.object)
+  =/  preference-value  (~(get by u.object) 'preference')
+  =/  preference=(unit import-vehicle-preference:rover)
+    ?~  preference-value
+      ~
+    =/  preference-object  (json-map u.preference-value)
+    ?~  preference-object
+      ~
+    =/  currency-text  (json-string 'currency' u.preference-object)
+    ?~  currency-text
+      ~
+    =/  currency-term  (slaw %tas u.currency-text)
+    ?.  ?&  ?=(^ currency-term)
+            ?=(currency:rover u.currency-term)
+        ==
+      ~
+    =/  distance-text  (json-string 'distanceUnit' u.preference-object)
+    =/  preferred=(unit distance-unit:rover)
+      ?~  distance-text
+        ~
+      =/  term  (slaw %tas u.distance-text)
+      ?.  ?&  ?=(^ term)
+              ?|  =(%mi u.term)
+                  =(%km u.term)
+              ==
+          ==
+        ~
+      `;;(distance-unit:rover u.term)
+    `[preferred ;;(currency:rover u.currency-term)]
+  =/  links-of
+    |=  key=@t
+    ^-  (list import-vehicle-link:rover)
+    =/  found  (json-array key u.object)
+    ?~  found
+      ~
+    %+  murn  u.found
+    |=  value=json
+    ^-  (unit import-vehicle-link:rover)
+    =/  link-object  (json-map value)
+    ?~  link-object
+      ~
+    =/  link-label  (json-string 'label' u.link-object)
+    ?~  link-label
+      ~
+    ?.  (nonempty u.link-label)
+      ~
+    `[u.link-label (archived-flag u.link-object)]
+  =/  consumable-links
+    ^-  (list import-vehicle-consumable:rover)
+    =/  found  (json-array 'consumables' u.object)
+    ?~  found
+      ~
+    %+  murn  u.found
+    |=  value=json
+    ^-  (unit import-vehicle-consumable:rover)
+    =/  link-object  (json-map value)
+    ?~  link-object
+      ~
+    =/  link-label  (json-string 'label' u.link-object)
+    ?~  link-label
+      ~
+    ?.  (nonempty u.link-label)
+      ~
+    `[u.link-label (archived-flag u.link-object) (decode-sized 'tankSize' u.link-object)]
   =/  row=import-vehicle:rover
     :*  u.label
+        (archived-flag u.object)
         ;;(distance-unit:rover u.distance-term)
         u.volume-term
         tank-size
+        refill-reserve
         u.default
+        default-subtype
+        preference
+        (links-of 'energySources')
+        (links-of 'drivingModes')
+        consumable-links
         p.specification
         p.fills
+        p.charges
+        p.purchases
         p.services
+        p.expenses
         p.notes
+        p.purchases-of-vehicle
+        p.disposals
         p.reminders
     ==
   $(values t.values, out [row out])
+::
+::  A `{value, unit}` pair, the shape a tank size travels in.
+++  decode-sized
+  |=  [key=@t object=(map @t json)]
+  ^-  (unit scaled-entry:rover)
+  =/  value  (~(get by object) key)
+  ?~  value
+    ~
+  =/  sized  (json-map u.value)
+  ?~  sized
+    ~
+  =/  value-text  (json-string 'value' u.sized)
+  =/  unit-text  (json-string 'unit' u.sized)
+  ?:  ?|  ?=(~ value-text)
+          ?=(~ unit-text)
+      ==
+    ~
+  =/  parsed  (parse-decimal:render u.value-text 3)
+  ?:  ?=(%| -.parsed)
+    ~
+  =/  unit-term  (slaw %tas u.unit-text)
+  ?~  unit-term
+    ~
+  `[digits.p.parsed places.p.parsed u.unit-term]
 ::
 ++  decode-import
   |=  body=@t
@@ -1111,6 +1430,27 @@
   =/  payments  (decode-import-simple 'import.definitions.payment-methods' u.payment-json)
   ?:  ?=(%| -.payments)
     payments
+  =/  disposal-json  (json-array 'disposal-kinds' u.definitions-object)
+  =/  disposal-kinds=(each (list import-simple-definition:rover) entry-verdict:rover)
+    ?~  disposal-json
+      [%& ~]
+    (decode-import-simple 'import.definitions.disposal-kinds' u.disposal-json)
+  ?:  ?=(%| -.disposal-kinds)
+    disposal-kinds
+  =/  consumable-json  (json-array 'consumables' u.definitions-object)
+  =/  consumables=(each (list import-consumable-definition:rover) entry-verdict:rover)
+    ?~  consumable-json
+      [%& ~]
+    (decode-import-consumables u.consumable-json)
+  ?:  ?=(%| -.consumables)
+    consumables
+  =/  custom-json  (json-array 'custom-fields' u.definitions-object)
+  =/  custom-fields=(each (list import-custom-field:rover) entry-verdict:rover)
+    ?~  custom-json
+      [%& ~]
+    (decode-import-custom-fields u.custom-json)
+  ?:  ?=(%| -.custom-fields)
+    custom-fields
   =/  place-json  (json-array 'places' u.object)
   ?~  place-json
     [%| %missing-key 'import.places']
@@ -1124,13 +1464,29 @@
   ?:  ?=(%| -.vehicles)
     vehicles
   =/  definitions=import-definitions:rover
-    [p.energy p.services p.additives p.modes p.tags p.payments]
-  [%& definitions p.places p.vehicles]
+    :*  p.energy
+        p.services
+        p.additives
+        p.modes
+        p.tags
+        p.payments
+        p.disposal-kinds
+        p.consumables
+        p.custom-fields
+    ==
+  [%& definitions p.places p.vehicles (optional-text 'appDefaultVehicle' u.object)]
 ::
 ++  decode-consumable
   |=  body=@t
   ^-  (each consumable-entry:rover entry-verdict:rover)
   =/  object  (json-object body)
+  ?~  object
+    [%| %bad-shape 'consumable']
+  (decode-consumable-object object)
+::
+++  decode-consumable-object
+  |=  object=(unit (map @t json))
+  ^-  (each consumable-entry:rover entry-verdict:rover)
   ?~  object
     [%| %bad-shape 'consumable']
   =/  vehicle  (json-string 'vehicle' u.object)
@@ -1526,7 +1882,11 @@
     [%| %bad-shape 'charge']
   ?.  ?=(%o -.u.parsed)
     [%| %bad-shape 'charge']
-  =/  object=(map @t json)  +.u.parsed
+  (decode-charge-object +.u.parsed)
+::
+++  decode-charge-object
+  |=  object=(map @t json)
+  ^-  (each charge-entry:rover entry-verdict:rover)
   =/  vehicle  (json-string 'vehicle' object)
   ?~  vehicle
     [%| %missing-key 'charge.vehicle']

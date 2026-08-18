@@ -130,6 +130,27 @@
         (scow %da observed-start.input.value.work)
       ==
     %reminder  (cat 3 'reminder ' subtype-label.value.work)
+    %consumable-definition  (cat 3 'consumable definition ' label.value.work)
+    %custom-field  (cat 3 'custom field ' label.value.work)
+    %charge
+      %-  crip
+      ;:  weld
+        "charging session for "
+        (trip vehicle-label.input.value.work)
+        " / "
+        (scow %da observed-start.input.value.work)
+      ==
+    %consumable-purchase
+      %-  crip
+      ;:  weld
+        (trip consumable-label.value.work)
+        " purchase for "
+        (trip vehicle-label.value.work)
+        " / "
+        (scow %da observed-start.value.work)
+      ==
+    %vehicle-extras  (cat 3 'vehicle settings ' label.value.work)
+    %app-default  (cat 3 'default vehicle ' label.work)
   ==
 ::
 ++  fill-work-value
@@ -242,6 +263,20 @@
       (scow %ud subtype-defaults-created.report)
       ", reused "
       (scow %ud subtype-defaults-reused.report)
+      "\0aCharges: imported "
+      (scow %ud charges-imported.report)
+      ", already-imported "
+      (scow %ud charges-already-imported.report)
+      "\0aConsumable purchases: imported "
+      (scow %ud purchases-imported.report)
+      ", already-imported "
+      (scow %ud purchases-already-imported.report)
+      "\0aDefinitions archived: "
+      (scow %ud definitions-archived.report)
+      "\0aVehicle links written: "
+      (scow %ud vehicle-links-written.report)
+      "\0aCustom field values written: "
+      (scow %ud custom-values-written.report)
       "\0asourceEfficiency: ignored by the Hoon import path\0a"
     ==
   =/  messages  messages.report
@@ -349,10 +384,23 @@
     $(values t.values)
   [i.values $(values t.values)]
 ::
+::  Every energy definition this vehicle needs before its own records land.
+::  The charges and the settings section are here beside the fills because a
+::  charging session is looked up through the vehicle-energy link, and the
+::  settings section is written last of all. A vehicle whose only electric
+::  record is a charge would otherwise meet no link and lose the charge.
 ++  vehicle-energy-labels
   |=  vehicle=import-vehicle:rover
   ^-  (list @t)
   =/  labels=(list @t)  [default-energy.vehicle ~]
+  =.  labels
+    %+  roll  energy-links.vehicle
+    |=  [link=import-vehicle-link:rover out=_labels]
+    [label.link out]
+  =.  labels
+    %+  roll  charges.vehicle
+    |=  [charge=import-charge:rover out=_labels]
+    [definition-label.input.charge out]
   =/  fills  fills.vehicle
   |-
   ?~  fills
@@ -414,7 +462,18 @@
       (simples %driving-mode driving-modes.definitions.document)
       (simples %tag tags.definitions.document)
       (simples %payment-method payment-methods.definitions.document)
+      (simples %disposal-kind disposal-kinds.definitions.document)
     ==
+  =/  consumable-definition-work
+    %+  turn  consumables.definitions.document
+    |=  value=import-consumable-definition:rover
+    ^-  import-work:rover
+    [%consumable-definition value]
+  =/  custom-field-work
+    %+  turn  custom-fields.definitions.document
+    |=  value=import-custom-field:rover
+    ^-  import-work:rover
+    [%custom-field value]
   =/  place-work
     %+  turn  places.document
     |=  value=import-place:rover
@@ -439,6 +498,32 @@
         [%fill distance-unit.vehicle volume-unit.vehicle value]
       $(values t.values)
     (build vehicles.document)
+  =/  charge-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values
+        ~
+      %+  weld
+        %+  turn  charges.i.values
+        |=  value=import-charge:rover
+        ^-  import-work:rover
+        [%charge value]
+      $(values t.values)
+    (build vehicles.document)
+  =/  purchase-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values
+        ~
+      %+  weld
+        %+  turn  consumable-purchases.i.values
+        |=  value=consumable-entry:rover
+        ^-  import-work:rover
+        [%consumable-purchase value]
+      $(values t.values)
+    (build vehicles.document)
   =/  event-work
     =/  build
       |=  values=(list import-vehicle:rover)
@@ -446,18 +531,32 @@
       ?~  values
         ~
       =/  vehicle  i.values
-      %+  weld
-        %+  turn  service-events.vehicle
+      =/  kinds
+        |=  events=(list import-event:rover)
+        ^-  (list import-work:rover)
+        %+  turn  events
         |=  value=import-event:rover
         ^-  import-work:rover
         [%event value]
-      %+  weld
-        %+  turn  note-events.vehicle
-        |=  value=import-event:rover
-        ^-  import-work:rover
-        [%event value]
-      $(values t.values)
+      ;:  weld
+        (kinds service-events.vehicle)
+        (kinds expense-events.vehicle)
+        (kinds note-events.vehicle)
+        (kinds acquisition-events.vehicle)
+        (kinds disposal-events.vehicle)
+        $(values t.values)
+      ==
     (build vehicles.document)
+  =/  extras-work
+    %+  turn  vehicles.document
+    |=  value=import-vehicle:rover
+    ^-  import-work:rover
+    [%vehicle-extras value]
+  =/  default-work
+    ^-  (list import-work:rover)
+    ?~  app-default.document
+      ~
+    [%app-default u.app-default.document]~
   =/  reminder-work
     =/  build
       |=  values=(list import-vehicle:rover)
@@ -471,15 +570,25 @@
         [%reminder value]
       $(values t.values)
     (build vehicles.document)
+  ::  ORDER IS LOAD-BEARING. Every record names a definition, a place and a
+  ::  vehicle by label, so all three exist before the first record lands. The
+  ::  vehicle settings come last of all, because a default subtype and a
+  ::  consumable link name definitions the record layer may have created.
   ;:  weld
     energy-work
     subtype-work
     simple-work
+    consumable-definition-work
+    custom-field-work
     place-work
     vehicle-work
     fill-work
+    charge-work
+    purchase-work
     event-work
     reminder-work
+    extras-work
+    default-work
   ==
 ::
 ++  simple-table
@@ -494,6 +603,8 @@
       ['tag-definitions' 'tag-id']
     %payment-method
       ['payment-method-definitions' 'method-id']
+    %disposal-kind
+      ['disposal-kind-definitions' 'disposal-kind-id']
   ==
 ::
 ++  energy-lookup
@@ -549,7 +660,10 @@
     "FROM places P WHERE P.label = '"
     quoted
     "' SELECT P.place-id, P.label, P.archived; "
-    "FROM stations S JOIN places P ON S.place-id = P.place-id WHERE S.label = '"
+    ::  Every station of the place, not only the one that shares its label.
+    ::  A place holds more than one station, and a station carries a label of
+    ::  its own.
+    "FROM stations S JOIN places P ON S.place-id = P.place-id WHERE P.label = '"
     quoted
     "' SELECT S.station-id, S.place-id, S.label, S.station-kind, S.archived, P.label AS place;"
   ==
@@ -648,6 +762,314 @@
       (event-import-lookup value.work)
     %reminder
       (reminder-import-lookup value.work)
+    %consumable-definition
+      (consumable-definition-lookup label.value.work)
+    %custom-field
+      (custom-field-import-lookup label.value.work)
+    %charge
+      (charge-import-lookup value.work)
+    %consumable-purchase
+      (purchase-import-lookup value.work)
+    %vehicle-extras
+      (vehicle-extras-lookup value.work)
+    %app-default
+      (app-default-import-lookup label.work)
+  ==
+::
+::  A charging session is an energy acquisition, so it is recognised the same
+::  way a fill is. Result set 0 says whether it is already here; the rest is
+::  the ordinary charge write lookup the entry path uses.
+++  charge-import-lookup
+  |=  charge=import-charge:rover
+  ^-  tape
+  ;:  weld
+    "FROM energy-acquisitions A"
+    (provenance-import-join provenance.charge)
+    " JOIN charging-sessions C ON A.acquisition-id = C.acquisition-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id WHERE "
+    %:  provenance-predicate
+        provenance.charge
+        vehicle-label.input.charge
+        observed-start.input.charge
+    ==
+    " SELECT A.acquisition-id; "
+    (fill-lookup:act vehicle-label.input.charge definition-label.input.charge)
+  ==
+::
+::  A consumable purchase carries no provenance relation, so a repeat is
+::  recognised by the vehicle, the consumable and the instant - the same
+::  natural key the event family uses.
+++  purchase-import-lookup
+  |=  input=consumable-entry:rover
+  ^-  tape
+  ;:  weld
+    "FROM consumable-acquisitions A JOIN vehicles V ON A.vehicle-id = V.vehicle-id JOIN consumable-definitions C ON A.consumable-id = C.consumable-id WHERE V.label = '"
+    (sql-quote:act vehicle-label.input)
+    "' AND C.label = '"
+    (sql-quote:act consumable-label.input)
+    "' AND A.observed-start = "
+    (scow %da observed-start.input)
+    " SELECT A.consumable-acquisition-id; "
+    (consumable-lookup:act vehicle-label.input consumable-label.input)
+  ==
+::
+::  Everything the vehicle settings need by ID: the vehicle, the definitions
+::  its links name, the subtype its default names, and the links it already
+::  has. Each read stands alone, because a join whose leftmost relation is
+::  empty crashes the pinned engine and a fresh database has empty ones.
+++  vehicle-extras-lookup
+  |=  vehicle=import-vehicle:rover
+  ^-  tape
+  =/  quoted  (sql-quote:act label.vehicle)
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    quoted
+    "' SELECT V.vehicle-id, V.label, V.archived; "
+    "FROM energy-definitions E SELECT E.energy-definition-id, E.label; "
+    "FROM driving-mode-definitions D SELECT D.mode-id, D.label; "
+    "FROM consumable-definitions C SELECT C.consumable-id, C.label; "
+    "FROM energy-definition-subtypes S SELECT S.subtype-id, S.label; "
+    "FROM vehicles V JOIN vehicle-consumables L ON V.vehicle-id = L.vehicle-id WHERE V.label = '"
+    quoted
+    "' SELECT L.vehicle-id, L.consumable-id, L.archived; "
+    "FROM vehicles V JOIN vehicle-display-preferences P ON V.vehicle-id = P.vehicle-id WHERE V.label = '"
+    quoted
+    "' SELECT P.vehicle-id, P.distance-unit, P.currency; "
+    "FROM vehicles V JOIN vehicle-refill-reserve R ON V.vehicle-id = R.vehicle-id WHERE V.label = '"
+    quoted
+    "' SELECT R.vehicle-id, R.reserve-percent; "
+    "FROM vehicles V JOIN vehicle-default-energy-subtype D ON V.vehicle-id = D.vehicle-id WHERE V.label = '"
+    quoted
+    "' SELECT D.vehicle-id, D.subtype-id; "
+    "FROM vehicle-consumable-tank-size T SELECT T.vehicle-id, T.consumable-id, T.digits, T.decimals, T.unit; "
+    "FROM vehicles V JOIN vehicle-energy-definitions L ON V.vehicle-id = L.vehicle-id WHERE V.label = '"
+    quoted
+    "' SELECT L.vehicle-id, L.energy-definition-id, L.archived; "
+    "FROM vehicles V JOIN vehicle-driving-modes L ON V.vehicle-id = L.vehicle-id WHERE V.label = '"
+    quoted
+    "' SELECT L.vehicle-id, L.mode-id, L.archived;"
+  ==
+::
+::  One optional single-row child, written the way the specification family
+::  writes one: clear, then insert when the document names a value. A field
+::  the document leaves out removes nothing, because the export always names
+::  every field a row exists for.
+++  clear-child
+  |=  [relation=@tas vehicle-id=@ux]
+  ^-  tape
+  ;:  weld
+    "DELETE FROM "
+    (trip relation)
+    " WHERE vehicle-id = "
+    (scow %ux vehicle-id)
+    "; "
+  ==
+::
+++  link-write
+  |=  $:  relation=@tas
+          id-column=@tas
+          vehicle-id=@ux
+          target-id=@ux
+          archived=?
+          linked=?
+      ==
+  ^-  tape
+  ?:  linked
+    ;:  weld
+      "UPDATE "
+      (trip relation)
+      " SET archived = "
+      (archived-literal archived)
+      " WHERE vehicle-id = "
+      (scow %ux vehicle-id)
+      " AND "
+      (trip id-column)
+      " = "
+      (scow %ux target-id)
+      "; "
+    ==
+  ;:  weld
+    "INSERT INTO "
+    (trip relation)
+    " VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    (scow %ux target-id)
+    ", "
+    (archived-literal archived)
+    "); "
+  ==
+::
+::  One vehicle's settings: the display preference, the refill reserve, the
+::  default subtype, and the three link families. Everything here names a
+::  definition by label at the boundary and reaches the database by ID.
+++  vehicle-extras-write
+  |=  $:  vehicle-id=@ux
+          vehicle=import-vehicle:rover
+          energy-links=(list [target=@ux archived=? linked=?])
+          mode-links=(list [target=@ux archived=? linked=?])
+          consumable-links=(list [target=@ux archived=? linked=? tank=(unit scaled-entry:rover)])
+          default-subtype-id=(unit @ux)
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  preference-script=tape
+    ;:  weld
+      (clear-child %vehicle-display-preferences vehicle-id)
+      ?~  preference.vehicle
+        ~
+      ;:  weld
+        "INSERT INTO vehicle-display-preferences VALUES ("
+        (scow %ux vehicle-id)
+        ", "
+        ::  Absence of a preferred distance unit renders source-native, and
+        ::  the relation has no nullable column, so the stored term is the
+        ::  vehicle's own unit when the owner expressed no preference.
+        %-  sql-term:act
+        ?~  distance-unit.u.preference.vehicle
+          distance-unit.vehicle
+        u.distance-unit.u.preference.vehicle
+        ", "
+        (sql-term:act currency.u.preference.vehicle)
+        ", "
+        (scow %da recorded-at)
+        "); "
+      ==
+    ==
+  =/  reserve-script=tape
+    ;:  weld
+      (clear-child %vehicle-refill-reserve vehicle-id)
+      ?~  refill-reserve.vehicle
+        ~
+      ;:  weld
+        "INSERT INTO vehicle-refill-reserve VALUES ("
+        (scow %ux vehicle-id)
+        ", "
+        (sql-ud:act u.refill-reserve.vehicle)
+        "); "
+      ==
+    ==
+  =/  subtype-script=tape
+    ;:  weld
+      (clear-child %vehicle-default-energy-subtype vehicle-id)
+      ?~  default-subtype-id
+        ~
+      ;:  weld
+        "INSERT INTO vehicle-default-energy-subtype VALUES ("
+        (scow %ux vehicle-id)
+        ", "
+        (scow %ux u.default-subtype-id)
+        ", "
+        (scow %da recorded-at)
+        "); "
+      ==
+    ==
+  =/  energy-script=tape
+    =/  build
+      |=  remaining=(list [target=@ux archived=? linked=?])
+      ^-  tape
+      ?~  remaining
+        ~
+      %+  weld
+        %:  link-write
+            %vehicle-energy-definitions
+            %energy-definition-id
+            vehicle-id
+            target.i.remaining
+            archived.i.remaining
+            linked.i.remaining
+        ==
+      $(remaining t.remaining)
+    (build energy-links)
+  =/  mode-script=tape
+    =/  build
+      |=  remaining=(list [target=@ux archived=? linked=?])
+      ^-  tape
+      ?~  remaining
+        ~
+      %+  weld
+        %:  link-write
+            %vehicle-driving-modes
+            %mode-id
+            vehicle-id
+            target.i.remaining
+            archived.i.remaining
+            linked.i.remaining
+        ==
+      $(remaining t.remaining)
+    (build mode-links)
+  =/  consumable-script=tape
+    =/  build
+      |=  remaining=(list [target=@ux archived=? linked=? tank=(unit scaled-entry:rover)])
+      ^-  tape
+      ?~  remaining
+        ~
+      =/  tank-script=tape
+        ;:  weld
+          "DELETE FROM vehicle-consumable-tank-size WHERE vehicle-id = "
+          (scow %ux vehicle-id)
+          " AND consumable-id = "
+          (scow %ux target.i.remaining)
+          "; "
+          ?~  tank.i.remaining
+            ~
+          ;:  weld
+            "INSERT INTO vehicle-consumable-tank-size VALUES ("
+            (scow %ux vehicle-id)
+            ", "
+            (scow %ux target.i.remaining)
+            ", "
+            (sql-ud:act digits.u.tank.i.remaining)
+            ", "
+            (sql-ud:act places.u.tank.i.remaining)
+            ", "
+            (sql-term:act value-unit.u.tank.i.remaining)
+            "); "
+          ==
+        ==
+      ;:  weld
+        %:  link-write
+            %vehicle-consumables
+            %consumable-id
+            vehicle-id
+            target.i.remaining
+            archived.i.remaining
+            linked.i.remaining
+        ==
+        tank-script
+        $(remaining t.remaining)
+      ==
+    (build consumable-links)
+  ;:  weld
+    energy-script
+    mode-script
+    consumable-script
+    preference-script
+    reserve-script
+    subtype-script
+  ==
+::
+++  app-default-write
+  |=  [vehicle-id=@ux present=? recorded-at=@da]
+  ^-  tape
+  ;:  weld
+    ?.  present
+      ~
+    "DELETE FROM app-default-vehicle WHERE scope = %app; "
+    "INSERT INTO app-default-vehicle VALUES (%app, "
+    (scow %ux vehicle-id)
+    ", "
+    (scow %da recorded-at)
+    ");"
+  ==
+::
+++  app-default-import-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote:act label)
+    "' SELECT V.vehicle-id; "
+    "FROM app-default-vehicle A WHERE A.scope = %app SELECT A.vehicle-id;"
   ==
 ::
 ++  event-import-lookup
@@ -726,7 +1148,9 @@
       (scow %ux definition-id)
       ", '"
       (sql-quote:act label.value)
-      "', N, "
+      "', "
+      (archived-literal archived.value)
+      ", "
       (scow %da recorded-at)
       ");"
       rating
@@ -746,11 +1170,32 @@
         quantity-unit.input
         recorded-at
     ==
+    ::  The shared insert writes the active flag, which is right for the entry
+    ::  path. A document that carries an archived definition corrects it in the
+    ::  same atomic script, so the row is never briefly visible as active.
+    %:  archive-row
+        %energy-definitions
+        %energy-definition-id
+        definition-id
+        %.n
+        archived.input
+    ==
     (insert-energy-subtypes base definition-id subtypes.input recorded-at)
   ==
 ::
+::  `Y` is archived and `N` is active, because the `@f` bunt is `%.y`. The
+::  literal is always written: DEFAULT would archive every definition.
+++  archived-literal
+  |=  archived=?
+  ^-  tape
+  ?:(archived "Y" "N")
+::
 ++  insert-simple
-  |=  [base=@ux kind=import-simple-kind:rover label=@t recorded-at=@da]
+  |=  $:  base=@ux
+          kind=import-simple-kind:rover
+          value=import-simple-definition:rover
+          recorded-at=@da
+      ==
   ^-  tape
   =/  meta  (simple-table kind)
   ;:  weld
@@ -759,10 +1204,162 @@
     " VALUES ("
     (scow %ux (fixture-id:act base 1))
     ", '"
-    (sql-quote:act label)
-    "', N, "
+    (sql-quote:act label.value)
+    "', "
+    (archived-literal archived.value)
+    ", "
     (scow %da recorded-at)
     ");"
+  ==
+::
+++  insert-consumable-definition
+  |=  [base=@ux value=import-consumable-definition:rover recorded-at=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO consumable-definitions VALUES ("
+    (scow %ux (fixture-id:act base 1))
+    ", '"
+    (sql-quote:act label.value)
+    "', "
+    (sql-term:act quantity-unit.value)
+    ", "
+    (archived-literal archived.value)
+    ", "
+    (scow %da recorded-at)
+    ");"
+  ==
+::
+::  `entry-type` and `target` are the two values every custom field Rover
+::  writes today carries. They are not in the format because no entry path
+::  produces another value, and inventing a second one here would model a
+::  feature that does not exist.
+++  insert-custom-field
+  |=  [base=@ux value=import-custom-field:rover recorded-at=@da]
+  ^-  tape
+  ;:  weld
+    "INSERT INTO custom-field-definitions VALUES ("
+    (scow %ux (fixture-id:act base 1))
+    ", '"
+    (sql-quote:act label.value)
+    "', "
+    (sql-term:act content-type.value)
+    ", %direct, "
+    (archived-literal mandatory.value)
+    ", %fill, "
+    (archived-literal archived.value)
+    ", "
+    (scow %da recorded-at)
+    ");"
+  ==
+::
+::  M7 T10. An archived definition exports as archived and must import as
+::  archived, whether the row is new or was already here. The flag is synced
+::  after the create-or-reuse decision, so a definition the receiving ship
+::  already held in the other state is corrected rather than resurrected.
+++  archive-sync
+  |=  [family=@tas id=@ux stored=? wanted=?]
+  ^-  tape
+  ?:  =(stored wanted)
+    ~
+  =/  found  (definition-family-of:act family)
+  ?~  found
+    ~
+  (weld (set-definition-archived:act u.found id wanted) " ")
+::
+::  The same correction for a relation that is not a definition family. An
+::  energy subtype, a place and a station each carry the flag without being
+::  owner-editable definitions in their own right.
+++  archive-row
+  |=  [relation=@tas id-column=@tas id=@ux stored=? wanted=?]
+  ^-  tape
+  ?:  =(stored wanted)
+    ~
+  ;:  weld
+    "UPDATE "
+    (trip relation)
+    " SET archived = "
+    (archived-literal wanted)
+    " WHERE "
+    (trip id-column)
+    " = "
+    (scow %ux id)
+    "; "
+  ==
+::
+++  stored-archived
+  |=  row=vector:ast
+  ^-  ?
+  =(0 (cell-atom:view %archived row))
+::
+++  subtype-archive-sync
+  |=  [subtypes=(list import-energy-subtype:rover) rows=(list vector:ast)]
+  ^-  tape
+  ?~  subtypes
+    ~
+  =/  rest  $(subtypes t.subtypes)
+  =/  found  (row-by-text:view %label label.i.subtypes rows)
+  ?~  found
+    rest
+  %+  weld
+    %:  archive-row
+        %energy-definition-subtypes
+        %subtype-id
+        `@ux`(cell-atom:view %subtype-id u.found)
+        (stored-archived u.found)
+        archived.i.subtypes
+    ==
+  rest
+::
+::  A place the database already holds, and the stations the document names
+::  for it that the database does not. Both the place row and each station
+::  row carry their own archived flag.
+++  place-archive-sync
+  |=  [input=import-place:rover place-row=vector:ast station-rows=(list vector:ast)]
+  ^-  tape
+  =/  place-script
+    %:  archive-row
+        %places
+        %place-id
+        `@ux`(cell-atom:view %place-id place-row)
+        (stored-archived place-row)
+        archived.input
+    ==
+  =/  build
+    |=  remaining=(list import-station:rover)
+    ^-  tape
+    ?~  remaining
+      ~
+    =/  rest  $(remaining t.remaining)
+    =/  found  (row-by-text:view %label label.i.remaining station-rows)
+    ?~  found
+      rest
+    %+  weld
+      %:  archive-row
+          %stations
+          %station-id
+          `@ux`(cell-atom:view %station-id u.found)
+          (stored-archived u.found)
+          archived.i.remaining
+      ==
+    rest
+  (weld place-script (build stations.input))
+::
+++  consumable-definition-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM consumable-definitions C WHERE C.label = '"
+    (sql-quote:act label)
+    "' SELECT C.consumable-id, C.label, C.quantity-unit, C.archived;"
+  ==
+::
+++  custom-field-import-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM custom-field-definitions C WHERE C.label = '"
+    (sql-quote:act label)
+    "' SELECT C.field-id, C.label, C.content-type, C.mandatory, C.archived;"
   ==
 ::
 ++  insert-subtype-default
@@ -793,7 +1390,9 @@
     (scow %ux subtype-id)
     ", '"
     (sql-quote:act label.input)
-    "', N, "
+    "', "
+    (archived-literal archived.input)
+    ", "
     (scow %da recorded-at)
     ");"
     ?~(default.input ~ (insert-subtype-default subtype-id u.default.input))
@@ -830,6 +1429,7 @@
           input=import-place:rover
           station-kind=station-kind:rover
           existing-place-id=(unit @ux)
+          existing-stations=(list @t)
           recorded-at=@da
       ==
   ^-  tape
@@ -842,7 +1442,9 @@
       (scow %ux place-id)
       ", '"
       (sql-quote:act label.input)
-      "', N, "
+      "', "
+      (archived-literal archived.input)
+      ", "
       (scow %da recorded-at)
       ");"
     ==
@@ -889,19 +1491,38 @@
       (scow %da recorded-at)
       ");"
     ==
+  ::  One station row per station the document names that the database does
+  ::  not already hold. A place and its station are two facts, and a station
+  ::  whose label differs from its place's is ordinary rather than exceptional.
+  =/  station-rows
+    =/  build
+      |=  [remaining=(list import-station:rover) ordinal=@ud]
+      ^-  tape
+      ?~  remaining
+        ~
+      =/  rest  $(remaining t.remaining, ordinal +(ordinal))
+      ?:  (lien existing-stations |=(had=@t =(had label.i.remaining)))
+        rest
+      ;:  weld
+        " INSERT INTO stations VALUES ("
+        (scow %ux (fixture-id:act base (add 2 ordinal)))
+        ", "
+        (scow %ux place-id)
+        ", '"
+        (sql-quote:act label.i.remaining)
+        "', "
+        (sql-term:act station-kind.i.remaining)
+        ", "
+        (archived-literal archived.i.remaining)
+        ", "
+        (scow %da recorded-at)
+        ");"
+        rest
+      ==
+    (build stations.input 0)
   ;:  weld
     place-row
-    " INSERT INTO stations VALUES ("
-    (scow %ux (fixture-id:act base 2))
-    ", "
-    (scow %ux place-id)
-    ", '"
-    (sql-quote:act label.input)
-    "', "
-    (sql-term:act station-kind)
-    ", N, "
-    (scow %da recorded-at)
-    ");"
+    station-rows
     address-rows
     coordinate-row
   ==
@@ -1032,19 +1653,60 @@
     (spec-write:act vehicle-id specification recorded-at)
   ==
 ::
+::  Which acquisition a record already occupies. A record that names a foreign
+::  source is found by that source; a record a person entered has no
+::  provenance row to find it by, so it is found by the natural key the
+::  database does store - the vehicle and the instant. Both are exact, and
+::  neither invents a provenance the record never had.
+++  provenance-predicate
+  |=  [provenance=import-provenance:rover vehicle-label=@t observed-start=@da]
+  ^-  tape
+  ?^  provenance
+    ;:  weld
+      "I.source-app = "
+      (sql-term:act source-app.u.provenance)
+      " AND I.source-record-id = '"
+      (sql-quote:act source-record-id.u.provenance)
+      "'"
+    ==
+  ;:  weld
+    "V.label = '"
+    (sql-quote:act vehicle-label)
+    "' AND A.observed-start = "
+    (scow %da observed-start)
+  ==
+::
+::  The provenance relation is joined only when the record claims one. Joining
+::  it for an owner-entered record would find nothing at all, and the natural
+::  key needs the vehicle relation in its place.
+++  provenance-join
+  |=  provenance=import-provenance:rover
+  ^-  tape
+  ?~  provenance
+    " JOIN vehicles V ON A.vehicle-id = V.vehicle-id"
+  " JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id"
+::
+::  The same choice for a query that already names the vehicle relation.
+++  provenance-import-join
+  |=  provenance=import-provenance:rover
+  ^-  tape
+  ?~  provenance
+    ~
+  " JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id"
+::
 ++  fill-existing-lookup
   |=  fill=import-fill:rover
   ^-  tape
   =/  source
-    ;:  weld
-      "I.source-app = "
-      (sql-term:act source-app.fill)
-      " AND I.source-record-id = '"
-      (sql-quote:act source-record-id.fill)
-      "'"
+    %:  provenance-predicate
+        provenance.fill
+        vehicle-label.input.fill
+        observed-start.input.fill
     ==
   ;:  weld
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE "
+    "FROM energy-acquisitions A"
+    (provenance-import-join provenance.fill)
+    " JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id JOIN vehicles V ON A.vehicle-id = V.vehicle-id JOIN energy-definitions E ON A.energy-definition-id = E.energy-definition-id WHERE "
     source
     " SELECT A.acquisition-id, V.label AS vehicle, E.label AS definition, A.observed-start, A.observed-end, A.observed-precision, A.source-zone, F.quantity-milli, F.quantity-unit, F.tank-state, F.unit-price-mills, F.currency, F.settlement-mode, F.price-profile, F.minor-unit-decimals, F.cash-increment-mills;"
   ==
@@ -1053,30 +1715,41 @@
   |=  fill=import-fill:rover
   ^-  tape
   =/  source
-    ;:  weld
-      "I.source-app = "
-      (sql-term:act source-app.fill)
-      " AND I.source-record-id = '"
-      (sql-quote:act source-record-id.fill)
-      "'"
+    %:  provenance-predicate
+        provenance.fill
+        vehicle-label.input.fill
+        observed-start.input.fill
     ==
+  =/  join  (provenance-join provenance.fill)
   ;:  weld
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE "
     source
     " SELECT O.value-digits, O.decimal-places, O.unit, O.observed-start, O.observed-end, O.observed-precision, O.source-zone; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN energy-acquisition-stations L ON A.acquisition-id = L.acquisition-id JOIN stations S ON L.station-id = S.station-id WHERE "
     source
     " SELECT S.label AS station; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN fuel-fill-subtype L ON A.acquisition-id = L.acquisition-id JOIN energy-definition-subtypes S ON L.subtype-id = S.subtype-id WHERE "
     source
     " SELECT S.label AS subtype; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN fuel-fill-additives L ON A.acquisition-id = L.acquisition-id JOIN additive-definitions D ON L.additive-id = D.additive-id WHERE "
     source
     " SELECT D.label AS additive; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN economy-breaks B ON A.acquisition-id = B.acquisition-id WHERE "
     source
     " SELECT B.reason; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN fuel-fill-driving-mode L ON A.acquisition-id = L.acquisition-id JOIN driving-mode-definitions D ON L.mode-id = D.mode-id WHERE "
     source
     " SELECT D.label AS driving-mode;"
   ==
@@ -1085,27 +1758,36 @@
   |=  fill=import-fill:rover
   ^-  tape
   =/  source
-    ;:  weld
-      "I.source-app = "
-      (sql-term:act source-app.fill)
-      " AND I.source-record-id = '"
-      (sql-quote:act source-record-id.fill)
-      "'"
+    %:  provenance-predicate
+        provenance.fill
+        vehicle-label.input.fill
+        observed-start.input.fill
     ==
+  =/  join  (provenance-join provenance.fill)
   ;:  weld
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN fuel-fill-average-speed S ON A.acquisition-id = S.acquisition-id WHERE "
     source
     " SELECT S.digits, S.decimals, S.speed-unit; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN fuel-fill-drive-balance B ON A.acquisition-id = B.acquisition-id WHERE "
     source
     " SELECT B.highway-percent; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN fuel-fill-tags L ON A.acquisition-id = L.acquisition-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE "
     source
     " SELECT T.label AS tag; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fill-notes Q ON A.acquisition-id = Q.acquisition-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN fill-notes Q ON A.acquisition-id = Q.acquisition-id WHERE "
     source
     " SELECT Q.note; "
-    "FROM energy-acquisitions A JOIN acquisition-imports I ON A.acquisition-id = I.acquisition-id JOIN fuel-fill-payment-method L ON A.acquisition-id = L.acquisition-id JOIN payment-method-definitions P ON L.method-id = P.method-id WHERE "
+    "FROM energy-acquisitions A"
+    join
+    " JOIN fuel-fill-payment-method L ON A.acquisition-id = L.acquisition-id JOIN payment-method-definitions P ON L.method-id = P.method-id WHERE "
     source
     " SELECT P.label AS payment-method;"
   ==
@@ -1150,6 +1832,10 @@
     "FROM payment-method-definitions P WHERE "
     (label-predicate 'P' payment-labels)
     " AND P.archived = N SELECT P.method-id, P.label;"
+    ::  M7 T10. The owner-defined fields a fill may carry a value for. The
+    ::  whole catalog, because the fill names them by label and the archived
+    ::  ones still hold values written before they were archived.
+    " FROM custom-field-definitions C SELECT C.field-id, C.label, C.content-type, C.archived;"
   ==
 ::
 ++  row-texts
@@ -1299,8 +1985,8 @@
           tag-ids=(list @ux)
           payment-method-id=(unit @ux)
           input=fill-entry:rover
-          source-app=@tas
-          source-record-id=@t
+          provenance=import-provenance:rover
+          custom-script=tape
           recorded-at=@da
       ==
   ^-  tape
@@ -1319,12 +2005,56 @@
         input
         recorded-at
     ==
-    " INSERT INTO acquisition-imports VALUES ("
-    (scow %ux acquisition.ids)
-    ", "
-    (sql-term:act source-app)
-    ", '"
-    (sql-quote:act source-record-id)
-    "');"
+    custom-script
+    ::  Absence of the provenance row is what "the owner entered this" means.
+    ::  A row naming Rover itself would be a fiction, and it would make a
+    ::  second export disagree with the first.
+    ?~  provenance
+      ~
+    ;:  weld
+      " INSERT INTO acquisition-imports VALUES ("
+      (scow %ux acquisition.ids)
+      ", "
+      (sql-term:act source-app.u.provenance)
+      ", '"
+      (sql-quote:act source-record-id.u.provenance)
+      "');"
+    ==
   ==
+::
+::  M7 T10. The custom-field values a fill carries, matched to the definitions
+::  the support lookup returned. A value naming a field that does not exist,
+::  or one the field's own content type cannot hold, is skipped and reported
+::  rather than written as a guess.
+++  custom-value-script
+  |=  [acquisition-id=@ux values=(list [label=@t value=@t]) rows=(list vector:ast)]
+  ^-  [script=tape written=@ud skipped=(list @t)]
+  ?~  values
+    [~ 0 ~]
+  =/  rest  $(values t.values)
+  =/  found  (row-by-text:view %label label.i.values rows)
+  ?~  found
+    [script.rest written.rest [label.i.values skipped.rest]]
+  =/  field-id  `@ux`(cell-atom:view %field-id u.found)
+  =/  content  (cell-term:view %content-type u.found)
+  =/  one=tape
+    ?+  content  ~
+      %text
+        (insert-custom-text:act field-id acquisition-id value.i.values)
+      %boolean
+        (insert-custom-boolean:act field-id acquisition-id =('yes' value.i.values))
+      %number
+        =/  number  (parse-decimal:render value.i.values 3)
+        ?:  ?=(%| -.number)
+          ~
+        %:  insert-custom-number:act
+            field-id
+            acquisition-id
+            digits.p.number
+            places.p.number
+        ==
+    ==
+  ?~  one
+    [script.rest written.rest [label.i.values skipped.rest]]
+  [(weld one script.rest) +(written.rest) skipped.rest]
 --
