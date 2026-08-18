@@ -4026,7 +4026,18 @@
             ?~  found
               ~
             ``@ux`(cell-atom:view %subtype-id u.found)
+          ::  M7 T10. An archived vehicle stays archived across a round
+          ::  trip. The settings pass is the one place that can correct the
+          ::  flag on a vehicle the import found rather than created.
           =/  script
+            %+  weld
+              %:  archive-row:imp
+                  %vehicles
+                  %vehicle-id
+                  extras-vehicle-id
+                  (stored-archived:imp (snag 0 extras-vehicles))
+                  archived.value.work
+              ==
             %:  vehicle-extras-write:imp
                 extras-vehicle-id
                 value.work

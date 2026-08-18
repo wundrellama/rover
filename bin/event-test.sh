@@ -3350,4 +3350,646 @@ view="$(eyre_view)"
   || fail "fixture 83 imported no-ownership history changed last-fill economy"
 note "fixture 83 PASS - imported history creates no ownership events and keeps the pre-T5 whole-history derivation"
 
+
+# ===========================================================================
+# M7 T10 - the export. The export format IS the import format, so the file a
+# person downloads is a `rover-import` payload that Rover's own import path
+# accepts unchanged. The round trip is the correctness criterion.
+#
+# The fresh empty database is THIS pier's `rover` database, dropped and poured
+# again, rather than a second desk. A second desk would need a second copy of
+# the agent with a second database name, and the copy - not the export - would
+# then be the thing under test. Dropping proves the stronger claim: the export
+# alone rebuilds the database it came from, on the same code, with no leftover
+# row to flatter the comparison. The battery bootstraps a fresh database in
+# fixture 1, so a run that follows this one starts from the rebuilt database
+# and needs no repair.
+# ===========================================================================
+
+T10_VEHICLE="Export Vehicle $STAMP"
+T10_ENERGY="Export Energy $STAMP"
+T10_MODE="Export Mode $STAMP"
+T10_RETIRED="Export Retired Mode $STAMP"
+T10_FIELD="Export Field $STAMP"
+T10_FIELD_VALUE="Export receipt $STAMP"
+T10_TAG="Export Tag $STAMP"
+T10_PAYMENT="Export Card $STAMP"
+T10_ADDITIVE="Export Additive $STAMP"
+T10_STATION="Export Station $STAMP"
+T10_PLACE="Export Town $STAMP"
+# T7 rule. Q is not in the VIN alphabet, so this string cannot be a real VIN,
+# and the plate says so in letters. No real value from any database enters the
+# repository.
+T10_VIN="QQQFAKE0000$STAMP"
+T10_PLATE="FAKE $STAMP"
+T10_SERVICE_NOTE="Export service $STAMP"
+T10_EXPENSE_NOTE="Export expense $STAMP"
+T10_NOTE_NOTE="Export note $STAMP"
+T10_FILL_NOTE="Export fill note $STAMP"
+
+# Every relation the export carries, read by its PRIMARY KEY. A primary key is
+# unique by construction, so the projection cannot collapse two rows the way a
+# `SELECT R.reason` over a whole relation would. The list is the battery's own
+# copy: if the desk renames a relation, the read fails rather than passing on a
+# relation that is no longer there.
+T10_EXPORT_READS="$(cat <<'READS'
+FROM vehicles X SELECT X.vehicle-id;
+FROM vehicle-tank-size X SELECT X.vehicle-id;
+FROM vehicle-refill-reserve X SELECT X.vehicle-id;
+FROM vehicle-display-preferences X SELECT X.vehicle-id;
+FROM energy-definitions X SELECT X.energy-definition-id;
+FROM energy-definition-subtypes X SELECT X.subtype-id;
+FROM energy-subtype-octane X SELECT X.subtype-id;
+FROM energy-subtype-cetane X SELECT X.subtype-id;
+FROM vehicle-energy-definitions X SELECT X.vehicle-id, X.energy-definition-id;
+FROM vehicle-default-energy-definitions X SELECT X.vehicle-id;
+FROM vehicle-default-energy-subtype X SELECT X.vehicle-id;
+FROM driving-mode-definitions X SELECT X.mode-id;
+FROM vehicle-driving-modes X SELECT X.vehicle-id, X.mode-id;
+FROM additive-definitions X SELECT X.additive-id;
+FROM tag-definitions X SELECT X.tag-id;
+FROM payment-method-definitions X SELECT X.method-id;
+FROM consumable-definitions X SELECT X.consumable-id;
+FROM vehicle-consumables X SELECT X.vehicle-id, X.consumable-id;
+FROM vehicle-consumable-tank-size X SELECT X.vehicle-id, X.consumable-id;
+FROM service-subtype-definitions X SELECT X.service-subtype-id;
+FROM service-subtype-reminder-defaults X SELECT X.service-subtype-id;
+FROM disposal-kind-definitions X SELECT X.disposal-kind-id;
+FROM custom-field-definitions X SELECT X.field-id;
+FROM places X SELECT X.place-id;
+FROM place-addresses X SELECT X.place-id;
+FROM place-address-formatted X SELECT X.place-id;
+FROM place-address-parts X SELECT X.place-id, X.part;
+FROM place-coordinates X SELECT X.place-id;
+FROM stations X SELECT X.station-id;
+FROM odometer-observations X SELECT X.odometer-id;
+FROM energy-acquisitions X SELECT X.acquisition-id;
+FROM fuel-fills X SELECT X.acquisition-id;
+FROM charging-sessions X SELECT X.acquisition-id;
+FROM energy-acquisition-odometers X SELECT X.acquisition-id, X.odometer-id;
+FROM energy-acquisition-stations X SELECT X.acquisition-id;
+FROM fuel-fill-subtype X SELECT X.acquisition-id;
+FROM fuel-fill-additives X SELECT X.acquisition-id, X.additive-id;
+FROM economy-breaks X SELECT X.acquisition-id;
+FROM fuel-fill-driving-mode X SELECT X.acquisition-id;
+FROM fuel-fill-average-speed X SELECT X.acquisition-id;
+FROM fuel-fill-drive-balance X SELECT X.acquisition-id;
+FROM fuel-fill-tags X SELECT X.acquisition-id, X.tag-id;
+FROM fill-notes X SELECT X.acquisition-id;
+FROM fuel-fill-payment-method X SELECT X.acquisition-id;
+FROM acquisition-imports X SELECT X.acquisition-id;
+FROM charging-energy-measurements X SELECT X.measurement-id;
+FROM charging-session-batteries X SELECT X.acquisition-id, X.endpoint;
+FROM battery-observation-percent X SELECT X.battery-observation-id;
+FROM charging-costs X SELECT X.acquisition-id;
+FROM charging-cost-components X SELECT X.component-id;
+FROM charging-cost-source-totals X SELECT X.acquisition-id;
+FROM charging-session-subtype X SELECT X.acquisition-id;
+FROM consumable-acquisitions X SELECT X.consumable-acquisition-id;
+FROM consumable-purchases X SELECT X.consumable-acquisition-id;
+FROM consumable-acquisition-odometers X SELECT X.consumable-acquisition-id, X.odometer-id;
+FROM consumable-acquisition-stations X SELECT X.consumable-acquisition-id;
+FROM vehicle-events X SELECT X.event-id;
+FROM service-events X SELECT X.event-id;
+FROM expense-events X SELECT X.event-id;
+FROM note-events X SELECT X.event-id;
+FROM vehicle-acquisitions X SELECT X.event-id;
+FROM vehicle-disposals X SELECT X.event-id;
+FROM vehicle-event-costs X SELECT X.event-id;
+FROM vehicle-event-cost-totals X SELECT X.event-id;
+FROM vehicle-event-odometers X SELECT X.event-id, X.odometer-id;
+FROM vehicle-event-stations X SELECT X.event-id;
+FROM vehicle-event-tags X SELECT X.event-id, X.tag-id;
+FROM vehicle-event-payment-method X SELECT X.event-id;
+FROM vehicle-event-notes X SELECT X.event-id;
+FROM vehicle-event-service-subtypes X SELECT X.event-id, X.service-subtype-id;
+FROM service-reminders X SELECT X.reminder-id;
+FROM service-reminder-time X SELECT X.reminder-id;
+FROM service-reminder-distance X SELECT X.reminder-id;
+FROM app-default-vehicle X SELECT X.scope;
+FROM custom-field-values-number X SELECT X.field-id, X.parent-id;
+FROM custom-field-values-text X SELECT X.field-id, X.parent-id;
+FROM custom-field-values-boolean X SELECT X.field-id, X.parent-id;
+FROM vehicle-vin X SELECT X.vehicle-id;
+FROM vehicle-license-plate X SELECT X.vehicle-id;
+FROM vehicle-model-year X SELECT X.vehicle-id;
+FROM vehicle-make X SELECT X.vehicle-id;
+FROM vehicle-model X SELECT X.vehicle-id;
+FROM vehicle-sub-model X SELECT X.vehicle-id;
+FROM vehicle-body-type X SELECT X.vehicle-id;
+FROM vehicle-color X SELECT X.vehicle-id;
+FROM vehicle-engine X SELECT X.vehicle-id;
+FROM vehicle-transmission X SELECT X.vehicle-id;
+FROM vehicle-drive-type X SELECT X.vehicle-id;
+FROM vehicle-bed-type X SELECT X.vehicle-id;
+FROM vehicle-notes X SELECT X.vehicle-id;
+READS
+)"
+
+# The list on disk, so the comparison below reads it as an ordinary file. A
+# process substitution inside a command substitution closes on its own
+# schedule, and a comparison that silently reads a short list is a comparison
+# that silently drops relations.
+T10_READS_FILE="$(mktemp /tmp/rover-t10-reads.XXXXXX)"
+printf '%s\n' "$T10_EXPORT_READS" > "$T10_READS_FILE"
+
+# One count per relation the export carries, in the order of the list above.
+# Counts, not rows: the engine returns a set, so row order is not stable and
+# an assertion on a sequence of rows would be an assertion on the engine's
+# internal order. A count compares contents.
+#
+# Ten relations at a time. All ninety in one script is one result noun, and a
+# populated database makes that noun larger than the `click` transport can
+# return - it fails to cue and gives back nothing at all. Ten reads per call
+# keeps every answer small; the caller checks that ninety numbers came back.
+t10_relation_counts() {
+  local chunk="" line count=0
+  while IFS= read -r line; do
+    chunk="$chunk $line"
+    count=$((count + 1))
+    if [ "$count" = 10 ]; then
+      rover_report "$chunk" | grep -oE '%vector-count [0-9]+' | awk '{print $2}'
+      chunk=""
+      count=0
+    fi
+  done <<<"$T10_EXPORT_READS"
+  if [ -n "$chunk" ]; then
+    rover_report "$chunk" | grep -oE '%vector-count [0-9]+' | awk '{print $2}'
+  fi
+}
+
+# The count vector. A short vector means a read came back empty, and a
+# comparison over a short vector is a comparison that quietly drops relations,
+# so this refuses to return one.
+t10_counts_now() {
+  local counts wanted
+  counts="$(t10_relation_counts | paste -sd' ' -)"
+  wanted="$(grep -c 'FROM ' "$T10_READS_FILE")"
+  [ "$(printf '%s' "$counts" | wc -w)" = "$wanted" ] || return 1
+  printf '%s\n' "$counts"
+}
+
+t10_export() {
+  # target-file
+  local code
+  code="$(curl -s -b "$JAR" -o "$1" -w '%{http_code}' "$URL/apps/rover/export")"
+  [ "$code" = 200 ] || fail "the export endpoint answered $code"
+}
+
+# The history the browser renders for one vehicle, with every machine ID and
+# every serving timestamp removed. Cards are sorted, because the served order
+# of two equal histories is the only thing here that a set can reorder.
+t10_history() {
+  # vehicle
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+cards = re.findall(r"<article class=\"history-card [^\"]*\".*?</article>", document, re.S)
+cleaned = []
+for card in cards:
+    card = re.sub(r"\s*data-[a-z-]*id=\"0x[0-9a-f.]*\"", "", card)
+    card = re.sub(r"\s+", " ", card).strip()
+    cleaned.append(card)
+sys.stdout.write("\n".join(sorted(cleaned)))
+' <<<"$(eyre_view_vehicle "$1")"
+}
+
+# ---------------------------------------------------------------------------
+# The corpus. Every kind of record M7 knows, written through the endpoint a
+# browser calls. Nothing here pokes a fixture action.
+# ---------------------------------------------------------------------------
+own_add_vehicle "$T10_VEHICLE" Gasoline
+eyre_post add-energy-source-type \
+  "$(printf '{"label":"%s","physicalKind":"reservoir","quantityUnit":"gal"}' "$T10_ENERGY")" \
+  $'Created energy source type\n201' 'T10 energy source'
+eyre_post add-driving-mode-type "$(printf '{"label":"%s"}' "$T10_MODE")" \
+  $'Created driving mode type\n201' 'T10 driving mode'
+eyre_post add-driving-mode-type "$(printf '{"label":"%s"}' "$T10_RETIRED")" \
+  $'Created driving mode type\n201' 'T10 retired driving mode'
+eyre_post add-custom-field \
+  "$(printf '{"label":"%s","contentType":"text","mandatory":"no"}' "$T10_FIELD")" \
+  $'Created custom field\n201' 'T10 custom field'
+# Tags, payment methods and additives have no create endpoint of their own.
+curl -s -b "$JAR" -H 'content-type: application/json' \
+  --data-raw "$(printf '{"rover-import":1,"source":{"app":"rover-event-test"},"definitions":{"energy":[],"additives":[{"label":"%s"}],"driving-modes":[],"tags":[{"label":"%s"}],"payment-methods":[{"label":"%s"}]},"places":[],"vehicles":[]}' \
+    "$T10_ADDITIVE" "$T10_TAG" "$T10_PAYMENT")" \
+  "$URL/apps/rover/import" > /dev/null
+edit_vehicle "$(printf '{"vehicle":"%s","label":"%s","energySources":["Gasoline","Electricity","%s"],"drivingModes":["%s"],"defEnabled":"yes","defTankSize":"5","defTankUnit":"gal"}' \
+  "$T10_VEHICLE" "$T10_VEHICLE" "$T10_ENERGY" "$T10_MODE")" 'T10 vehicle configuration'
+edit_vehicle "$(spec_payload "$T10_VEHICLE" "$T10_VIN" "$T10_PLATE" 2021 Ford Ranger XLT \
+  'crew cab pickup' 'Shadow Black' '2.3L EcoBoost' '10-speed automatic' \
+  'four-wheel drive' '5 ft bed' "Export specification $STAMP")" 'T10 vehicle specification'
+own_add_ownership_event add-acquisition-event "$T10_VEHICLE" '2026-03-01T09:00' '$29,750.00' 30000 ''
+add_odometer_reading "$T10_VEHICLE" 30100 '2026-03-02T08:00' '30,100'
+# A fill that names a station in a new place, a tag, an additive, a payment
+# method, a driving mode and the custom field at once.
+eyre_post add-fill \
+  "$(printf '{"vehicle":"%s","definition":"%s","quantity":"12.500","price":"$3.99","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-03-03T10:00","zone":"America/Chicago","mileage":"30250","mileageUnit":"mi","station":"new","newStationLabel":"%s","newPlaceLabel":"%s","newStationKind":"fuel","additives":["%s"],"subtype":"","missedFill":"no","drivingMode":"%s","averageSpeed":"55.0","speedUnit":"mph","driveBalance":"70","tags":["%s"],"newTag":"","notes":"%s","paymentMethod":"%s","custom-%s":"%s"}' \
+    "$T10_VEHICLE" "$T10_ENERGY" "$T10_STATION" "$T10_PLACE" "$T10_ADDITIVE" "$T10_MODE" \
+    "$T10_TAG" "$T10_FILL_NOTE" "$T10_PAYMENT" "$T10_FIELD" "$T10_FIELD_VALUE")" \
+  $'Saved fill - $3.999 - derived $49.99\n201' 'T10 fill'
+eyre_post add-fill \
+  "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"11.000","price":"$3.79","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-03-10T10:00","zone":"America/Chicago","mileage":"30600","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' \
+    "$T10_VEHICLE" "$T10_STATION")" \
+  $'Saved fill - $3.799 - derived $41.79\n201' 'T10 second fill'
+eyre_post add-charge \
+  "$(printf '{"vehicle":"%s","definition":"Electricity","start":"2026-03-12T09:00","end":"2026-03-12T10:30","zone":"America/Chicago","energyDelivered":"38.5","energySource":"charger-reported","startBattery":"25","endBattery":"85","mileage":"30700","mileageUnit":"mi","costState":"unknown","currency":"usd"}' \
+    "$T10_VEHICLE")" \
+  $'Saved charge - Energy delivered 38.5 kWh\n201' 'T10 charge'
+eyre_post add-consumable \
+  "$(printf '{"vehicle":"%s","consumable":"DEF","quantity":"2.500","price":"$8.00","profile":"us-usd-gal","settlement":"standard","observed":"2026-03-14T10:00","zone":"America/Chicago","mileage":"30800","mileageUnit":"mi"}' \
+    "$T10_VEHICLE")" \
+  $'Saved consumable purchase - $20.02\n201' 'T10 consumable purchase'
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-03-16T09:00","zone":"America/Chicago","total":"$318.60","currency":"usd","mileage":"30900","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":["%s"],"newTag":"","paymentMethod":"%s","notes":"%s","subtypes":%s}' \
+    "$T10_VEHICLE" "$T10_STATION" "$T10_TAG" "$T10_PAYMENT" "$T10_SERVICE_NOTE" "$MULTI_SUBTYPES")" \
+  $'Saved service event - $318.60\n201' 'T10 service event'
+eyre_post add-expense-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-03-17T09:00","zone":"America/Chicago","total":"$64.25","currency":"usd","mileage":"30950","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"%s","notes":"%s"}' \
+    "$T10_VEHICLE" "$T10_PAYMENT" "$T10_EXPENSE_NOTE")" \
+  $'Saved expense event - $64.25\n201' 'T10 expense event'
+eyre_post add-note-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-03-18T09:00","zone":"America/Chicago","total":"","currency":"usd","mileage":"","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"%s"}' \
+    "$T10_VEHICLE" "$T10_NOTE_NOTE")" \
+  $'Saved note event\n201' 'T10 note event'
+add_reminder "$T10_VEHICLE" 'Engine Oil' 6 month '2026-09-01' 5000 35900
+add_reminder "$T10_VEHICLE" 'Tire Rotation' '' '' '' 7500 37500
+own_add_ownership_event add-disposal-event "$T10_VEHICLE" '2026-03-20T09:00' '$24,500.00' 31000 'Sold'
+# The archived definition. It is archived LAST, so nothing above needed it,
+# and the round trip has to bring the flag across rather than the row alone.
+eyre_post archive-definition \
+  "$(printf '{"family":"driving-mode","label":"%s"}' "$T10_RETIRED")" \
+  $'Archived definition\n201' 'T10 archive the retired driving mode'
+set_default_vehicle "$T10_VEHICLE"
+
+# ---------------------------------------------------------------------------
+# fixture 84 - the export goes to the owner and to nobody else. The endpoint
+# is the owner's authenticated Eyre session, exactly like every write. A
+# request without the session receives the login redirect and no payload.
+# ---------------------------------------------------------------------------
+t10_anon="$(curl -s -o /tmp/rover-t10-anon.$$ -w '%{http_code}' "$URL/apps/rover/export")"
+[ "$t10_anon" = 303 ] \
+  || fail "fixture 84 an unauthenticated export answered $t10_anon, want the login redirect"
+grep -q 'rover-import' /tmp/rover-t10-anon.$$ \
+  && fail "fixture 84 an unauthenticated export returned a payload"
+rm -f /tmp/rover-t10-anon.$$
+note "fixture 84 PASS - the export endpoint refuses a request that carries no owner session"
+
+# ---------------------------------------------------------------------------
+# fixture 85 - the export is a rover-import payload. It names its producer,
+# and it names what it does not carry, including the count of photos, because
+# silence is the failure mode in both directions.
+# ---------------------------------------------------------------------------
+T10_FIRST=/tmp/rover-t10-export-first.$$
+t10_export "$T10_FIRST"
+t10_shape="$(python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+problems = []
+if d.get("rover-import") != 1:
+    problems.append("no rover-import marker")
+source = d.get("source") or {}
+for key in ("app", "ship", "exported"):
+    if not source.get(key):
+        problems.append("source has no " + key)
+absent = d.get("not-carried") or {}
+photos = (absent.get("attachments") or {}).get("photos")
+if not isinstance(photos, int):
+    problems.append("no photo count")
+if not (absent.get("attachments") or {}).get("manifest"):
+    problems.append("no attachment manifest")
+kinds = absent.get("kinds") or []
+if not kinds:
+    problems.append("no not-carried kinds")
+for kind in kinds:
+    if not kind.get("kind") or not kind.get("reason") or "rows" not in kind:
+        problems.append("a not-carried kind is unnamed, unexplained or uncounted")
+if not [k for k in kinds if k.get("kind") == "standalone-odometer-readings"]:
+    problems.append("the standalone odometer readings are not named")
+for key in ("definitions", "places", "vehicles"):
+    if key not in d:
+        problems.append("no " + key + " section")
+sys.stdout.write("; ".join(problems) if problems else "ok")
+' "$T10_FIRST")"
+[ "$t10_shape" = ok ] || fail "fixture 85 the export is not a rover-import payload: $t10_shape"
+grep -q 'attachment; filename="rover-export-' <(curl -s -b "$JAR" -o /dev/null -D - "$URL/apps/rover/export") \
+  || fail "fixture 85 the export carries no download filename"
+note "fixture 85 PASS - the export is a rover-import payload that names its producer, its photo count, and every fact kind it leaves behind"
+
+# ---------------------------------------------------------------------------
+# fixture 92 - the download control. A person opens Settings, presses one
+# control, and receives the file. The control is read from the served
+# document, and the file is fetched from the address the control names, so
+# the fixture cannot pass on a control that points somewhere else.
+# ---------------------------------------------------------------------------
+view="$(eyre_view)"
+grep -q 'data-settings-section="export"' <<<"$view" \
+  || fail "fixture 92 the settings screen has no export section"
+t10_href="$(python3 -c '
+import re, sys
+found = re.search(r"<a [^>]*data-export-download[^>]*>", sys.stdin.read())
+if not found:
+    sys.exit(0)
+control = found.group(0)
+address = re.search(r"href=\"([^\"]+)\"", control)
+sys.stdout.write(address.group(1) if address and "download" in control else "")
+' <<<"$view")"
+[ -n "$t10_href" ] || fail "fixture 92 the served settings screen carries no download control"
+t10_control_code="$(curl -s -b "$JAR" -o /tmp/rover-t10-control.$$ -w '%{http_code}' "$URL$t10_href")"
+[ "$t10_control_code" = 200 ] \
+  || fail "fixture 92 the control points at $t10_href, which answered $t10_control_code"
+grep -q '"rover-import"' /tmp/rover-t10-control.$$ \
+  || fail "fixture 92 the control returned something that is not an export"
+rm -f /tmp/rover-t10-control.$$
+grep -q 'EXPORT - COMING LATER' <<<"$view" \
+  && fail "fixture 92 the settings screen still promises the export for later"
+note "fixture 92 PASS - the settings screen carries a download control, and the address it names serves the export file"
+
+# ---------------------------------------------------------------------------
+# fixture 86 - the export carries facts, not conclusions. Entered totals are
+# there; the economy, the cost per mile, the derived total paid and the
+# current odometer are not, because the receiving ship has no relation to put
+# them in and would derive a second, drifting copy.
+# ---------------------------------------------------------------------------
+t10_derived="$(python3 -c '
+import json, sys
+document = json.load(open(sys.argv[1]))
+banned = ("economy", "costpermile", "totalpaid", "currentodometer", "derived",
+          "lifetime", "average", "distancetravelled", "distancetraveled")
+found, entered = [], []
+def walk(node, path):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            flat = key.replace("-", "").replace("_", "").lower()
+            if flat in banned:
+                found.append(path + "/" + key)
+            if key == "total":
+                entered.append(value)
+            walk(value, path + "/" + key)
+    elif isinstance(node, list):
+        for item in node:
+            walk(item, path + "[]")
+walk(document, "")
+if found:
+    sys.stdout.write("derived: " + ", ".join(sorted(set(found))))
+elif not entered:
+    sys.stdout.write("no entered total survived the export")
+else:
+    sys.stdout.write("ok")
+' "$T10_FIRST")"
+[ "$t10_derived" = ok ] || fail "fixture 86 $t10_derived"
+grep -qF "$T10_SERVICE_NOTE" "$T10_FIRST" \
+  || fail "fixture 86 the service event is not in the export"
+grep -qF "$T10_VIN" "$T10_FIRST" \
+  || fail "fixture 86 the vehicle specification is not in the export"
+note "fixture 86 PASS - the export carries entered totals and no derived figure"
+
+# ---------------------------------------------------------------------------
+# fixture 87 - the round trip. The populated database is exported, dropped,
+# poured again, and rebuilt from the export alone. Every relation the export
+# carries holds the same number of rows on both sides.
+# ---------------------------------------------------------------------------
+T10_BEFORE_COUNTS="$(t10_counts_now)" \
+  || fail "fixture 87 could not read the source row counts"
+T10_BEFORE_HISTORY="$(t10_history "$T10_VEHICLE")"
+[ -n "$T10_BEFORE_HISTORY" ] || fail "fixture 87 the source database renders no history to compare"
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+=/  wire  /rover-t10-drop
+;<  ~  bind:m  (watch wire [our %obelisk] /server)
+;<  ~  bind:m  (poke [our %obelisk] %obelisk-action !>([%script %sys %vector "DROP DATABASE FORCE rover;"]))
+;<  [mark =vase]  bind:m  (take-fact wire)
+;<  ~  bind:m  (take-kick wire)
+(pure:m vase)' > /dev/null
+report="$(rover_report 'FROM vehicles X SELECT X.vehicle-id;')"
+grep -q '%vector-count' <<<"$report" \
+  && fail "fixture 87 the database survived the drop: $report"
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%init-db ~]))
+;<  ~  bind:m  (sleep ~s5)
+(pure:m !>(~))' > /dev/null
+ensure_def_schema
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%ensure-ui-schema ~]))
+;<  ~  bind:m  (sleep ~s3)
+(pure:m !>(~))' > /dev/null
+seed_starters
+T10_EMPTY_COUNTS="$(t10_counts_now)" \
+  || fail "fixture 87 could not read the poured row counts"
+[ "$T10_EMPTY_COUNTS" != "$T10_BEFORE_COUNTS" ] \
+  || fail "fixture 87 the poured database is not empty of the exported history"
+t10_receipt="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-binary "@$T10_FIRST" \
+  "$URL/apps/rover/import")"
+case "$t10_receipt" in (*$'\n'200) ;; (*) fail "fixture 87 the export did not import: $t10_receipt";; esac
+grep -q 'conflicts 0, failures 0' <<<"$t10_receipt" \
+  || fail "fixture 87 the import of the export reported a conflict or a failure: $t10_receipt"
+T10_AFTER_COUNTS="$(t10_counts_now)" \
+  || fail "fixture 87 could not read the rebuilt row counts"
+# The comparison itself, printed. A verdict with no numbers behind it is a
+# claim, and the round trip is the fixture that decides this task.
+python3 -c '
+import sys
+names = [line.split()[1] for line in open(sys.argv[3]).read().strip().split("\n")]
+source, rebuilt = sys.argv[1].split(), sys.argv[2].split()
+for name, before, after in zip(names, source, rebuilt):
+    if before != "0" or after != "0":
+        print("event-test:   %-40s source %6s   rebuilt %6s" % (name, before, after))
+' "$T10_BEFORE_COUNTS" "$T10_AFTER_COUNTS" "$T10_READS_FILE"
+t10_counts="$(python3 -c '
+import json, sys
+names = [line.split()[1] for line in open(sys.argv[3]).read().strip().split("\n")]
+source = dict(zip(names, (int(n) for n in sys.argv[1].split())))
+rebuilt = dict(zip(names, (int(n) for n in sys.argv[2].split())))
+# The one relation the export carries in part. A reading a record carries
+# travels inside that record; a reading entered on its own has no place in the
+# format, so the export counts it by name. The rebuilt database must be short
+# by exactly that many readings and by no other row anywhere.
+loose = 0
+for kind in (json.load(open(sys.argv[4])).get("not-carried") or {}).get("kinds") or []:
+    if kind.get("kind") == "standalone-odometer-readings":
+        loose = kind["rows"]
+source["odometer-observations"] -= loose
+differences = ["  %-42s source %d  rebuilt %d" % (name, source[name], rebuilt[name])
+               for name in names if source[name] != rebuilt[name]]
+if differences:
+    sys.stdout.write("\n".join(differences))
+elif loose and rebuilt["odometer-observations"] == 0:
+    sys.stdout.write("  every odometer reading was dropped, not just the standalone ones")
+else:
+    sys.stdout.write("ok")
+' "$T10_BEFORE_COUNTS" "$T10_AFTER_COUNTS" "$T10_READS_FILE" "$T10_FIRST")"
+[ "$t10_counts" = ok ] \
+  || fail "fixture 87 the rebuilt database holds different counts:"$'\n'"$t10_counts"
+note "fixture 87 PASS - a dropped and rebuilt database holds the same row count in all 90 relations the export carries, short only by the standalone readings the export counts by name"
+
+# ---------------------------------------------------------------------------
+# fixture 88 - the rebuilt database renders the same history for the same
+# vehicle. The derivations on those cards are the second database's own: it
+# reached the same figures from the same facts, and carried none of them.
+# ---------------------------------------------------------------------------
+set_default_vehicle "$T10_VEHICLE"
+T10_AFTER_HISTORY="$(t10_history "$T10_VEHICLE")"
+[ "$T10_AFTER_HISTORY" = "$T10_BEFORE_HISTORY" ] \
+  || fail "fixture 88 the rebuilt history differs: $(diff <(printf '%s\n' "$T10_BEFORE_HISTORY") <(printf '%s\n' "$T10_AFTER_HISTORY") | head -20)"
+grep -qF "$T10_SERVICE_NOTE" <<<"$T10_AFTER_HISTORY" \
+  || fail "fixture 88 the rebuilt history is missing the service event"
+grep -qF '<dt>CALCULATED TOTAL</dt><dd>$49.99</dd>' <<<"$T10_AFTER_HISTORY" \
+  || fail "fixture 88 the rebuilt history did not derive the fill total from the carried inputs"
+grep -qF "$T10_STATION" <<<"$T10_AFTER_HISTORY" \
+  || fail "fixture 88 the rebuilt history is missing the fill station"
+grep -qF '38.5 kWh' <<<"$T10_AFTER_HISTORY" \
+  || fail "fixture 88 the rebuilt history is missing the charge"
+note "fixture 88 PASS - the rebuilt database renders the same vehicle history, derivations included"
+
+# ---------------------------------------------------------------------------
+# fixture 89 - an archived definition round trips as archived. A round trip
+# must not resurrect it, and the receiving ship's own starter pack must not
+# either.
+# ---------------------------------------------------------------------------
+[ "$(t8_archived_flag driving-mode "$T10_RETIRED")" = 0 ] \
+  || fail "fixture 89 the round trip resurrected the archived driving mode"
+[ "$(t8_row_count driving-mode "$T10_RETIRED")" = 1 ] \
+  || fail "fixture 89 the archived driving mode is not a single row after the round trip"
+[ "$(t8_archived_flag driving-mode "$T10_MODE")" = 1 ] \
+  || fail "fixture 89 the round trip archived a definition that was active"
+note "fixture 89 PASS - an archived definition stays archived across the round trip, and an active one stays active"
+
+# ---------------------------------------------------------------------------
+# fixture 90 - re-exporting the rebuilt database gives the same payload. The
+# comparison is on contents: every list is sorted before the two are compared,
+# because the engine returns sets and a set has no stable order. Only the
+# moment of export differs, and that is the one value that must.
+#
+# The row counts under `not-carried` are a report about the database that was
+# read, not content the payload carries, and one of them counts the readings
+# this round trip legitimately drops. They are compared as names and reasons;
+# the standalone count is asserted below, where it says what it should say.
+# ---------------------------------------------------------------------------
+T10_SECOND=/tmp/rover-t10-export-second.$$
+t10_export "$T10_SECOND"
+t10_equal="$(python3 -c '
+import json, sys
+def canonical(node):
+    if isinstance(node, dict):
+        return {key: canonical(value) for key, value in sorted(node.items())}
+    if isinstance(node, list):
+        return sorted((canonical(item) for item in node),
+                      key=lambda item: json.dumps(item, sort_keys=True))
+    return node
+first, second = (json.load(open(path)) for path in sys.argv[1:3])
+for document in (first, second):
+    document.get("source", {}).pop("exported", None)
+    for kind in (document.get("not-carried") or {}).get("kinds") or []:
+        kind.pop("rows", None)
+first, second = canonical(first), canonical(second)
+if first == second:
+    sys.stdout.write("ok")
+    sys.exit()
+def report(a, b, path):
+    if type(a) is not type(b):
+        return ["%s: %s vs %s" % (path, type(a).__name__, type(b).__name__)]
+    if isinstance(a, dict):
+        out = []
+        for key in sorted(set(a) | set(b)):
+            if key not in a: out.append("%s/%s only in the second" % (path, key))
+            elif key not in b: out.append("%s/%s only in the first" % (path, key))
+            else: out += report(a[key], b[key], path + "/" + key)
+        return out
+    if isinstance(a, list):
+        if len(a) != len(b):
+            return ["%s: %d vs %d entries" % (path, len(a), len(b))]
+        out = []
+        for index, (x, y) in enumerate(zip(a, b)):
+            out += report(x, y, "%s[%d]" % (path, index))
+        return out
+    return [] if a == b else ["%s: %r vs %r" % (path, a, b)]
+sys.stdout.write("; ".join(report(first, second, "")[:12]))
+' "$T10_FIRST" "$T10_SECOND")"
+[ "$t10_equal" = ok ] || fail "fixture 90 the re-export differs from the export: $t10_equal"
+t10_loose="$(python3 -c '
+import json, sys
+def loose(path):
+    for kind in (json.load(open(path)).get("not-carried") or {}).get("kinds") or []:
+        if kind.get("kind") == "standalone-odometer-readings":
+            return kind["rows"]
+    return None
+sys.stdout.write("%s %s" % (loose(sys.argv[1]), loose(sys.argv[2])))
+' "$T10_FIRST" "$T10_SECOND")"
+case "$t10_loose" in
+  0\ *)  fail "fixture 90 the source database held no standalone reading to leave behind" ;;
+  *\ 0)  ;;
+  *)     fail "fixture 90 the rebuilt database still reports standalone readings: $t10_loose" ;;
+esac
+note "fixture 90 PASS - re-exporting the rebuilt database gives a payload semantically equal to the first export, and the readings the first export named as left behind are the only thing missing"
+
+# ---------------------------------------------------------------------------
+# fixture 91 - the export survives a ship restart. The rebuilt database is on
+# disk, not in the agent, so the file a person downloads after a restart is
+# the same file.
+# ---------------------------------------------------------------------------
+t10_pier_session=""
+t10_pier_args=""
+while read -r session pane_pid; do
+  for candidate in "$pane_pid" $(pgrep -P "$pane_pid" 2>/dev/null); do
+    args="$(ps -o args= -p "$candidate" 2>/dev/null)"
+    case "$args" in
+      *'urbit work'*) continue ;;
+      *"$PIER"*) t10_pier_session="$session"; t10_pier_args="$args"; break ;;
+    esac
+  done
+  [ -n "$t10_pier_session" ] && break
+done < <(tmux list-panes -a -F '#{session_name} #{pane_pid}')
+[ -n "$t10_pier_session" ] || fail "fixture 91 cannot find the tmux session running $PIER"
+t10_ames_port="$(sed -n 's/.*-p \([0-9]\{1,\}\).*/\1/p' <<<"$t10_pier_args")"
+[ -n "$t10_ames_port" ] || fail "fixture 91 cannot read the Ames port for $PIER: $t10_pier_args"
+t10_pier_binary="$(grep -oE '(^| )[^ ]*urbit( |$)' <<<"$t10_pier_args" | head -1 | tr -d ' ')"
+[ -n "$t10_pier_binary" ] || fail "fixture 91 cannot read the urbit binary for $PIER: $t10_pier_args"
+tmux send-keys -t "$t10_pier_session" '|exit' Enter
+for attempt in $(seq 1 60); do
+  pgrep -f "snap-dir $PIER" >/dev/null || break
+  sleep 1
+done
+pgrep -f "snap-dir $PIER" >/dev/null && fail "fixture 91 the pier did not stop"
+tmux kill-session -t "$t10_pier_session" 2>/dev/null
+tmux new-session -d -s "$t10_pier_session" \
+  "exec script -q -f -e -O /dev/null -c $(printf '%q' "$t10_pier_binary -p $t10_ames_port $PIER")"
+ready=0
+for attempt in $(seq 1 180); do
+  PORT="$(awk '/insecure public/{print $1}' "$PIER/.http.ports" 2>/dev/null)"
+  if [ -n "$PORT" ] && curl -s -o /dev/null "http://localhost:$PORT/~/login"; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+[ "$ready" = 1 ] || fail "fixture 91 the pier did not restart"
+URL="http://localhost:$PORT"
+eyre_login
+T10_THIRD=/tmp/rover-t10-export-third.$$
+t10_export "$T10_THIRD"
+t10_survived="$(python3 -c '
+import json, sys
+def canonical(node):
+    if isinstance(node, dict):
+        return {key: canonical(value) for key, value in sorted(node.items())}
+    if isinstance(node, list):
+        return sorted((canonical(item) for item in node),
+                      key=lambda item: json.dumps(item, sort_keys=True))
+    return node
+second, third = (json.load(open(path)) for path in sys.argv[1:3])
+for document in (second, third):
+    document.get("source", {}).pop("exported", None)
+sys.stdout.write("ok" if canonical(second) == canonical(third) else "the payload changed")
+' "$T10_SECOND" "$T10_THIRD")"
+[ "$t10_survived" = ok ] || fail "fixture 91 the export after the restart differs: $t10_survived"
+[ "$(t10_counts_now)" = "$T10_AFTER_COUNTS" ] \
+  || fail "fixture 91 the rebuilt row counts did not survive the restart"
+[ "$(t8_archived_flag driving-mode "$T10_RETIRED")" = 0 ] \
+  || fail "fixture 91 the archived driving mode did not survive the restart archived"
+rm -f "$T10_FIRST" "$T10_SECOND" "$T10_THIRD" "$T10_READS_FILE"
+note "fixture 91 PASS - the export, the rebuilt row counts, and the archived flag all survive a ship restart"
+
 . "$(dirname "$0")/event-coverage-gate.sh"
