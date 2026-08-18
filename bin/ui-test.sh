@@ -3865,8 +3865,8 @@ document = upload.load_document(document_path)
 expected = list(upload.batch_documents(document, 2))
 if prepared["batches"] != expected:
     raise SystemExit("browser batches differ from upload.py batches")
-if prepared["fills"] != upload.fill_count(document):
-    raise SystemExit("browser fill count differs from upload.py fill count")' \
+if prepared["fills"] != upload.record_count(document):
+    raise SystemExit("browser record count differs from upload.py record count")' \
   "$REPO" "$IMPORT_SOURCE" <<<"$(import_line IMPORT_PREPARED "$import_prepared")" ||
   fail "fixture 111 browser batching does not match tools/rover-import/upload.py"
 note "fixture 111 PASS - the browser batch split equals the one tools/rover-import/upload.py builds for the same document and batch size"
@@ -3886,7 +3886,7 @@ import_result="$(import_line IMPORT_RESULT "$import_upload")"
   fail "fixture 112 the browser import did not succeed: $import_result"
 [ "$(import_line IMPORT_POSTS "$import_upload")" = 3 ] ||
   fail "fixture 112 the browser did not post exactly three batches: $import_upload"
-[ "$(import_line IMPORT_VALIDATED "$import_upload")" = '"6 fills in 3 batches"' ] ||
+[ "$(import_line IMPORT_VALIDATED "$import_upload")" = '"6 records in 3 batches"' ] ||
   fail "fixture 112 the validate step did not plan three batches: $import_upload"
 [ "$(import_result_field progress <<<"$import_result")" = \
   'Batch 3 of 3 - imported 6, already-imported 0, conflicts 0, failures 0' ] ||

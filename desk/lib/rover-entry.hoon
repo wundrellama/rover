@@ -751,6 +751,20 @@
           ?=(~ address)
       ==
     [%| %bad-shape 'import.places.address']
+  =/  kind-text  (json-string 'kind' u.object)
+  =/  station-kind=(unit station-kind:rover)
+    ?~  kind-text
+      ~
+    =/  term  (slaw %tas u.kind-text)
+    ?.  ?&  ?=(^ term)
+            ?=(station-kind:rover u.term)
+        ==
+      ~
+    `;;(station-kind:rover u.term)
+  ?:  ?&  ?=(^ kind-text)
+          ?=(~ station-kind)
+      ==
+    [%| %bad-shape 'import.places.kind']
   =/  coordinates-value  (~(get by u.object) 'coordinates')
   =/  coordinates=(unit import-place-coordinates:rover)
     ?~  coordinates-value
@@ -787,7 +801,7 @@
           ?=(~ coordinates)
       ==
     [%| %bad-shape 'import.places.coordinates']
-  =/  row=import-place:rover  [u.label address coordinates]
+  =/  row=import-place:rover  [u.label address coordinates station-kind]
   $(values t.values, out [row out])
 ::
 ++  decode-import-fills
@@ -820,6 +834,136 @@
   =/  row=import-fill:rover
     [p.decoded u.app-term u.record-id source-total]
   $(values t.values, out [row out])
+::
+::  M7 T9. One event section. The caller names the KIND, because the section
+::  the record sat in is what selects it. A record that named its own kind
+::  could disagree with the child row it becomes, which is the defect the five
+::  event routes exist to prevent.
+++  decode-import-events
+  |=  [vehicle=@t kind=event-kind:rover values=(list json)]
+  ^-  (each (list import-event:rover) entry-verdict:rover)
+  =/  out=(list import-event:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.events']
+  =/  decoded  (decode-event-object kind u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.events.vehicle']
+  =/  app-text  (json-string 'sourceApp' u.object)
+  ?~  app-text
+    [%| %missing-key 'import.vehicle.events.sourceApp']
+  =/  app-term  (slaw %tas u.app-text)
+  ?~  app-term
+    [%| %bad-shape 'import.vehicle.events.sourceApp']
+  =/  record-id  (json-string 'sourceRecordId' u.object)
+  ?:  ?|  ?=(~ record-id)
+          =(%.n (nonempty u.record-id))
+      ==
+    [%| %missing-key 'import.vehicle.events.sourceRecordId']
+  =/  row=import-event:rover  [p.decoded u.app-term u.record-id]
+  $(values t.values, out [row out])
+::
+++  decode-import-reminders
+  |=  [vehicle=@t values=(list json)]
+  ^-  (each (list reminder-entry:rover) entry-verdict:rover)
+  =/  out=(list reminder-entry:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.reminders']
+  =/  decoded  (decode-reminder-object u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.reminders.vehicle']
+  $(values t.values, out [p.decoded out])
+::
+::  M7 T9. The thirteen T7 specification fields. A key the document does not
+::  name is NOT touched, so a second import never clears a value the owner
+::  corrected in Rover. The inner unit is therefore always full here: an
+::  import writes a value or leaves the field alone, and it never clears one.
+++  decode-import-specification
+  |=  value=(unit json)
+  ^-  (each vehicle-spec-entry:rover entry-verdict:rover)
+  ?~  value
+    [%& *vehicle-spec-entry:rover]
+  =/  object  (json-map u.value)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.specification']
+  =/  text-of
+    |=  key=@t
+    ^-  spec-text:rover
+    =/  text  (json-string key u.object)
+    ?~  text
+      ~
+    ?.  (nonempty u.text)
+      ~
+    ``u.text
+  =/  year-text  (json-string 'modelYear' u.object)
+  =/  model-year=spec-number:rover
+    ?~  year-text
+      ~
+    =/  parsed  (parse-decimal:render u.year-text 0)
+    ?:  ?=(%| -.parsed)
+      ~
+    ?:  ?|  (lth digits.p.parsed 1.000)
+            (gth digits.p.parsed 9.999)
+        ==
+      ~
+    ``digits.p.parsed
+  ?:  ?&  ?=(^ year-text)
+          (nonempty u.year-text)
+          ?=(~ model-year)
+      ==
+    [%| %bad-shape 'import.vehicle.specification.modelYear']
+  :-  %&
+  :*  (text-of 'vin')
+      (text-of 'plate')
+      model-year
+      (text-of 'make')
+      (text-of 'model')
+      (text-of 'subModel')
+      (text-of 'bodyType')
+      (text-of 'color')
+      (text-of 'engine')
+      (text-of 'transmission')
+      (text-of 'driveType')
+      (text-of 'bedType')
+      (text-of 'note')
+  ==
+::
+++  decode-import-notices
+  |=  values=(list json)
+  ^-  (each (list import-notice:rover) entry-verdict:rover)
+  =/  out=(list import-notice:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.notices']
+  =/  kind  (json-string 'kind' u.object)
+  =/  reason  (json-string 'reason' u.object)
+  =/  count-value  (~(get by u.object) 'count')
+  ?:  ?|  ?=(~ kind)
+          ?=(~ reason)
+          =(%.n (nonempty u.kind))
+          =(%.n (nonempty u.reason))
+          ?=(~ count-value)
+          !?=(%n -.u.count-value)
+      ==
+    [%| %bad-shape 'import.notices']
+  =/  count  (slaw %ud +.u.count-value)
+  ?~  count
+    [%| %bad-shape 'import.notices.count']
+  $(values t.values, out [[u.kind u.count u.reason] out])
 ::
 ++  decode-import-vehicles
   |=  values=(list json)
@@ -889,6 +1033,45 @@
   =/  fills  (decode-import-fills u.label u.fill-json)
   ?:  ?=(%| -.fills)
     fills
+  =/  specification
+    (decode-import-specification (~(get by u.object) 'specification'))
+  ?:  ?=(%| -.specification)
+    specification
+  ::  One section per kind, and the section is the route. The three the
+  ::  corpus can hold are named here; acquisition and disposal reach the same
+  ::  decoder through their own sections when a document carries them.
+  =/  sections=(list [key=@t kind=event-kind:rover])
+    :~  ['serviceEvents' %service]
+        ['expenseEvents' %expense]
+        ['noteEvents' %note]
+        ['acquisitionEvents' %acquisition]
+        ['disposalEvents' %disposal]
+    ==
+  =/  gathered
+    |-  ^-  (each (list import-event:rover) entry-verdict:rover)
+    ?~  sections
+      [%& ~]
+    =/  rest  $(sections t.sections)
+    ?:  ?=(%| -.rest)
+      rest
+    =/  section-json  (json-array key.i.sections u.object)
+    ?~  section-json
+      rest
+    =/  decoded
+      (decode-import-events u.label kind.i.sections u.section-json)
+    ?:  ?=(%| -.decoded)
+      decoded
+    [%& (weld p.decoded p.rest)]
+  ?:  ?=(%| -.gathered)
+    gathered
+  =/  events  p.gathered
+  =/  reminder-json  (json-array 'reminders' u.object)
+  =/  reminders=(each (list reminder-entry:rover) entry-verdict:rover)
+    ?~  reminder-json
+      [%& ~]
+    (decode-import-reminders u.label u.reminder-json)
+  ?:  ?=(%| -.reminders)
+    reminders
   =/  row=import-vehicle:rover
     :*  u.label
         ;;(distance-unit:rover u.distance-term)
@@ -896,6 +1079,9 @@
         tank-size
         u.default
         p.fills
+        p.specification
+        events
+        p.reminders
     ==
   $(values t.values, out [row out])
 ::
@@ -949,6 +1135,22 @@
   =/  payments  (decode-import-simple 'import.definitions.payment-methods' u.payment-json)
   ?:  ?=(%| -.payments)
     payments
+  ::  M7 T9. An older document names no service-subtype section, and an empty
+  ::  one is the honest reading of that: the document carries no subtype.
+  =/  subtype-json  (json-array 'service-subtypes' u.definitions-object)
+  =/  subtypes=(each (list import-simple-definition:rover) entry-verdict:rover)
+    ?~  subtype-json
+      [%& ~]
+    (decode-import-simple 'import.definitions.service-subtypes' u.subtype-json)
+  ?:  ?=(%| -.subtypes)
+    subtypes
+  =/  notice-json  (json-array 'notices' u.object)
+  =/  notices=(each (list import-notice:rover) entry-verdict:rover)
+    ?~  notice-json
+      [%& ~]
+    (decode-import-notices u.notice-json)
+  ?:  ?=(%| -.notices)
+    notices
   =/  place-json  (json-array 'places' u.object)
   ?~  place-json
     [%| %missing-key 'import.places']
@@ -962,8 +1164,8 @@
   ?:  ?=(%| -.vehicles)
     vehicles
   =/  definitions=import-definitions:rover
-    [p.energy p.additives p.modes p.tags p.payments]
-  [%& definitions p.places p.vehicles]
+    [p.energy p.additives p.modes p.tags p.payments p.subtypes]
+  [%& definitions p.places p.vehicles p.notices]
 ::
 ++  decode-consumable
   |=  body=@t
@@ -1066,6 +1268,16 @@
   =/  object  (json-object body)
   ?~  object
     [%| %bad-shape 'event']
+  (decode-event-object kind u.object)
+::
+::  M7 T9. The same decoder, reached from one record inside an import
+::  document. There the SECTION supplies the kind, and it plays exactly the
+::  part the route plays for a browser. One decoder serves both, so an
+::  imported event cannot be validated more loosely than a typed one.
+++  decode-event-object
+  |=  [kind=event-kind:rover fields=(map @t json)]
+  ^-  (each event-entry:rover entry-verdict:rover)
+  =/  object  (some fields)
   =/  vehicle  (json-string 'vehicle' u.object)
   ?~  vehicle
     [%| %missing-key 'event.vehicle']
@@ -1221,6 +1433,14 @@
   =/  object  (json-object body)
   ?~  object
     [%| %bad-shape 'reminder']
+  (decode-reminder-object u.object)
+::
+::  M7 T9. The same decoder, reached from one record inside an import
+::  document. An imported reminder passes every check a typed one passes.
+++  decode-reminder-object
+  |=  fields=(map @t json)
+  ^-  (each reminder-entry:rover entry-verdict:rover)
+  =/  object  (some fields)
   =/  vehicle  (json-string 'vehicle' u.object)
   ?~  vehicle
     [%| %missing-key 'reminder.vehicle']

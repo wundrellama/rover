@@ -23,7 +23,31 @@ REPORT_PATTERNS = {
         r"Total cross-check: exact (\d+), off-by-one (\d+), beyond (\d+)"
     ),
     "unit_mismatches": re.compile(r"Unit mismatches: (\d+)"),
+    "events": re.compile(
+        r"Events: imported (\d+), already-imported (\d+), conflicts (\d+), "
+        r"service-subtype links (\d+)"
+    ),
+    "reminders": re.compile(r"Reminders: imported (\d+), already-imported (\d+)"),
+    "specification": re.compile(
+        r"Specification fields: written (\d+), already-held (\d+), "
+        r"conflicts (\d+)"
+    ),
+    "subtypes": re.compile(r"Service subtypes: created (\d+), reused (\d+)"),
 }
+
+#  M7 T9. Every per-vehicle list of RECORDS. A definition, a place and the
+#  specification are the document's preamble and ride every batch; a record is
+#  split across batches, because a batch is a bounded, resumable slice of the
+#  work and a record is the unit of work.
+RECORD_SECTIONS = (
+    "fills",
+    "serviceEvents",
+    "expenseEvents",
+    "noteEvents",
+    "acquisitionEvents",
+    "disposalEvents",
+    "reminders",
+)
 
 
 def reject_float(value):
@@ -49,17 +73,27 @@ def batch_documents(document, batch_size):
         raise ValueError("batch size must be positive")
 
     flattened = [
-        (vehicle_index, fill)
+        (vehicle_index, section, record)
         for vehicle_index, vehicle in enumerate(document["vehicles"])
-        for fill in vehicle["fills"]
+        for section in RECORD_SECTIONS
+        for record in vehicle.get(section, [])
     ]
     starts = range(0, len(flattened), batch_size) if flattened else (0,)
-    for start in starts:
+    for index, start in enumerate(starts):
         batch = copy.deepcopy(document)
         for vehicle in batch["vehicles"]:
-            vehicle["fills"] = []
-        for vehicle_index, fill in flattened[start : start + batch_size]:
-            batch["vehicles"][vehicle_index]["fills"].append(copy.deepcopy(fill))
+            for section in RECORD_SECTIONS:
+                if section in vehicle:
+                    vehicle[section] = []
+            #  The specification is written once. Carrying it on every batch
+            #  would report the same eleven fields already-held n-1 times and
+            #  make the aggregate say something that never happened.
+            if index and "specification" in vehicle:
+                del vehicle["specification"]
+        for vehicle_index, section, record in flattened[start : start + batch_size]:
+            batch["vehicles"][vehicle_index].setdefault(section, []).append(
+                copy.deepcopy(record)
+            )
         yield batch
 
 
@@ -76,6 +110,10 @@ def parse_report(report):
                 "station_none": "Station-none fills",
                 "totals": "Total cross-check",
                 "unit_mismatches": "Unit mismatches",
+                "events": "Events",
+                "reminders": "Reminders",
+                "specification": "Specification fields",
+                "subtypes": "Service subtypes",
             }[name]
             raise ValueError(f"import response omitted {label}")
         values = [int(value) for value in match.groups()]
@@ -92,10 +130,24 @@ def aggregate_reports(reports):
         "station_none": 0,
         "totals": [0, 0, 0],
         "unit_mismatches": 0,
+        "events": [0, 0, 0, 0],
+        "reminders": [0, 0],
+        "specification": [0, 0, 0],
+        "subtypes": [0, 0],
     }
     for report in reports:
         parsed = parse_report(report)
-        for name in ("fills", "definitions", "places", "vehicles", "totals"):
+        for name in (
+            "fills",
+            "definitions",
+            "places",
+            "vehicles",
+            "totals",
+            "events",
+            "reminders",
+            "specification",
+            "subtypes",
+        ):
             aggregate[name] = [
                 previous + current
                 for previous, current in zip(aggregate[name], parsed[name])
@@ -111,10 +163,26 @@ def render_aggregate(aggregate):
     places_created, places_reused = aggregate["places"]
     vehicles_created, vehicles_reused = aggregate["vehicles"]
     exact, off_by_one, beyond = aggregate["totals"]
+    events_imported, events_already, events_conflicts, subtype_links = aggregate[
+        "events"
+    ]
+    reminders_imported, reminders_already = aggregate["reminders"]
+    spec_written, spec_already, spec_conflicts = aggregate["specification"]
+    subtypes_created, subtypes_reused = aggregate["subtypes"]
     return "\n".join(
         (
             f"Fills: imported {imported}, already-imported {already}, "
             f"conflicts {conflicts}, failures {failures}",
+            f"Events: imported {events_imported}, "
+            f"already-imported {events_already}, "
+            f"conflicts {events_conflicts}, "
+            f"service-subtype links {subtype_links}",
+            f"Reminders: imported {reminders_imported}, "
+            f"already-imported {reminders_already}",
+            f"Specification fields: written {spec_written}, "
+            f"already-held {spec_already}, conflicts {spec_conflicts}",
+            f"Service subtypes: created {subtypes_created}, "
+            f"reused {subtypes_reused}",
             f"Definitions: created {definitions_created}, reused {definitions_reused}",
             f"Places: created {places_created}, reused {places_reused}",
             f"Vehicles: created {vehicles_created}, reused {vehicles_reused}",
@@ -170,6 +238,14 @@ def fill_count(document):
     return sum(len(vehicle["fills"]) for vehicle in document["vehicles"])
 
 
+def record_count(document):
+    return sum(
+        len(vehicle.get(section, []))
+        for vehicle in document["vehicles"]
+        for section in RECORD_SECTIONS
+    )
+
+
 def parser():
     result = argparse.ArgumentParser(
         description="Upload Rover import JSON in provenance-resumable batches."
@@ -196,13 +272,19 @@ def main(argv=None):
     arguments = parser().parse_args(argv)
     document = load_document(arguments.document)
     batches = list(batch_documents(document, arguments.batch_size))
-    total = fill_count(document)
-    batched_total = sum(fill_count(batch) for batch in batches)
+    total = record_count(document)
+    batched_total = sum(record_count(batch) for batch in batches)
     if total != batched_total:
-        raise RuntimeError(f"batching changed fill count from {total} to {batched_total}")
+        raise RuntimeError(
+            f"batching changed the record count from {total} to {batched_total}"
+        )
 
     if arguments.dry_run:
-        print(f"Validated {total} fills in {len(batches)} batch(es); nothing sent.")
+        print(
+            f"Validated {total} records "
+            f"({fill_count(document)} of them fills) "
+            f"in {len(batches)} batch(es); nothing sent."
+        )
         return 0
     if not arguments.url or not arguments.cookie_file:
         parser().error("--url and --cookie-file are required unless --dry-run is used")

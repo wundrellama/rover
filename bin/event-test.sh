@@ -267,7 +267,7 @@ report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
 for relation in vehicle-events service-events expense-events note-events \
   vehicle-event-costs vehicle-event-cost-totals vehicle-event-odometers \
   vehicle-event-stations vehicle-event-tags vehicle-event-payment-method \
-  vehicle-event-notes energy-acquisition-odometers; do
+  vehicle-event-notes energy-acquisition-odometers event-imports; do
   grep -q "%name %tas %$relation" <<<"$report" \
     || fail "fixture 2 the pour is missing $relation"
 done
@@ -1971,13 +1971,23 @@ vin_shaped="$(cd "$REPO" && git ls-files \
     done | head -5 | tr '\n' ' ')"
 [ -z "${vin_shaped// /}" ] \
   || fail "fixture 63 a token in the tree has the shape of a real VIN: $vin_shaped"
-for synthetic in "$SPEC_VIN" "$SPEC_VIN_TYPO" "$SPEC_VIN_LATE"; do
+# M7 T9 adds a synthetic VIN and plate to the import fixture document, and
+# they answer to the same rule as every other one in the tree.
+T9_FIXTURE_VIN="$(python3 -c '
+import json, sys
+document = json.load(open(sys.argv[1]))
+print(document["vehicles"][0]["specification"]["vin"])' "$REPO/tests/fixtures/rover-import-events.json")"
+T9_FIXTURE_PLATE="$(python3 -c '
+import json, sys
+document = json.load(open(sys.argv[1]))
+print(document["vehicles"][0]["specification"]["plate"])' "$REPO/tests/fixtures/rover-import-events.json")"
+for synthetic in "$SPEC_VIN" "$SPEC_VIN_TYPO" "$SPEC_VIN_LATE" "$T9_FIXTURE_VIN"; do
   [ "${#synthetic}" = 17 ] \
     || fail "fixture 63 the synthetic VIN $synthetic is not seventeen characters"
   grep -qE '[IOQ]' <<<"$synthetic" \
     || fail "fixture 63 the synthetic VIN $synthetic could be a real one"
 done
-for synthetic in "$SPEC_PLATE" "$SPEC_PLATE_ONLY"; do
+for synthetic in "$SPEC_PLATE" "$SPEC_PLATE_ONLY" "$T9_FIXTURE_PLATE"; do
   grep -q 'FAKE' <<<"$synthetic" \
     || fail "fixture 63 the plate $synthetic is not marked synthetic"
 done
@@ -2535,6 +2545,400 @@ t8_refusal archive-definition '{"label":"anything"}' \
   || fail "fixture 75 a refused request archived a definition"
 note "fixture 75 PASS - an unknown family, an absent definition, and a missing or empty new label are each refused, and none of them writes"
 
+# ===========================================================================
+# M7 T9 - import widening. The converter now carries service and note events,
+# the service-subtype catalog, reminders, and the vehicle specification.
+#
+# The document below is SYNTHETIC and lives in the repository. The owner's
+# real export is personal data, it is gitignored, and fixture 63 fails the
+# run if anything here opens it. The real corpus is imported by hand and the
+# counts are recorded in the results file.
+#
+# Every label the document creates carries the run stamp, so the second run of
+# this battery imports its own vehicles rather than meeting the first run's.
+# The five starter-pack subtype labels are deliberately NOT stamped: they must
+# collide with what T2 seeded, and fixture 83 is what proves they do.
+# ===========================================================================
+T9_TEMPLATE="$REPO/tests/fixtures/rover-import-events.json"
+T9_DOCUMENT="$(mktemp /tmp/rover-t9-import.XXXXXX.json)"
+sed "s/@@STAMP@@/$STAMP/g" "$T9_TEMPLATE" > "$T9_DOCUMENT"
+T9_VEHICLE="T9 Import Vehicle $STAMP"
+T9_VEHICLE_TWO="T9 Import Vehicle Two $STAMP"
+T9_GARAGE="T9 Garage $STAMP"
+T9_CUSTOM_SUBTYPE="T9 Turbo Rebuild $STAMP"
+T9_SERVICE_DA='~2026.05.02..09.30.00'
+T9_BARE_DA='~2026.05.03..09.30.00'
+T9_NOTE_DA='~2026.05.04..09.30.00'
+
+t9_import() {
+  curl -s -b "$JAR" -H 'content-type: application/json' \
+    --data-binary @"$T9_DOCUMENT" "$URL/apps/rover/import"
+}
+
+# Rows of one relation that belong to a named vehicle's event at one instant.
+t9_event_rows() {
+  local relation="$1" alias="$2" column="$3" vehicle="$4" observed="$5"
+  rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN $relation $alias ON E.event-id = $alias.event-id WHERE V.label = '$vehicle' AND E.observed-start = $observed SELECT $alias.$column;"
+}
+
+t9_vehicle_rows() {
+  local relation="$1" alias="$2" column="$3" vehicle="$4"
+  rover_report "FROM vehicles V JOIN $relation $alias ON V.vehicle-id = $alias.vehicle-id WHERE V.label = '$vehicle' SELECT $alias.$column;"
+}
+
+t9_reminder_rows() {
+  local relation="$1" alias="$2" column="$3" vehicle="$4" subtype="$5"
+  rover_report "FROM service-reminders R JOIN vehicles V ON R.vehicle-id = V.vehicle-id JOIN service-subtype-definitions S ON R.service-subtype-id = S.service-subtype-id JOIN $relation $alias ON R.reminder-id = $alias.reminder-id WHERE V.label = '$vehicle' AND S.label = '$subtype' SELECT $alias.$column;"
+}
+
+# ---------------------------------------------------------------------------
+# fixture 78 - the provenance relation T9 adds is keyed to the event PARENT
+# and both its foreign keys RESTRICT.
+#
+# This is the one relation T9 adds, and it reaches a POPULATED database
+# through the same catch-up pour every earlier relation used. Import Q5
+# ratified provenance as the answer to "have I already imported this record?";
+# `acquisition-imports` cannot hold an event, because its foreign key names
+# `energy-acquisitions`.
+# ---------------------------------------------------------------------------
+report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
+grep -q '%name %tas %event-imports' <<<"$report" \
+  || fail "fixture 78 the catch-up pour is missing event-imports"
+report="$(rover_report "FROM sys.foreign-keys WHERE child-table = %event-imports SELECT parent-table, parent-column, child-column, on-delete, on-update;")"
+grep -q '%parent-table %tas %vehicle-events' <<<"$report" \
+  || fail "fixture 78 event-imports does not key to the event parent: $report"
+for child in service-events expense-events note-events; do
+  grep -q "%parent-table %tas %$child" <<<"$report" \
+    && fail "fixture 78 event-imports keys to the typed child $child: $report"
+done
+[ "$(count_rows "$report" '%on-delete %tas %restrict')" = 1 ] \
+  || fail "fixture 78 the event-imports foreign key does not RESTRICT: $report"
+[ "$(count_rows "$report" '%on-update %tas %restrict')" = 1 ] \
+  || fail "fixture 78 the event-imports foreign key does not RESTRICT: $report"
+report="$(rover_report 'FROM sys.columns WHERE namespace = %dbo AND name = %event-imports SELECT col-name, col-type;')"
+grep -q "%col-name %tas %source-app" <<<"$report" \
+  || fail "fixture 78 event-imports has no namespacing source-app column: $report"
+grep -q "%col-name %tas %source-record-id" <<<"$report" \
+  || fail "fixture 78 event-imports has no source-record-id column: $report"
+note "fixture 78 PASS - the event provenance relation keys to the event parent, namespaces its source, and both foreign keys RESTRICT"
+
+# ---------------------------------------------------------------------------
+# fixture 79 - the whole widened document imports, and the counts match.
+#
+# Four events across two vehicles, three of them service and one a note; two
+# reminders; eleven specification fields; six service subtypes of which five
+# are already in the T2 starter pack.
+# ---------------------------------------------------------------------------
+t9_report="$(t9_import)"
+grep -q 'Events: imported 4, already-imported 0, conflicts 0, service-subtype links 4' <<<"$t9_report" \
+  || fail "fixture 79 the event counts are wrong: $t9_report"
+grep -q 'Reminders: imported 2, already-imported 0' <<<"$t9_report" \
+  || fail "fixture 79 the reminder counts are wrong: $t9_report"
+grep -q 'Specification fields: written 11, already-held 0, conflicts 0' <<<"$t9_report" \
+  || fail "fixture 79 the specification counts are wrong: $t9_report"
+grep -q 'Service subtypes: created 1, reused 5' <<<"$t9_report" \
+  || fail "fixture 79 the subtype counts are wrong: $t9_report"
+grep -q 'Vehicles: created 2, reused 0' <<<"$t9_report" \
+  || fail "fixture 79 the vehicle counts are wrong: $t9_report"
+grep -q 'Fills: imported 2, already-imported 0, conflicts 0, failures 0' <<<"$t9_report" \
+  || fail "fixture 79 the fill counts are wrong: $t9_report"
+# The counts are what the database holds, not only what the report says.
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$T9_VEHICLE' SELECT E.event-id, E.observed-start;")"
+[ "$(count_rows "$report" '%event-id')" = 3 ] \
+  || fail "fixture 79 the first imported vehicle does not hold three events: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events C ON E.event-id = C.event-id WHERE V.label = '$T9_VEHICLE' SELECT C.event-id;")"
+[ "$(count_rows "$report" '%event-id')" = 2 ] \
+  || fail "fixture 79 the imported service events are not two: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN note-events C ON E.event-id = C.event-id WHERE V.label = '$T9_VEHICLE' SELECT C.event-id;")"
+[ "$(count_rows "$report" '%event-id')" = 1 ] \
+  || fail "fixture 79 the imported note event is not one: $report"
+# A note that carries money keeps its total and stays a note. The importer
+# reports the record; it does not reclassify it as an expense.
+report="$(t9_event_rows vehicle-event-cost-totals T total-mills "$T9_VEHICLE" "$T9_NOTE_DA")"
+grep -q '%total-mills 25717 811.880' <<<"$report" \
+  || fail "fixture 79 the note record lost the money it carries: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events C ON E.event-id = C.event-id WHERE V.label = '$T9_VEHICLE' SELECT C.event-id;")"
+grep -q '%event-id' <<<"$report" \
+  && fail "fixture 79 a note record was reclassified as an expense: $report"
+# An event with no source total writes NO cost row, never a stored zero.
+report="$(t9_event_rows vehicle-event-costs C cost-state "$T9_VEHICLE" "$T9_BARE_DA")"
+grep -q '%cost-state' <<<"$report" \
+  && fail "fixture 79 an event with no source total gained a cost row: $report"
+note "fixture 79 PASS - the widened document imports whole, the counts match, and a note that carries money keeps its total without being reclassified"
+
+# ---------------------------------------------------------------------------
+# fixture 80 - the report names every unmapped kind with a count and a reason
+# a person can read.
+#
+# Silence is the failure mode. A converter that drops eight live reminders
+# without a word leaves the owner to find the loss months later.
+# ---------------------------------------------------------------------------
+grep -q 'Not imported, and why' <<<"$t9_report" \
+  || fail "fixture 80 the report has no unmapped section: $t9_report"
+python3 - "$T9_DOCUMENT" <<'PY' <<<"$t9_report" || fail "fixture 80 an unmapped kind is missing a count or a reason"
+import json, re, sys
+report = sys.stdin.read()
+document = json.load(open(sys.argv[1]))
+tail = report.split("Not imported, and why", 1)[1]
+lines = [line.strip() for line in tail.splitlines() if line.strip()]
+if not lines:
+    raise SystemExit("the unmapped section is empty")
+for notice in document["notices"]:
+    wanted = "%s: %d - %s" % (notice["kind"], notice["count"], notice["reason"])
+    if wanted not in lines:
+        raise SystemExit("missing notice: %s" % wanted)
+for line in lines:
+    match = re.match(r"^(.+?): (\d+) - (.+)$", line)
+    if match is None:
+        raise SystemExit("a line is not kind, count and reason: %s" % line)
+    kind, count, reason = match.groups()
+    if int(count) < 1:
+        raise SystemExit("a notice carries no count: %s" % line)
+    if len(reason.split()) < 8:
+        raise SystemExit("a reason is not a sentence a person can act on: %s" % line)
+    if re.search(r"[a-z]+-[a-z]+-id\b", kind) and "Source field" not in kind:
+        raise SystemExit("a notice names a raw machine value: %s" % line)
+PY
+note "fixture 80 PASS - every unmapped kind in the report carries a count and a reason a person can read"
+
+# ---------------------------------------------------------------------------
+# fixture 81 - a second import of the same document creates no duplicate.
+#
+# Provenance answers "have I already imported this record?" exactly. Rover
+# never issues UPSERT, so a record already present is recognised and nothing
+# is written for it.
+# ---------------------------------------------------------------------------
+t9_second="$(t9_import)"
+grep -q 'Events: imported 0, already-imported 4, conflicts 0' <<<"$t9_second" \
+  || fail "fixture 81 the second import wrote events again: $t9_second"
+grep -q 'Fills: imported 0, already-imported 2, conflicts 0, failures 0' <<<"$t9_second" \
+  || fail "fixture 81 the second import wrote fills again: $t9_second"
+grep -q 'Reminders: imported 0, already-imported 2' <<<"$t9_second" \
+  || fail "fixture 81 the second import wrote reminders again: $t9_second"
+grep -q 'Specification fields: written 0, already-held 11, conflicts 0' <<<"$t9_second" \
+  || fail "fixture 81 the second import wrote specification rows again: $t9_second"
+grep -q 'Service subtypes: created 0, reused 6' <<<"$t9_second" \
+  || fail "fixture 81 the second import created a subtype again: $t9_second"
+grep -q 'Vehicles: created 0, reused 2' <<<"$t9_second" \
+  || fail "fixture 81 the second import created a vehicle again: $t9_second"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$T9_VEHICLE' SELECT E.event-id, E.observed-start;")"
+[ "$(count_rows "$report" '%event-id')" = 3 ] \
+  || fail "fixture 81 the second import duplicated an event: $report"
+report="$(rover_report "FROM vehicles V WHERE V.label = '$T9_VEHICLE' SELECT V.vehicle-id, V.label;")"
+[ "$(count_rows "$report" '%vehicle-id')" = 1 ] \
+  || fail "fixture 81 the second import duplicated a vehicle: $report"
+report="$(rover_report "FROM service-reminders R JOIN vehicles V ON R.vehicle-id = V.vehicle-id WHERE V.label = '$T9_VEHICLE' SELECT R.reminder-id, R.service-subtype-id;")"
+[ "$(count_rows "$report" '%reminder-id')" = 2 ] \
+  || fail "fixture 81 the second import duplicated a reminder: $report"
+report="$(rover_report "FROM service-subtype-definitions S WHERE S.label = '$T9_CUSTOM_SUBTYPE' SELECT S.service-subtype-id, S.label;")"
+[ "$(count_rows "$report" '%service-subtype-id')" = 1 ] \
+  || fail "fixture 81 the second import duplicated a service subtype: $report"
+report="$(t9_vehicle_rows vehicle-vin S vin "$T9_VEHICLE")"
+[ "$(count_rows "$report" '%vin')" = 1 ] \
+  || fail "fixture 81 the second import duplicated a specification row: $report"
+report="$(t9_event_rows vehicle-event-service-subtypes L service-subtype-id "$T9_VEHICLE" "$T9_SERVICE_DA")"
+[ "$(count_rows "$report" '%service-subtype-id')" = 3 ] \
+  || fail "fixture 81 the second import duplicated a subtype link: $report"
+note "fixture 81 PASS - a second import of the same document creates no duplicate event, vehicle, reminder, definition, specification row, or link"
+
+# ---------------------------------------------------------------------------
+# fixture 82 - an imported service event and a hand-entered one occupy the
+# same relations with the same keying.
+#
+# An import must not have a privileged path. The hand-entered event below goes
+# in through the product endpoint a browser calls, on the same imported
+# vehicle, carrying the same shape of data. The only row that tells them apart
+# is the provenance row, and that distinction is the ratified one.
+# ---------------------------------------------------------------------------
+T9_HAND_AT='2026-05-07T09:30'
+T9_HAND_DA='~2026.05.07..09.30.00'
+T9_HAND_NOTE="Hand-entered beside an import $STAMP"
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"412.75","currency":"usd","mileage":"70400.0","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":["%s"],"newTag":"","paymentMethod":"%s","notes":"%s","subtypes":["Engine Oil","Oil Filter","%s"]}' \
+    "$T9_VEHICLE" "$T9_HAND_AT" "$T9_GARAGE" "T9 Scheduled Maintenance $STAMP" \
+    "T9 Card $STAMP" "$T9_HAND_NOTE" "$T9_CUSTOM_SUBTYPE")" \
+  $'Saved service event - $412.75\n201' 'fixture 82 the hand-entered event was refused'
+for pair in \
+  'service-events:C:event-id' \
+  'vehicle-event-costs:C:cost-state' \
+  'vehicle-event-cost-totals:T:total-mills' \
+  'vehicle-event-odometers:L:odometer-id' \
+  'vehicle-event-stations:L:station-id' \
+  'vehicle-event-tags:L:tag-id' \
+  'vehicle-event-service-subtypes:L:service-subtype-id' \
+  'vehicle-event-payment-method:L:method-id' \
+  'vehicle-event-notes:N:note'; do
+  IFS=: read -r relation alias column <<<"$pair"
+  imported="$(t9_event_rows "$relation" "$alias" "$column" "$T9_VEHICLE" "$T9_SERVICE_DA")"
+  handmade="$(t9_event_rows "$relation" "$alias" "$column" "$T9_VEHICLE" "$T9_HAND_DA")"
+  [ "$(count_rows "$imported" "%$column")" -ge 1 ] \
+    || fail "fixture 82 the imported event holds no $relation row: $imported"
+  [ "$(count_rows "$imported" "%$column")" = "$(count_rows "$handmade" "%$column")" ] \
+    || fail "fixture 82 the imported and hand-entered events differ in $relation"
+done
+# The imported reading is in the vehicle's ONE odometer list, beside the
+# hand-entered one and beside the fills.
+report="$(rover_report "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = '$T9_VEHICLE' SELECT O.odometer-id, O.value-digits;")"
+[ "$(count_rows "$report" '%odometer-id')" = 6 ] \
+  || fail "fixture 82 the vehicle's one odometer list does not hold every reading: $report"
+# The one difference, and it is the ratified one: provenance.
+report="$(rover_report "FROM vehicle-events E JOIN vehicles V ON E.vehicle-id = V.vehicle-id JOIN event-imports I ON E.event-id = I.event-id WHERE V.label = '$T9_VEHICLE' AND E.observed-start = $T9_SERVICE_DA SELECT I.source-app, I.source-record-id;")"
+grep -q '%source-app %tas %acar' <<<"$report" \
+  || fail "fixture 82 the imported event carries no provenance: $report"
+report="$(rover_report "FROM vehicle-events E JOIN vehicles V ON E.vehicle-id = V.vehicle-id JOIN event-imports I ON E.event-id = I.event-id WHERE V.label = '$T9_VEHICLE' AND E.observed-start = $T9_HAND_DA SELECT I.source-app;")"
+grep -q '%source-app' <<<"$report" \
+  && fail "fixture 82 the hand-entered event gained provenance: $report"
+# The import shares the product's own writer and the product's own lookup. A
+# private copy of either is how a privileged path starts, so the source is
+# read here and a fork fails the run.
+grep -q 'insert-event:act' "$REPO/desk/lib/rover-import.hoon" \
+  || fail "fixture 82 the import no longer writes an event through insert-event"
+grep -q 'event-lookup:act' "$REPO/desk/app/rover.hoon" \
+  || fail "fixture 82 the import no longer resolves an event through event-lookup"
+grep -q 'INSERT INTO vehicle-events' "$REPO/desk/lib/rover-import.hoon" \
+  && fail "fixture 82 the import writes vehicle-events through a path of its own"
+grep -q 'INSERT INTO service-events' "$REPO/desk/lib/rover-import.hoon" \
+  && fail "fixture 82 the import writes a typed child through a path of its own"
+note "fixture 82 PASS - an imported service event and a hand-entered one occupy the same relations with the same keying, and only provenance tells them apart"
+
+# ---------------------------------------------------------------------------
+# fixture 83 - the three duplicate source labels resolve as T2 resolved them.
+#
+# The source catalog carries `Car Wash`, `Insurance` and `Registration` twice,
+# once as a service subtype and once as an expense subtype. Rover holds one
+# service-subtype family and T2 seeded one row for each label, so the import
+# reuses that row rather than making a second.
+# ---------------------------------------------------------------------------
+for label in 'Car Wash' 'Insurance' 'Registration' 'Engine Oil' 'Oil Filter'; do
+  report="$(rover_report "FROM service-subtype-definitions S WHERE S.label = '$label' SELECT S.service-subtype-id, S.label;")"
+  [ "$(count_rows "$report" '%service-subtype-id')" = 1 ] \
+    || fail "fixture 83 the label $label is not exactly one definition: $report"
+done
+# The reused row is the one the starter pack seeded, and the link the second
+# vehicle's event carries points at it.
+report="$(t9_event_rows vehicle-event-service-subtypes L service-subtype-id "$T9_VEHICLE_TWO" '~2026.05.05..09.30.00')"
+[ "$(count_rows "$report" '%service-subtype-id')" = 1 ] \
+  || fail "fixture 83 the Car Wash link is not exactly one row: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-service-subtypes L ON E.event-id = L.event-id JOIN service-subtype-definitions S ON L.service-subtype-id = S.service-subtype-id WHERE V.label = '$T9_VEHICLE_TWO' SELECT S.label;")"
+grep -q "%label %t 'Car Wash'" <<<"$report" \
+  || fail "fixture 83 the imported event does not name the seeded Car Wash row: $report"
+note "fixture 83 PASS - the three duplicate source labels resolve to the one row per label that T2 seeded"
+
+# ---------------------------------------------------------------------------
+# fixture 84 - a reminder arrives with the intervals the source gave it, and
+# an interval the source did not give writes no row.
+#
+# T6 built the reminder relations and deliberately left the source intervals
+# for this task. They arrive on the reminder, which is where Rover stores an
+# interval.
+# ---------------------------------------------------------------------------
+report="$(t9_reminder_rows service-reminder-time T interval-count "$T9_VEHICLE" 'Engine Oil')"
+grep -q '%interval-count 25717 3' <<<"$report" \
+  || fail "fixture 84 the time interval did not arrive: $report"
+report="$(t9_reminder_rows service-reminder-time T interval-unit "$T9_VEHICLE" 'Engine Oil')"
+grep -q '%interval-unit %tas %month' <<<"$report" \
+  || fail "fixture 84 the time unit did not arrive as a calendar step: $report"
+# The source writes one decimal place on a distance, and the stored digits
+# keep it. 3000.0 is 30000 at one decimal, not 3000 at none.
+report="$(t9_reminder_rows service-reminder-distance D interval-digits "$T9_VEHICLE" 'Engine Oil')"
+grep -q '%interval-digits 25717 30.000' <<<"$report" \
+  || fail "fixture 84 the distance interval did not arrive: $report"
+report="$(t9_reminder_rows service-reminder-distance D interval-decimals "$T9_VEHICLE" 'Engine Oil')"
+grep -q '%interval-decimals 25717 1' <<<"$report" \
+  || fail "fixture 84 the source-native precision of the interval was lost: $report"
+report="$(t9_reminder_rows service-reminder-distance D due-digits "$T9_VEHICLE" 'Engine Oil')"
+grep -q '%due-digits 25717 730.000' <<<"$report" \
+  || fail "fixture 84 the distance due point did not arrive: $report"
+report="$(t9_reminder_rows service-reminder-distance D distance-unit "$T9_VEHICLE" 'Engine Oil')"
+grep -q '%distance-unit %tas %mi' <<<"$report" \
+  || fail "fixture 84 the distance unit did not arrive: $report"
+# The second reminder carries a distance interval only. A blank time interval
+# is an absent row, never a zero count and never a bunt date.
+report="$(t9_reminder_rows service-reminder-distance D interval-digits "$T9_VEHICLE" 'Oil Filter')"
+grep -q '%interval-digits 25717 50.000' <<<"$report" \
+  || fail "fixture 84 the distance-only reminder lost its interval: $report"
+report="$(t9_reminder_rows service-reminder-time T interval-count "$T9_VEHICLE" 'Oil Filter')"
+grep -q '%interval-count' <<<"$report" \
+  && fail "fixture 84 a blank time interval was stored as a row: $report"
+note "fixture 84 PASS - an imported reminder carries the intervals the source gave it, and an interval the source left blank writes no row"
+
+# ---------------------------------------------------------------------------
+# fixture 85 - the imported specification lands in the T7 relations, with VIN
+# and plate each in a relation of its own.
+#
+# A field the document does not name is an ABSENT ROW, never an empty string.
+# THE VIN AND THE PLATE BELOW ARE SYNTHETIC. Fixture 63 asserts their shape.
+# ---------------------------------------------------------------------------
+report="$(t9_vehicle_rows vehicle-vin S vin "$T9_VEHICLE")"
+grep -qF "ROVERFAKEVIN00009" <<<"$report" \
+  || fail "fixture 85 the imported VIN is not in its own relation: $report"
+report="$(t9_vehicle_rows vehicle-license-plate S plate "$T9_VEHICLE")"
+grep -qF "ROVER-FAKE-09" <<<"$report" \
+  || fail "fixture 85 the imported plate is not in its own relation: $report"
+report="$(t9_vehicle_rows vehicle-model-year S model-year "$T9_VEHICLE")"
+grep -q '%model-year 25717 2019' <<<"$report" \
+  || fail "fixture 85 the imported model year is not a number: $report"
+for pair in 'vehicle-make:make' 'vehicle-model:model' 'vehicle-sub-model:sub-model' \
+  'vehicle-body-type:body-type' 'vehicle-engine:engine' \
+  'vehicle-transmission:transmission' 'vehicle-drive-type:drive-type' \
+  'vehicle-bed-type:bed-type'; do
+  IFS=: read -r relation column <<<"$pair"
+  report="$(t9_vehicle_rows "$relation" S "$column" "$T9_VEHICLE")"
+  [ "$(count_rows "$report" "%$column")" = 1 ] \
+    || fail "fixture 85 $relation did not receive exactly one imported row: $report"
+done
+# Colour and the vehicle note are absent from the document, so they are absent
+# from the database.
+for pair in 'vehicle-color:color' 'vehicle-notes:note'; do
+  IFS=: read -r relation column <<<"$pair"
+  report="$(t9_vehicle_rows "$relation" S "$column" "$T9_VEHICLE")"
+  grep -q "%$column" <<<"$report" \
+    && fail "fixture 85 $relation gained a row the document never named: $report"
+done
+# The second vehicle carries no specification at all, and no relation holds an
+# empty row for it.
+for pair in 'vehicle-vin:vin' 'vehicle-license-plate:plate' 'vehicle-make:make'; do
+  IFS=: read -r relation column <<<"$pair"
+  report="$(t9_vehicle_rows "$relation" S "$column" "$T9_VEHICLE_TWO")"
+  grep -q "%$column" <<<"$report" \
+    && fail "fixture 85 a vehicle with no specification gained a $relation row: $report"
+done
+# The vehicle screen reads it back the way a person wrote it.
+view="$(eyre_view_vehicle "$T9_VEHICLE")"
+grep -qF '2019 Examplemobile Prototype Trailhand' <<<"$view" \
+  || fail "fixture 85 the imported specification does not render as a description"
+note "fixture 85 PASS - the imported specification lands in the T7 relations, VIN and plate each in their own, and an absent field is an absent row"
+
+# ---------------------------------------------------------------------------
+# fixture 86 - a vehicle with imported data and no ownership events derives
+# exactly what it derived before T5.
+#
+# Ruling 12 bounds every interval derivation by ownership. The imported corpus
+# holds no acquisition and no disposal, so the imported vehicle must have no
+# ownership boundary at all and must carry no break.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-acquisitions A ON E.event-id = A.event-id WHERE V.label = '$T9_VEHICLE' SELECT A.event-id;")"
+grep -q '%event-id' <<<"$report" \
+  && fail "fixture 86 the imported vehicle gained an acquisition: $report"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-disposals D ON E.event-id = D.event-id WHERE V.label = '$T9_VEHICLE' SELECT D.event-id;")"
+grep -q '%event-id' <<<"$report" \
+  && fail "fixture 86 the imported vehicle gained a disposal: $report"
+set_default_vehicle "$T9_VEHICLE"
+view="$(eyre_view)"
+t9_best="$(hub_readout 'BEST ECONOMY' <<<"$view")"
+[ "$t9_best" = '30.000 mpg' ] \
+  || fail "fixture 86 the imported vehicle's best economy is wrong: $t9_best"
+t9_mean="$(hub_readout 'ECONOMY - LIFETIME' <<<"$view")"
+[ "$t9_mean" = '30.000 mpg' ] \
+  || fail "fixture 86 the imported vehicle's lifetime economy is wrong: $t9_mean"
+view="$(eyre_view_vehicle "$T9_VEHICLE")"
+grep -q 'data-economy-break=' <<<"$view" \
+  && fail "fixture 86 a vehicle with no ownership events gained a break"
+mapfile -t t9_cells < <(economy_cells <<<"$view")
+[ "${t9_cells[0]}" = '30.000 mpg' ] \
+  || fail "fixture 86 the imported interval economy is wrong: ${t9_cells[*]}"
+note "fixture 86 PASS - a vehicle with imported data and no ownership events derives exactly what it derived before T5, and carries no break"
+
 
 # ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
@@ -2852,6 +3256,43 @@ disposal_card="$(event_card disposal "$T8_DISPOSAL_NOTE")"
 grep -qF "$T8_DISPOSAL" <<<"$disposal_card" \
   || fail "fixture 76 the disposal card lost its kind across the restart"
 note "fixture 76 PASS - every rename, archive flag and restore survived a ship restart, and archive and restore still work after it"
+
+# ---------------------------------------------------------------------------
+# fixture 87 - everything the import wrote survives the same real restart, and
+# a third import on the far side still creates nothing.
+#
+# Provenance is the row that makes re-import safe, so it has to be on disk and
+# not only in the agent's memory.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$T9_VEHICLE' SELECT E.event-id, E.observed-start;")"
+[ "$(count_rows "$report" '%event-id')" = 4 ] \
+  || fail "fixture 87 the imported and hand-entered events did not survive the restart: $report"
+report="$(t9_event_rows vehicle-event-service-subtypes L service-subtype-id "$T9_VEHICLE" "$T9_SERVICE_DA")"
+[ "$(count_rows "$report" '%service-subtype-id')" = 3 ] \
+  || fail "fixture 87 the imported subtype links did not survive the restart: $report"
+report="$(t9_event_rows vehicle-event-cost-totals T total-mills "$T9_VEHICLE" "$T9_NOTE_DA")"
+grep -q '%total-mills 25717 811.880' <<<"$report" \
+  || fail "fixture 87 the note record's total did not survive the restart: $report"
+report="$(t9_reminder_rows service-reminder-time T interval-count "$T9_VEHICLE" 'Engine Oil')"
+grep -q '%interval-count 25717 3' <<<"$report" \
+  || fail "fixture 87 the imported reminder interval did not survive the restart: $report"
+report="$(t9_vehicle_rows vehicle-vin S vin "$T9_VEHICLE")"
+[ "$(count_rows "$report" '%vin')" = 1 ] \
+  || fail "fixture 87 the imported VIN did not survive the restart: $report"
+report="$(rover_report "FROM vehicle-events E JOIN vehicles V ON E.vehicle-id = V.vehicle-id JOIN event-imports I ON E.event-id = I.event-id WHERE V.label = '$T9_VEHICLE' SELECT I.source-app, I.source-record-id;")"
+[ "$(count_rows "$report" '%source-app')" = 3 ] \
+  || fail "fixture 87 the event provenance did not survive the restart: $report"
+t9_third="$(t9_import)"
+grep -q 'Events: imported 0, already-imported 4, conflicts 0' <<<"$t9_third" \
+  || fail "fixture 87 an import after the restart wrote events again: $t9_third"
+grep -q 'Reminders: imported 0, already-imported 2' <<<"$t9_third" \
+  || fail "fixture 87 an import after the restart wrote reminders again: $t9_third"
+grep -q 'Specification fields: written 0, already-held 11, conflicts 0' <<<"$t9_third" \
+  || fail "fixture 87 an import after the restart wrote specification rows again: $t9_third"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$T9_VEHICLE' SELECT E.event-id, E.observed-start;")"
+[ "$(count_rows "$report" '%event-id')" = 4 ] \
+  || fail "fixture 87 an import after the restart duplicated an event: $report"
+note "fixture 87 PASS - every imported event, link, reminder, specification row and provenance row survived a ship restart, and a third import still creates nothing"
 
 # ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut

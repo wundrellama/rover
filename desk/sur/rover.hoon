@@ -127,16 +127,39 @@
       longitude=@sd
       source=coordinate-source
   ==
+::  M7 T9. A place carries the kind of station it is. A place only a service
+::  visit ever names is not a filling station, and the converter says so rather
+::  than leaving Rover to guess from the fills. An older document that names no
+::  kind keeps the earlier behaviour.
 +$  import-place
   $:  label=@t
       address=(unit import-place-address)
       coordinates=(unit import-place-coordinates)
+      station-kind=(unit station-kind)
   ==
 +$  import-fill
   $:  input=fill-entry
       source-app=@tas
       source-record-id=@t
       source-total=(unit @t)
+  ==
+::  M7 T9. One vehicle event from an import. The KIND is already inside
+::  `input`, because the decoder took it from the document section the record
+::  sat in. A record never names its own kind, so it cannot disagree with the
+::  typed child row it becomes - the same rule the five event routes enforce.
++$  import-event
+  $:  input=event-entry
+      source-app=@tas
+      source-record-id=@t
+  ==
+::  M7 T9. One source record kind that did NOT become a Rover row, with the
+::  count and the reason a person can act on. The converter builds these
+::  because only the converter reads the source; Rover repeats them in the
+::  report so the person who runs the import reads the same disclosure.
++$  import-notice
+  $:  kind=@t
+      count=@ud
+      reason=@t
   ==
 +$  import-vehicle
   $:  label=@t
@@ -145,6 +168,9 @@
       tank-size=(unit scaled-entry)
       default-energy=@t
       fills=(list import-fill)
+      specification=vehicle-spec-entry
+      events=(list import-event)
+      reminders=(list reminder-entry)
   ==
 +$  import-definitions
   $:  energy=(list import-energy-definition)
@@ -152,13 +178,16 @@
       driving-modes=(list import-simple-definition)
       tags=(list import-simple-definition)
       payment-methods=(list import-simple-definition)
+      service-subtypes=(list import-simple-definition)
   ==
 +$  import-document
   $:  definitions=import-definitions
       places=(list import-place)
       vehicles=(list import-vehicle)
+      notices=(list import-notice)
   ==
-+$  import-simple-kind  ?(%additive %driving-mode %tag %payment-method)
++$  import-simple-kind
+  ?(%additive %driving-mode %tag %payment-method %service-subtype)
 +$  import-work
   $%  [%energy value=import-energy-definition]
       [%simple kind=import-simple-kind value=import-simple-definition]
@@ -169,6 +198,9 @@
           volume-unit=@tas
           value=import-fill
       ==
+      [%spec vehicle-label=@t value=vehicle-spec-entry]
+      [%event value=import-event]
+      [%reminder value=reminder-entry]
   ==
 +$  import-report
   $:  imported=@ud
@@ -186,6 +218,18 @@
       total-off-by-one=@ud
       total-beyond=@ud
       unit-mismatches=@ud
+      subtypes-created=@ud
+      subtypes-reused=@ud
+      events-imported=@ud
+      events-already-imported=@ud
+      events-conflicted=@ud
+      event-subtype-links=@ud
+      reminders-imported=@ud
+      reminders-already-imported=@ud
+      spec-fields-written=@ud
+      spec-fields-already=@ud
+      spec-fields-conflicted=@ud
+      notices=(list import-notice)
       messages=(list @t)
   ==
 +$  import-run

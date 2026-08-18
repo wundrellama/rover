@@ -27,6 +27,7 @@
       [%15 state-15]
       [%16 state-16]
       [%17 state-17]
+      [%18 state-18]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -367,7 +368,7 @@
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
-      import-run=(unit import-run:rover)
+      import-run=(unit import-run-17)
   ==
 +$  state-16
   $:  pending=(map wire @t)
@@ -382,9 +383,82 @@
       odometer-pending=(map wire odometer-entry:rover)
       preference-pending=(map wire preference-entry:rover)
       fill-body-pending=(map wire @t)
-      import-run=(unit import-run:rover)
+      import-run=(unit import-run-17)
   ==
 +$  state-17
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+      import-run=(unit import-run-17)
+      bootstrap-ready=?
+  ==
+::  M7 T9 widened the import report, so the state a pre-T9 ship holds no
+::  longer nests. The old shape is frozen here, the way `charge-entry-15`
+::  froze the pre-T16 charge entry. An import that was running across the
+::  upgrade is dropped rather than resumed: it is one HTTP request, and the
+::  owner posts the document again.
++$  import-report-17
+  $:  imported=@ud
+      already-imported=@ud
+      conflicts=@ud
+      failures=@ud
+      definitions-created=@ud
+      definitions-reused=@ud
+      places-created=@ud
+      places-reused=@ud
+      vehicles-created=@ud
+      vehicles-reused=@ud
+      station-none=@ud
+      total-exact=@ud
+      total-off-by-one=@ud
+      total-beyond=@ud
+      unit-mismatches=@ud
+      messages=(list @t)
+  ==
++$  import-place-17
+  $:  label=@t
+      address=(unit import-place-address:rover)
+      coordinates=(unit import-place-coordinates:rover)
+  ==
++$  import-vehicle-17
+  $:  label=@t
+      distance-unit=distance-unit:rover
+      volume-unit=@tas
+      tank-size=(unit scaled-entry:rover)
+      default-energy=@t
+      fills=(list import-fill:rover)
+  ==
++$  import-work-17
+  $%  [%energy value=import-energy-definition:rover]
+      $:  %simple
+          kind=?(%additive %driving-mode %tag %payment-method)
+          value=import-simple-definition:rover
+      ==
+      [%place station-kind=station-kind:rover value=import-place-17]
+      [%vehicle value=import-vehicle-17]
+      $:  %fill
+          distance-unit=distance-unit:rover
+          volume-unit=@tas
+          value=import-fill:rover
+      ==
+  ==
++$  import-run-17
+  $:  eyre-id=@ta
+      writing=?
+      serial=@ud
+      remaining=(list import-work-17)
+      report=import-report-17
+  ==
++$  state-18
   $:  pending=(map wire @t)
       last=(unit (each (list cmd-result:ast) tang))
       preview=(unit price-preview:rover)
@@ -599,9 +673,30 @@
       [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
   ==
 ::
+::  M7 T9. A new event resolves everything it names through `event-lookup`,
+::  which is the SAME query the Add Event route runs. An import that used a
+::  private lookup could accept a station or a subtype the product refuses.
+++  import-event-support-cards
+  |=  [our=@p serial=@ud vehicle-label=@t]
+  ^-  (list card)
+  =/  wir=wire  /rover-import-event-support/(scot %ud serial)
+  =/  jon  !>([%script %rover %vector (event-lookup:act vehicle-label)])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
+++  import-event-comparison-cards
+  |=  [our=@p serial=@ud event=import-event:rover]
+  ^-  (list card)
+  =/  wir=wire  /rover-import-event-comparison/(scot %ud serial)
+  =/  jon  !>([%script %rover %vector (event-comparison-lookup:imp event)])
+  :~  [%pass wir %agent [our %obelisk] %watch /server]
+      [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
+  ==
+::
 ++  continue-import
-  |=  [sat=state-17 our=@p run=import-run:rover]
-  ^-  [(list card) state-17]
+  |=  [sat=state-18 our=@p run=import-run:rover]
+  ^-  [(list card) state-18]
   ?~  remaining.run
     :_  sat(import-run ~)
     %:  http-give
@@ -611,6 +706,26 @@
         `(text-octs (report-text:imp report.run))
     ==
   [(import-lookup-cards our run) sat(import-run `run)]
+::
+::  A write that landed, counted under the kind of work it was. The
+::  definition, place and vehicle counts were already taken when the lookup
+::  decided to create rather than reuse, so only the record kinds are here.
+++  count-import-write
+  |=  [report=import-report:rover work=import-work:rover]
+  ^-  import-report:rover
+  ?+  -.work  report
+    %fill   report(imported +(imported.report))
+    %event
+      %_  report
+        events-imported  +(events-imported.report)
+        event-subtype-links
+          (add event-subtype-links.report (lent subtype-labels.input.value.work))
+      ==
+    %simple
+      ?.  =(%service-subtype kind.work)
+        report
+      report(subtypes-created +(subtypes-created.report))
+  ==
 ::
 ++  import-detail
   |=  [prefix=@t work=import-work:rover detail=@t]
@@ -629,8 +744,8 @@
   ==
 ::
 ++  handle-http
-  |=  [sat=state-17 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-17]
+  |=  [sat=state-18 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-18]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -1156,7 +1271,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-17
+=|  state-18
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -1174,7 +1289,7 @@
       [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
   ==
 ::
-++  on-save  !>([%17 state])
+++  on-save  !>([%18 state])
 ::
 ++  on-load
   |=  old=vase
@@ -1198,8 +1313,9 @@
       %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
       %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
       %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
-      %16  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s %.n])
-      %17  this(state +.s)
+      %16  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n])
+      %17  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s])
+      %18  this(state +.s)
     ==
   [[bind-eyre]~ loaded]
 ::
@@ -3245,7 +3361,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3305,14 +3421,22 @@
           =/  rows  (rows-at:view commands 0)
           ?:  (gth (lent rows) 1)
             (fail 'ambiguous existing label')
+          ::  A service subtype is counted on its own line, because a person
+          ::  reading the report wants to know how much of the maintenance
+          ::  catalog the starter pack already held.
+          =/  subtype  =(%service-subtype kind.work)
           ?^  rows
             =/  report
+              ?:  subtype
+                report.run(subtypes-reused +(subtypes-reused.report.run))
               report.run(definitions-reused +(definitions-reused.report.run))
             (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
           =/  base=@ux  (cut 7 [0 1] eny.bowl)
           =/  script
             (insert-simple:imp base kind.work label.value.work now.bowl)
           =/  report
+            ?:  subtype
+              report.run
             report.run(definitions-created +(definitions-created.report.run))
           =/  next
             run(writing %.y, serial +(serial.run), report report)
@@ -3447,7 +3571,334 @@
             (fail (cat 3 'unit mismatch: ' (join-fields:imp mismatches)))
           :_  this
           (import-support-cards our.bowl serial.run value.work)
+        ::
+        ::  M7 T9. The specification. Each of the thirteen fields is decided
+        ::  on its own: a field the vehicle lacks is written, a field it holds
+        ::  with the same value is already imported, and a field it holds with
+        ::  a DIFFERENT value is a conflict and is left alone. Rover never
+        ::  overwrites a correction the owner made after an earlier import.
+        %spec
+          ?.  (gte (lent commands) 14)
+            (fail 'incomplete specification lookup result')
+          =/  vehicles  (rows-at:view commands 0)
+          ?.  =(1 (lent vehicles))
+            (fail 'vehicle was not found')
+          =/  vehicle-id=@ux  `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+          =/  fields  (spec-import-fields:imp value.work)
+          =/  outcome
+            =|  $=  acc
+                $:  script=tape
+                    written=@ud
+                    already=@ud
+                    conflicts=(list @t)
+                ==
+            =/  index=@ud  0
+            |-  ^-  _acc
+            ?~  fields
+              acc(conflicts (flop conflicts.acc))
+            =/  entry  i.fields
+            ?~  value.entry
+              $(fields t.fields, index +(index))
+            =/  rows
+              %+  skim  (rows-at:view commands +(index))
+              |=  row=vector:ast
+              =(vehicle-id `@ux`(cell-atom:view %vehicle-id row))
+            ?~  rows
+              =/  stamped=(unit @da)
+                ?:  ?|  =(%vehicle-vin relation.entry)
+                        =(%vehicle-license-plate relation.entry)
+                    ==
+                  `now.bowl
+                ~
+              %=  $
+                fields  t.fields
+                index   +(index)
+                acc
+                  %_  acc
+                    written  +(written.acc)
+                    script
+                      %+  weld  script.acc
+                      %:  insert-spec-field:imp
+                          vehicle-id
+                          relation.entry
+                          u.value.entry
+                          stamped
+                      ==
+                  ==
+              ==
+            ::  The year is the one number in the family. `sql-ud` is what
+            ::  wrote it, so `sql-ud` is what reads it back: `scow` would put
+            ::  Hoon's dot separators in and 2.019 never equals 2019.
+            =/  held=@t
+              ?:  =(%vehicle-model-year relation.entry)
+                (crip (sql-ud:act (cell-atom:view column.entry i.rows)))
+              (cell-text:view column.entry i.rows)
+            ?:  =(held u.value.entry)
+              $(fields t.fields, index +(index), acc acc(already +(already.acc)))
+            %=  $
+              fields  t.fields
+              index   +(index)
+              acc     acc(conflicts [(scot %tas column.entry) conflicts.acc])
+            ==
+          =/  report
+            %_  report.run
+              spec-fields-written  (add spec-fields-written.report.run written.outcome)
+              spec-fields-already  (add spec-fields-already.report.run already.outcome)
+              spec-fields-conflicted
+                %+  add  spec-fields-conflicted.report.run
+                (lent conflicts.outcome)
+              messages
+                ?~  conflicts.outcome
+                  messages.report.run
+                :_  messages.report.run
+                %^  import-detail  'Conflict'  work
+                (join-fields:imp conflicts.outcome)
+            ==
+          ?~  script.outcome
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  next
+            run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script.outcome)
+        ::
+        %event
+          ?.  (gte (lent commands) 5)
+            (fail 'incomplete event lookup result')
+          =/  existing  (rows-at:view commands 0)
+          ?:  (gth (lent existing) 1)
+            =/  report
+              %_  report.run
+                events-conflicted  +(events-conflicted.report.run)
+                messages
+                  [(import-detail 'Conflict' work 'ambiguous provenance') messages.report.run]
+              ==
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          ?^  existing
+            =/  differences
+              (existing-event-main-differences:imp value.work commands)
+            ?~  differences
+              :_  this
+              (import-event-comparison-cards our.bowl serial.run value.work)
+            =/  report
+              %_  report.run
+                events-conflicted  +(events-conflicted.report.run)
+                messages
+                  [(import-detail 'Conflict' work (join-fields:imp differences)) messages.report.run]
+              ==
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          :_  this
+          (import-event-support-cards our.bowl serial.run vehicle-label.input.value.work)
+        ::
+        %reminder
+          ?.  (gte (lent commands) 3)
+            (fail 'incomplete reminder lookup result')
+          =/  existing  (rows-at:view commands 0)
+          ?^  existing
+            =/  report
+              report.run(reminders-already-imported +(reminders-already-imported.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  vehicles  (rows-at:view commands 1)
+          ?.  =(1 (lent vehicles))
+            (fail 'vehicle was not found')
+          =/  subtypes  (rows-at:view commands 2)
+          =/  found
+            (row-by-text:view %label subtype-label.value.work subtypes)
+          ?~  found
+            (fail 'service subtype was not found')
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script
+            %:  insert-reminder:act
+                (fixture-id:act base 9.601)
+                `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+                `@ux`(cell-atom:view %service-subtype-id u.found)
+                value.work
+                now.bowl
+            ==
+          =/  report
+            report.run(reminders-imported +(reminders-imported.report.run))
+          =/  next
+            run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
       ==
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-import-event-support *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  run-unit  import-run
+      ?~  run-unit
+        `this
+      =/  run  u.run-unit
+      ?~  remaining.run
+        `this(import-run ~)
+      =/  work  i.remaining.run
+      =/  advance
+        |=  next=import-run:rover
+        ^-  (quip card _this)
+        =/  continued=[(list card) state-18]
+          (continue-import state our.bowl next)
+        [-.continued this(state +.continued)]
+      =/  fail
+        |=  detail=@t
+        ^-  (quip card _this)
+        =/  report
+          %_  report.run
+            failures  +(failures.report.run)
+            messages  [(import-detail 'Failure' work detail) messages.report.run]
+          ==
+        (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+      ?.  =(%event -.work)
+        (fail 'internal event support lookup mismatch')
+      =/  event  (event-work-value:imp work)
+      =/  input  input.event
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        (fail 'database support lookup refused')
+      =/  commands  p.res
+      ?.  (gte (lent commands) 6)
+        (fail 'incomplete event support lookup result')
+      =/  vehicles  (rows-at:view commands 0)
+      ?.  =(1 (lent vehicles))
+        (fail 'vehicle was not found')
+      =/  station-rows  (rows-at:view commands 1)
+      =/  station-id=(unit @ux)
+        ?~  station-label.input
+          ~
+        =/  found  (row-by-text:view %label u.station-label.input station-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %station-id u.found)
+      ?:  ?&  ?=(^ station-label.input)
+              ?=(~ station-id)
+          ==
+        (fail 'station was not found')
+      =/  tag-proof
+        (ids-for-labels:view tag-labels.input (rows-at:view commands 2) %label %tag-id)
+      ?:  ?=(%| -.tag-proof)
+        (fail 'a tag definition was not found')
+      =/  payment-rows  (rows-at:view commands 3)
+      =/  payment-method-id=(unit @ux)
+        ?~  payment-method-label.input
+          ~
+        =/  found  (row-by-text:view %label u.payment-method-label.input payment-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %method-id u.found)
+      ?:  ?&  ?=(^ payment-method-label.input)
+              ?=(~ payment-method-id)
+          ==
+        (fail 'payment method was not found')
+      ::  A subtype the catalog does not hold is refused, never invented. The
+      ::  document's own definitions section created every one it names, and
+      ::  those work items ran before this one.
+      =/  subtype-proof
+        %:  ids-for-labels:view
+            subtype-labels.input
+            (rows-at:view commands 4)
+            %label
+            %service-subtype-id
+        ==
+      ?:  ?=(%| -.subtype-proof)
+        (fail 'a service subtype was not found')
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  ids=event-ids:act
+        :*  (fixture-id:act base 9.501)
+            (fixture-id:act base 9.502)
+            (fixture-id:act base 9.503)
+            (fixture-id:act base 9.504)
+            (fixture-id:act base 9.505)
+        ==
+      ::  A note may hold a character urQL cannot carry inside a literal - a
+      ::  newline is the common one, and the owner's corpus has seven. The
+      ::  script then goes through %parse and the note is put in as a typed
+      ::  value, exactly as a fill note already does.
+      =/  command-note=(unit @t)
+        ?~  notes.input
+          ~
+        ?:  (urql-cord-safe:imp u.notes.input)
+          ~
+        notes.input
+      =/  script-event=import-event:rover
+        ?~  command-note
+          event
+        event(notes.input `'Rover import note placeholder')
+      =/  script
+        %:  insert-import-event:imp
+            ids
+            `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles))
+            station-id
+            p.tag-proof
+            p.subtype-proof
+            payment-method-id
+            script-event
+            now.bowl
+        ==
+      =/  next
+        run(writing %.y, serial +(serial.run))
+      :_  this(import-run `next)
+      ?~  command-note
+        (import-write-cards our.bowl serial.run script)
+      (import-parse-cards our.bowl serial.run script)
+    ::
+        %kick
+      `this
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-import-event-comparison *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  run-unit  import-run
+      ?~  run-unit
+        `this
+      =/  run  u.run-unit
+      ?~  remaining.run
+        `this(import-run ~)
+      =/  work  i.remaining.run
+      =/  advance
+        |=  next=import-run:rover
+        ^-  (quip card _this)
+        =/  continued=[(list card) state-18]
+          (continue-import state our.bowl next)
+        [-.continued this(state +.continued)]
+      =/  fail
+        |=  detail=@t
+        ^-  (quip card _this)
+        =/  report
+          %_  report.run
+            failures  +(failures.report.run)
+            messages  [(import-detail 'Failure' work detail) messages.report.run]
+          ==
+        (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+      ?.  =(%event -.work)
+        (fail 'internal event comparison lookup mismatch')
+      =/  event  (event-work-value:imp work)
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      ?:  ?=(%.n -.res)
+        (fail 'database comparison lookup refused')
+      ?.  (gte (lent p.res) 6)
+        (fail 'incomplete event comparison lookup result')
+      =/  differences  (existing-event-child-differences:imp event p.res)
+      ?~  differences
+        =/  report
+          report.run(events-already-imported +(events-already-imported.report.run))
+        (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+      =/  report
+        %_  report.run
+          events-conflicted  +(events-conflicted.report.run)
+          messages
+            [(import-detail 'Conflict' work (join-fields:imp differences)) messages.report.run]
+        ==
+      (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
     ::
         %kick
       `this
@@ -3469,7 +3920,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3521,7 +3972,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3574,7 +4025,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -3731,36 +4182,35 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  phase=@ta
         ?~  t.wire
           %script
         i.t.wire
+      ::  A fill and a vehicle event both carry a note, and both reach the
+      ::  parse path when that note holds a character urQL cannot put in a
+      ::  literal. One arm serves both, keyed by the relation the note lives
+      ::  in.
+      =/  note-target  (work-note:imp work)
       ?:  =(%parse phase)
-        ?.  =(%fill -.work)
+        ?~  note-target
           (advance-failure 'internal note parse work mismatch')
-        =/  fill  (fill-work-value:imp work)
-        ?~  notes.input.fill
-          (advance-failure 'internal note parse lacks a note')
         =/  parsed  ;;((each (list command:ast) tang) +.q.cage.sign)
         ?:  ?=(%.n -.parsed)
           (advance-failure 'atomic database mutation parse refused')
         =/  patched
-          (replace-fill-note:imp p.parsed u.notes.input.fill)
+          (replace-note:imp p.parsed relation.u.note-target note.u.note-target)
         ?:  ?=(%| -.patched)
           (advance-failure p.patched)
         :_  this
         (import-command-write-cards our.bowl serial.run p.patched)
       ?:  =(%cmd-list phase)
-        =/  report
-          ?:  =(%fill -.work)
-            report.run(imported +(imported.report.run))
-          report.run
+        =/  report  (count-import-write report.run work)
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-17]
+        =/  continued=[(list card) state-18]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -3771,12 +4221,10 @@
             messages
               [(import-detail 'Failure' work 'atomic database mutation refused') messages.report.run]
           ==
-        ?:  =(%fill -.work)
-          report.run(imported +(imported.report.run))
-        report.run
+        (count-import-write report.run work)
       =/  next
         run(writing %.n, remaining t.remaining.run, report report)
-      =/  continued=[(list card) state-17]
+      =/  continued=[(list card) state-18]
         (continue-import state our.bowl next)
       [-.continued this(state +.continued)]
     ::

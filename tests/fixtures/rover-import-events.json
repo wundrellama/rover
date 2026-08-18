@@ -1,0 +1,266 @@
+{
+  "rover-import": 1,
+  "source": {
+    "app": "aCar",
+    "version": "5.6.12",
+    "backup-version": 11,
+    "exported": "2026-08-18T10:00:00-05:00"
+  },
+  "definitions": {
+    "energy": [
+      {
+        "label": "T9 Diesel @@STAMP@@",
+        "physicalKind": "reservoir",
+        "quantityUnit": "gal",
+        "subtypes": [
+          {
+            "label": "T9 ULSD @@STAMP@@",
+            "cetane": "45"
+          }
+        ]
+      }
+    ],
+    "additives": [],
+    "driving-modes": [
+      {
+        "label": "T9 Normal @@STAMP@@"
+      }
+    ],
+    "tags": [
+      {
+        "label": "T9 Scheduled Maintenance @@STAMP@@"
+      },
+      {
+        "label": "T9 Warranty @@STAMP@@"
+      }
+    ],
+    "payment-methods": [
+      {
+        "label": "T9 Card @@STAMP@@"
+      }
+    ],
+    "service-subtypes": [
+      {
+        "label": "Car Wash"
+      },
+      {
+        "label": "Engine Oil"
+      },
+      {
+        "label": "Insurance"
+      },
+      {
+        "label": "Oil Filter"
+      },
+      {
+        "label": "Registration"
+      },
+      {
+        "label": "T9 Turbo Rebuild @@STAMP@@"
+      }
+    ]
+  },
+  "places": [
+    {
+      "label": "T9 Fuel Stop @@STAMP@@",
+      "kind": "fuel",
+      "address": {
+        "parts": {
+          "locality": "Sampletown",
+          "region": "TX"
+        }
+      }
+    },
+    {
+      "label": "T9 Garage @@STAMP@@",
+      "kind": "private"
+    }
+  ],
+  "notices": [
+    {
+      "kind": "Trip types",
+      "count": 6,
+      "reason": "aCar's shipped defaults, carrying IRS mileage deduction rates. Rover has no model for a deduction rate."
+    },
+    {
+      "kind": "Insurance policies",
+      "count": 2,
+      "reason": "Insurance is fenced, ruled 2026-08-18. A bare policy string is a stub of a feature rather than a feature."
+    },
+    {
+      "kind": "Event records with a source total of zero",
+      "count": 1,
+      "reason": "aCar writes 0 when no amount was entered, so a stored 0.00 could not be told apart from a genuine free service."
+    }
+  ],
+  "vehicles": [
+    {
+      "label": "T9 Import Vehicle @@STAMP@@",
+      "distanceUnit": "mi",
+      "volumeUnit": "gal",
+      "defaultEnergy": "T9 Diesel @@STAMP@@",
+      "tankSize": {
+        "value": "26.0",
+        "unit": "gal"
+      },
+      "specification": {
+        "vin": "ROVERFAKEVIN00009",
+        "plate": "ROVER-FAKE-09",
+        "modelYear": "2019",
+        "make": "Examplemobile",
+        "model": "Prototype",
+        "subModel": "Trailhand",
+        "bodyType": "crew cab pickup",
+        "engine": "3.0L I6 turbodiesel",
+        "transmission": "8-speed automatic",
+        "driveType": "four-wheel drive",
+        "bedType": "6 ft bed"
+      },
+      "fills": [
+        {
+          "vehicle": "T9 Import Vehicle @@STAMP@@",
+          "definition": "T9 Diesel @@STAMP@@",
+          "subtype": "T9 ULSD @@STAMP@@",
+          "observed": "2026-05-01T08:00",
+          "zone": "America/Chicago",
+          "quantity": "20.000",
+          "price": "3.500",
+          "profile": "us-usd-gal",
+          "settlement": "standard",
+          "tank": "full",
+          "missedFill": "no",
+          "mileage": "70000.0",
+          "mileageUnit": "mi",
+          "station": "T9 Fuel Stop @@STAMP@@",
+          "drivingMode": "T9 Normal @@STAMP@@",
+          "additives": [],
+          "tags": [],
+          "sourceApp": "acar",
+          "sourceRecordId": "t9-fill-1-@@STAMP@@",
+          "sourceTotal": "70.00"
+        },
+        {
+          "vehicle": "T9 Import Vehicle @@STAMP@@",
+          "definition": "T9 Diesel @@STAMP@@",
+          "subtype": "T9 ULSD @@STAMP@@",
+          "observed": "2026-05-06T08:00",
+          "zone": "America/Chicago",
+          "quantity": "10.000",
+          "price": "3.500",
+          "profile": "us-usd-gal",
+          "settlement": "standard",
+          "tank": "full",
+          "missedFill": "no",
+          "mileage": "70300.0",
+          "mileageUnit": "mi",
+          "station": "T9 Fuel Stop @@STAMP@@",
+          "drivingMode": "T9 Normal @@STAMP@@",
+          "additives": [],
+          "tags": [],
+          "sourceApp": "acar",
+          "sourceRecordId": "t9-fill-2-@@STAMP@@",
+          "sourceTotal": "35.00"
+        }
+      ],
+      "serviceEvents": [
+        {
+          "vehicle": "T9 Import Vehicle @@STAMP@@",
+          "observed": "2026-05-02T09:30",
+          "zone": "America/Chicago",
+          "currency": "usd",
+          "total": "412.75",
+          "mileage": "70120.4",
+          "mileageUnit": "mi",
+          "station": "T9 Garage @@STAMP@@",
+          "tags": [
+            "T9 Scheduled Maintenance @@STAMP@@",
+            "T9 Warranty @@STAMP@@"
+          ],
+          "subtypes": [
+            "Engine Oil",
+            "Oil Filter",
+            "T9 Turbo Rebuild @@STAMP@@"
+          ],
+          "paymentMethod": "T9 Card @@STAMP@@",
+          "notes": "Oil, filter and a turbo rebuild under warranty.",
+          "sourceApp": "acar",
+          "sourceRecordId": "t9-service-1-@@STAMP@@"
+        },
+        {
+          "vehicle": "T9 Import Vehicle @@STAMP@@",
+          "observed": "2026-05-03T09:30",
+          "zone": "America/Chicago",
+          "currency": "usd",
+          "mileage": "70180.0",
+          "mileageUnit": "mi",
+          "station": "none",
+          "tags": [],
+          "subtypes": [],
+          "sourceApp": "acar",
+          "sourceRecordId": "t9-service-2-@@STAMP@@"
+        }
+      ],
+      "noteEvents": [
+        {
+          "vehicle": "T9 Import Vehicle @@STAMP@@",
+          "observed": "2026-05-04T09:30",
+          "zone": "America/Chicago",
+          "currency": "usd",
+          "total": "811.88",
+          "mileage": "70240.0",
+          "mileageUnit": "mi",
+          "station": "none",
+          "tags": [],
+          "subtypes": [],
+          "notes": "A record the source typed note that carries money.",
+          "sourceApp": "acar",
+          "sourceRecordId": "t9-note-1-@@STAMP@@"
+        }
+      ],
+      "reminders": [
+        {
+          "vehicle": "T9 Import Vehicle @@STAMP@@",
+          "subtype": "Engine Oil",
+          "timeInterval": "3",
+          "timeUnit": "month",
+          "timeDue": "2026-11-01",
+          "distanceInterval": "3000.0",
+          "distanceDue": "73000.0",
+          "distanceUnit": "mi"
+        },
+        {
+          "vehicle": "T9 Import Vehicle @@STAMP@@",
+          "subtype": "Oil Filter",
+          "distanceInterval": "5000.0",
+          "distanceDue": "75000.0",
+          "distanceUnit": "mi"
+        }
+      ]
+    },
+    {
+      "label": "T9 Import Vehicle Two @@STAMP@@",
+      "distanceUnit": "mi",
+      "volumeUnit": "gal",
+      "defaultEnergy": "T9 Diesel @@STAMP@@",
+      "fills": [],
+      "serviceEvents": [
+        {
+          "vehicle": "T9 Import Vehicle Two @@STAMP@@",
+          "observed": "2026-05-05T09:30",
+          "zone": "America/Chicago",
+          "currency": "usd",
+          "total": "68.40",
+          "mileage": "20000.0",
+          "mileageUnit": "mi",
+          "station": "T9 Garage @@STAMP@@",
+          "tags": [],
+          "subtypes": [
+            "Car Wash"
+          ],
+          "sourceApp": "acar",
+          "sourceRecordId": "t9-service-3-@@STAMP@@"
+        }
+      ]
+    }
+  ]
+}

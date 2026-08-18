@@ -104,6 +104,29 @@
     (scow %da observed-start.input.fill)
   ==
 ::
+++  event-name
+  |=  event=import-event:rover
+  ^-  @t
+  %-  crip
+  ;:  weld
+    (trip (scot %tas kind.input.event))
+    " event "
+    (trip vehicle-label.input.event)
+    " / "
+    (scow %da observed-start.input.event)
+  ==
+::
+++  reminder-name
+  |=  input=reminder-entry:rover
+  ^-  @t
+  %-  crip
+  ;:  weld
+    "reminder "
+    (trip vehicle-label.input)
+    " / "
+    (trip subtype-label.input)
+  ==
+::
 ++  work-name
   |=  work=import-work:rover
   ^-  @t
@@ -119,6 +142,9 @@
     %place  (cat 3 'place ' label.value.work)
     %vehicle  (cat 3 'vehicle ' label.value.work)
     %fill  (fill-name value.work)
+    %spec  (cat 3 'specification of ' vehicle-label.work)
+    %event  (event-name value.work)
+    %reminder  (reminder-name value.work)
   ==
 ::
 ++  fill-work-value
@@ -128,14 +154,25 @@
     %fill  value.work
   ==
 ::
+++  event-work-value
+  |=  work=import-work:rover
+  ^-  import-event:rover
+  ?+  -.work  !!
+    %event  value.work
+  ==
+::
 ++  empty-report
   ^-  import-report:rover
-  [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ~]
+  [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ~ ~]
 ::
 ++  initial-report
   |=  document=import-document:rover
   ^-  import-report:rover
   =/  report  empty-report
+  ::  The converter read the source, so only the converter knows what the
+  ::  source held and Rover does not carry. The notices ride the document and
+  ::  reach the report a person reads after the import.
+  =.  notices.report  notices.document
   =/  vehicles  vehicles.document
   |-
   ?~  vehicles
@@ -181,6 +218,26 @@
     (trip (join-fields t.fields))
   ==
 ::
+++  notice-lines
+  |=  notices=(list import-notice:rover)
+  ^-  tape
+  ?~  notices
+    ~
+  ;:  weld
+    "  "
+    (trip kind.i.notices)
+    ": "
+    (scow %ud count.i.notices)
+    " - "
+    (trip reason.i.notices)
+    "\0a"
+    $(notices t.notices)
+  ==
+::
+::  The report is a product surface. A person reads it to decide whether to
+::  trust the import, so it says what came in, what was already there, what
+::  was refused, and what the source held that Rover does not carry. Every
+::  line names a thing in words rather than a relation or a column.
 ++  report-text
   |=  report=import-report:rover
   ^-  @t
@@ -195,10 +252,32 @@
       (scow %ud conflicts.report)
       ", failures "
       (scow %ud failures.report)
+      "\0aEvents: imported "
+      (scow %ud events-imported.report)
+      ", already-imported "
+      (scow %ud events-already-imported.report)
+      ", conflicts "
+      (scow %ud events-conflicted.report)
+      ", service-subtype links "
+      (scow %ud event-subtype-links.report)
+      "\0aReminders: imported "
+      (scow %ud reminders-imported.report)
+      ", already-imported "
+      (scow %ud reminders-already-imported.report)
+      "\0aSpecification fields: written "
+      (scow %ud spec-fields-written.report)
+      ", already-held "
+      (scow %ud spec-fields-already.report)
+      ", conflicts "
+      (scow %ud spec-fields-conflicted.report)
       "\0aDefinitions: created "
       (scow %ud definitions-created.report)
       ", reused "
       (scow %ud definitions-reused.report)
+      "\0aService subtypes: created "
+      (scow %ud subtypes-created.report)
+      ", reused "
+      (scow %ud subtypes-reused.report)
       "\0aPlaces: created "
       (scow %ud places-created.report)
       ", reused "
@@ -218,6 +297,17 @@
       "\0aUnit mismatches: "
       (scow %ud unit-mismatches.report)
       "\0asourceEfficiency: ignored by the Hoon import path\0a"
+    ==
+  ::  What the source held and Rover did not take. Silence is the failure
+  ::  mode: a dropped record the owner finds months later is worse than a
+  ::  line that says what was left and why.
+  =.  lines
+    ?~  notices.report
+      lines
+    ;:  weld
+      lines
+      "Not imported, and why\0a"
+      (notice-lines notices.report)
     ==
   =/  messages  messages.report
   |-
@@ -272,14 +362,27 @@
       $(chars t.chars)
   ==
 ::
-++  replace-fill-note
-  |=  [commands=(list command:ast) note=@t]
+::  A note may hold a character urQL cannot carry inside a literal - a
+::  newline is the common one. Rover parses its own script to an AST and puts
+::  the note in as a typed value instead of as text, so the note is stored
+::  exactly as the owner wrote it.
+::
+::  The relation is an argument because two relations hold a note: `fill-notes`
+::  for a fuel fill and `vehicle-event-notes` for a vehicle event. Both rows
+::  are (key, note), so one arm serves both.
+++  replace-note
+  |=  [commands=(list command:ast) relation=@tas note=@t]
   ^-  (each (list command:ast) @t)
+  =/  missing  (cat 3 'parsed script lacks one insert into ' (scot %tas relation))
+  =/  repeated
+    (cat 3 'parsed script has more than one insert into ' (scot %tas relation))
+  =/  malformed
+    (cat 3 'the note insert is not one two-value row in ' (scot %tas relation))
   =/  out=(list command:ast)  ~
   =/  replaced=?  %.n
   |-
   ?~  commands
-    ?:(replaced [%& (flop out)] [%| 'parsed script lacks one fill-notes insert'])
+    ?:(replaced [%& (flop out)] [%| missing])
   =/  command  i.commands
   ?.  ?=(%crud-txn -.command)
     $(commands t.commands, out [command out])
@@ -287,18 +390,18 @@
   ?.  ?=(%insert -.body.transaction)
     $(commands t.commands, out [command out])
   =/  insertion=insert:ast  +.body.transaction
-  ?.  =(%fill-notes name.qualified-table.insertion)
+  ?.  =(relation name.qualified-table.insertion)
     $(commands t.commands, out [command out])
   ?:  replaced
-    [%| 'parsed script contains more than one fill-notes insert']
+    [%| repeated]
   ?.  ?=([%data *] values.insertion)
-    [%| 'fill-notes insert does not contain literal data']
+    [%| malformed]
   =/  rows=(list (list value-or-default:ast))  +.values.insertion
   ?.  =(1 (lent rows))
-    [%| 'fill-notes insert does not contain one row']
+    [%| malformed]
   =/  row  (snag 0 rows)
   ?.  =(2 (lent row))
-    [%| 'fill-notes insert does not contain two values']
+    [%| malformed]
   =/  patched-row=(list value-or-default:ast)
     [(snag 0 row) [%t note] ~]
   =/  patched-insertion=insert:ast
@@ -306,6 +409,22 @@
   =/  patched-transaction=crud-txn:ast
     transaction(body [%insert patched-insertion])
   $(commands t.commands, out [patched-transaction out], replaced %.y)
+::
+::  Which relation holds the note for this kind of work, and what the note is.
+::  An empty answer means the work carries no note that needs the parse path.
+++  work-note
+  |=  work=import-work:rover
+  ^-  (unit [relation=@tas note=@t])
+  ?+  -.work  ~
+    %fill
+      ?~  notes.input.value.work
+        ~
+      `[%fill-notes u.notes.input.value.work]
+    %event
+      ?~  notes.input.value.work
+        ~
+      `[%vehicle-event-notes u.notes.input.value.work]
+  ==
 ::
 ++  unique-texts
   |=  values=(list @t)
@@ -355,6 +474,233 @@
     $(fills t.fills)
   $(fills t.fills)
 ::
+::  M7 T9. Which specification fields the vehicle already holds, and which the
+::  document would add. One query per relation, in `spec-view-order`, exactly
+::  as the vehicle screen reads them. No join: a fresh database holds no
+::  specification row at all, and a join whose leftmost relation is empty
+::  crashes the pinned engine.
+++  spec-lookup
+  |=  label=@t
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote:act label)
+    "' SELECT V.vehicle-id; "
+    spec-queries:act
+  ==
+::
+::  The thirteen fields, paired with the value the document carries, in the
+::  order `spec-queries` returns them.
+++  spec-import-fields
+  |=  input=vehicle-spec-entry:rover
+  ^-  (list [relation=@tas column=@tas value=(unit @t)])
+  =/  text
+    |=  value=spec-text:rover
+    ^-  (unit @t)
+    ?~(value ~ u.value)
+  ::  Plain digits, because `sql-ud` is what writes the column and what reads
+  ::  it back. `scow` would put Hoon's dot separators in, and 2.019 never
+  ::  equals the 2019 the database holds.
+  =/  year=(unit @t)
+    ?~  model-year.input
+      ~
+    ?~  u.model-year.input
+      ~
+    `(crip (sql-ud:act u.u.model-year.input))
+  :~  [%vehicle-vin %vin (text vin.input)]
+      [%vehicle-license-plate %plate (text plate.input)]
+      [%vehicle-model-year %model-year year]
+      [%vehicle-make %make (text make.input)]
+      [%vehicle-model %model (text model.input)]
+      [%vehicle-sub-model %sub-model (text sub-model.input)]
+      [%vehicle-body-type %body-type (text body-type.input)]
+      [%vehicle-color %color (text color.input)]
+      [%vehicle-engine %engine (text engine.input)]
+      [%vehicle-transmission %transmission (text transmission.input)]
+      [%vehicle-drive-type %drive-type (text drive-type.input)]
+      [%vehicle-bed-type %bed-type (text bed-type.input)]
+      [%vehicle-notes %note (text note.input)]
+  ==
+::
+::  One INSERT per field the vehicle does NOT already hold. There is no DELETE
+::  here, and that is the point: import adds evidence and never overwrites a
+::  value the owner corrected in Rover after an earlier run. A field whose
+::  stored value differs is reported as a conflict by the caller.
+++  insert-spec-field
+  |=  [vehicle-id=@ux relation=@tas value=@t stamped=(unit @da)]
+  ^-  tape
+  ::  The model year is the one number in the family. Every other field is
+  ::  text and travels quoted.
+  =/  literal=tape
+    ?:  =(%vehicle-model-year relation)
+      (trip value)
+    ;:  weld
+      "'"
+      (sql-quote:act value)
+      "'"
+    ==
+  =/  stamp=tape
+    ?~  stamped
+      ~
+    (weld ", " (scow %da u.stamped))
+  ;:  weld
+    "INSERT INTO "
+    (trip relation)
+    " VALUES ("
+    (scow %ux vehicle-id)
+    ", "
+    literal
+    stamp
+    "); "
+  ==
+::
+::  M7 T9. Has this event already arrived, and does it still say what it said?
+::  The provenance row answers the first question exactly. The typed child and
+::  the entered total answer the second, and the associations follow in
+::  `event-comparison-lookup`.
+++  event-existing-lookup
+  |=  event=import-event:rover
+  ^-  tape
+  =/  source
+    ;:  weld
+      "I.source-app = "
+      (sql-term:act source-app.event)
+      " AND I.source-record-id = '"
+      (sql-quote:act source-record-id.event)
+      "'"
+    ==
+  =/  join
+    "FROM vehicle-events E JOIN event-imports I ON E.event-id = I.event-id "
+  ;:  weld
+    join
+    "JOIN vehicles V ON E.vehicle-id = V.vehicle-id WHERE "
+    source
+    " SELECT E.event-id, V.label AS vehicle, E.observed-start, E.observed-end, E.observed-precision, E.source-zone; "
+    join
+    "JOIN service-events C ON E.event-id = C.event-id WHERE "
+    source
+    " SELECT C.event-id AS child; "
+    join
+    "JOIN expense-events C ON E.event-id = C.event-id WHERE "
+    source
+    " SELECT C.event-id AS child; "
+    join
+    "JOIN note-events C ON E.event-id = C.event-id WHERE "
+    source
+    " SELECT C.event-id AS child; "
+    join
+    "JOIN vehicle-event-cost-totals T ON E.event-id = T.event-id WHERE "
+    source
+    " SELECT T.total-mills;"
+  ==
+::
+++  event-comparison-lookup
+  |=  event=import-event:rover
+  ^-  tape
+  =/  source
+    ;:  weld
+      "I.source-app = "
+      (sql-term:act source-app.event)
+      " AND I.source-record-id = '"
+      (sql-quote:act source-record-id.event)
+      "'"
+    ==
+  =/  join
+    "FROM vehicle-events E JOIN event-imports I ON E.event-id = I.event-id "
+  ;:  weld
+    join
+    "JOIN vehicle-event-odometers L ON E.event-id = L.event-id JOIN odometer-observations O ON L.odometer-id = O.odometer-id WHERE "
+    source
+    " SELECT O.value-digits, O.decimal-places, O.unit; "
+    join
+    "JOIN vehicle-event-stations L ON E.event-id = L.event-id JOIN stations S ON L.station-id = S.station-id WHERE "
+    source
+    " SELECT S.label AS station; "
+    join
+    "JOIN vehicle-event-tags L ON E.event-id = L.event-id JOIN tag-definitions T ON L.tag-id = T.tag-id WHERE "
+    source
+    " SELECT T.label AS tag; "
+    join
+    "JOIN vehicle-event-service-subtypes L ON E.event-id = L.event-id JOIN service-subtype-definitions S ON L.service-subtype-id = S.service-subtype-id WHERE "
+    source
+    " SELECT S.label AS subtype; "
+    join
+    "JOIN vehicle-event-payment-method L ON E.event-id = L.event-id JOIN payment-method-definitions P ON L.method-id = P.method-id WHERE "
+    source
+    " SELECT P.label AS payment-method; "
+    join
+    ::  The alias is `Q`, not `N`. `N` is urQL's own literal for false - the
+    ::  one `archived = N` writes - so the parser refuses it as a name.
+    ::  `fill-notes Q` in the fill comparison already reads this way.
+    "JOIN vehicle-event-notes Q ON E.event-id = Q.event-id WHERE "
+    source
+    " SELECT Q.note;"
+  ==
+::
+::  M7 T9. A reminder is addressed by the vehicle and the service subtype it
+::  names, which is what a person means by "the oil reminder on the truck".
+::  A second import finds the row it wrote and adds nothing.
+++  reminder-existing-lookup
+  |=  input=reminder-entry:rover
+  ^-  tape
+  =/  predicate
+    ;:  weld
+      "V.label = '"
+      (sql-quote:act vehicle-label.input)
+      "' AND S.label = '"
+      (sql-quote:act subtype-label.input)
+      "'"
+    ==
+  =/  join
+    ;:  weld
+      "FROM service-reminders R JOIN vehicles V ON R.vehicle-id = V.vehicle-id "
+      "JOIN service-subtype-definitions S ON R.service-subtype-id = S.service-subtype-id "
+    ==
+  ;:  weld
+    join
+    "WHERE "
+    predicate
+    " SELECT R.reminder-id, R.archived; "
+    "FROM vehicles V WHERE V.label = '"
+    (sql-quote:act vehicle-label.input)
+    "' SELECT V.vehicle-id; "
+    "FROM service-subtype-definitions S WHERE S.label = '"
+    (sql-quote:act subtype-label.input)
+    "' AND S.archived = N SELECT S.service-subtype-id, S.label;"
+  ==
+::
+++  insert-import-event
+  |=  $:  ids=event-ids:act
+          vehicle-id=@ux
+          station-id=(unit @ux)
+          tag-ids=(list @ux)
+          subtype-ids=(list @ux)
+          payment-method-id=(unit @ux)
+          event=import-event:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  ;:  weld
+    %:  insert-event:act
+        ids
+        vehicle-id
+        station-id
+        tag-ids
+        subtype-ids
+        ~
+        payment-method-id
+        input.event
+        recorded-at
+    ==
+    " INSERT INTO event-imports VALUES ("
+    (scow %ux event.ids)
+    ", "
+    (sql-term:act source-app.event)
+    ", '"
+    (sql-quote:act source-record-id.event)
+    "');"
+  ==
+::
 ++  import-works
   |=  document=import-document:rover
   ^-  (list import-work:rover)
@@ -376,11 +722,14 @@
       (simples %driving-mode driving-modes.definitions.document)
       (simples %tag tags.definitions.document)
       (simples %payment-method payment-methods.definitions.document)
+      (simples %service-subtype service-subtypes.definitions.document)
     ==
   =/  place-work
     %+  turn  places.document
     |=  value=import-place:rover
     ^-  import-work:rover
+    ?^  station-kind.value
+      [%place u.station-kind.value value]
     [%place (station-kind-for label.value vehicles.document) value]
   =/  vehicle-work
     %+  turn  vehicles.document
@@ -401,12 +750,52 @@
         [%fill distance-unit.vehicle volume-unit.vehicle value]
       $(values t.values)
     (build vehicles.document)
+  ::  A specification, an event and a reminder each name a vehicle, so all
+  ::  three follow the vehicles. An event also names a station, a tag, a
+  ::  payment method and a subtype, and a reminder names a subtype, so all of
+  ::  them follow the definitions and the places as well.
+  =/  spec-work
+    %+  murn  vehicles.document
+    |=  value=import-vehicle:rover
+    ^-  (unit import-work:rover)
+    ?:  =(*vehicle-spec-entry:rover specification.value)
+      ~
+    `[%spec label.value specification.value]
+  =/  event-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values
+        ~
+      %+  weld
+        %+  turn  events.i.values
+        |=  value=import-event:rover
+        ^-  import-work:rover
+        [%event value]
+      $(values t.values)
+    (build vehicles.document)
+  =/  reminder-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values
+        ~
+      %+  weld
+        %+  turn  reminders.i.values
+        |=  value=reminder-entry:rover
+        ^-  import-work:rover
+        [%reminder value]
+      $(values t.values)
+    (build vehicles.document)
   ;:  weld
     energy-work
     simple-work
     place-work
     vehicle-work
+    spec-work
     fill-work
+    event-work
+    reminder-work
   ==
 ::
 ++  simple-table
@@ -421,6 +810,12 @@
       ['tag-definitions' 'tag-id']
     %payment-method
       ['payment-method-definitions' 'method-id']
+    ::  M7 T9. The service-subtype catalog is a definition family of the same
+    ::  shape, so it reaches the same create-if-absent path. Matching is by
+    ::  LABEL, which is what makes the source's duplicate `Car Wash` land on
+    ::  the one row the T2 starter pack already seeded.
+    %service-subtype
+      ['service-subtype-definitions' 'service-subtype-id']
   ==
 ::
 ++  energy-lookup
@@ -556,6 +951,12 @@
       (vehicle-lookup value.work)
     %fill
       (fill-existing-lookup value.work)
+    %spec
+      (spec-lookup vehicle-label.work)
+    %event
+      (event-existing-lookup value.work)
+    %reminder
+      (reminder-existing-lookup value.work)
   ==
 ::
 ++  insert-energy-subtypes
@@ -1109,6 +1510,79 @@
     (add-diff (optional-text-diff notes.input %note (rows-at:view commands 3)) 'notes' differences)
   =.  differences
     (add-diff (optional-text-diff payment-method-label.input %payment-method (rows-at:view commands 4)) 'payment-method' differences)
+  (flop differences)
+::
+::  M7 T9. The stored event against the document, for the second run of the
+::  same import. A record whose values changed reports a conflict and writes
+::  nothing: Rover never issues UPSERT, and an edit the owner made in Rover
+::  must survive a stale foreign export.
+++  existing-event-main-differences
+  |=  [event=import-event:rover commands=(list cmd-result:ast)]
+  ^-  (list @t)
+  =/  input  input.event
+  =/  main  (rows-at:view commands 0)
+  ?.  =(1 (lent main))
+    ['provenance' ~]
+  =/  row  (snag 0 main)
+  =/  differences=(list @t)  ~
+  =.  differences
+    (add-diff !=(vehicle-label.input (cell-text:view %vehicle row)) 'vehicle' differences)
+  =.  differences
+    (add-diff !=(observed-start.input (cell-atom:view %observed-start row)) 'observed' differences)
+  =.  differences
+    (add-diff !=((add observed-start.input (bex 64)) (cell-atom:view %observed-end row)) 'observed' differences)
+  =.  differences
+    (add-diff !=(%second (cell-term:view %observed-precision row)) 'observed' differences)
+  =.  differences
+    (add-diff !=(source-zone.input (cell-text:view %source-zone row)) 'zone' differences)
+  ::  The kind is which typed child exists, so it is checked by counting
+  ::  child rows rather than by reading a column. No column holds it.
+  =/  service  (lent (rows-at:view commands 1))
+  =/  expense  (lent (rows-at:view commands 2))
+  =/  note  (lent (rows-at:view commands 3))
+  =/  expected
+    ?+  kind.input  [0 0 0]
+      %service  [1 0 0]
+      %expense  [0 1 0]
+      %note     [0 0 1]
+    ==
+  =.  differences
+    (add-diff !=(expected [service expense note]) 'kind' differences)
+  =/  totals  (rows-at:view commands 4)
+  =/  total-diff
+    ?~  total-mills.input
+      ?=(^ totals)
+    ?|  !=(1 (lent totals))
+        !=(u.total-mills.input (cell-atom:view %total-mills (snag 0 totals)))
+    ==
+  =.  differences  (add-diff total-diff 'total' differences)
+  (flop differences)
+::
+++  existing-event-child-differences
+  |=  [event=import-event:rover commands=(list cmd-result:ast)]
+  ^-  (list @t)
+  =/  input  input.event
+  =/  differences=(list @t)  ~
+  =/  odometers  (rows-at:view commands 0)
+  =/  odometer-diff=?
+    ?~  mileage.input
+      ?=(^ odometers)
+    ?|  !=(1 (lent odometers))
+        !=(digits.u.mileage.input (cell-atom:view %value-digits (snag 0 odometers)))
+        !=(places.u.mileage.input (cell-atom:view %decimal-places (snag 0 odometers)))
+        !=(odo-unit.u.mileage.input (cell-term:view %unit (snag 0 odometers)))
+    ==
+  =.  differences  (add-diff odometer-diff 'odometer' differences)
+  =.  differences
+    (add-diff (optional-text-diff station-label.input %station (rows-at:view commands 1)) 'station' differences)
+  =.  differences
+    (add-diff =(%.n (same-texts tag-labels.input %tag (rows-at:view commands 2))) 'tags' differences)
+  =.  differences
+    (add-diff =(%.n (same-texts subtype-labels.input %subtype (rows-at:view commands 3))) 'subtypes' differences)
+  =.  differences
+    (add-diff (optional-text-diff payment-method-label.input %payment-method (rows-at:view commands 4)) 'payment-method' differences)
+  =.  differences
+    (add-diff (optional-text-diff notes.input %note (rows-at:view commands 5)) 'notes' differences)
   (flop differences)
 ::
 ++  insert-import-fill

@@ -1278,6 +1278,20 @@
       "CREATE TABLE rover..expense-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %note-events
       "CREATE TABLE rover..note-events (event-id @ux) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M7 T9. Which foreign record an event came from, shaped exactly like
+      ::  the shipped `acquisition-imports`. Import Q5 ratified provenance as
+      ::  the answer to "have I already imported this record?", and its
+      ::  reasoning does not change with the record family: the natural key
+      ::  (vehicle plus observed-start) answers a DIFFERENT question, and two
+      ::  legitimate records inside one source minute would be refused in
+      ::  silence. Absence of the row means owner-entered.
+      ::
+      ::  This is the one relation T9 adds. The post-publish rule forbids a new
+      ::  COLUMN on a populated relation; a new child relation is how capability
+      ::  is meant to arrive, and `acquisition-imports` cannot hold an event
+      ::  because its foreign key names `energy-acquisitions`.
+      :-  %event-imports
+      "CREATE TABLE rover..event-imports (event-id @ux, source-app @tas, source-record-id @t) PRIMARY KEY (event-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       ::  Cost evidence, shaped like charging-costs. The state column is what
       ::  lets a later itemized service invoice attach components without a
       ::  column on this row. An event with no cost has NO row here.
