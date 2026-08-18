@@ -582,6 +582,71 @@
     [%| %bad-shape field]
   $(values t.values, out [[u.label] out])
 ::
+++  decode-import-service-subtypes
+  |=  values=(list json)
+  ^-  (each (list import-service-subtype:rover) entry-verdict:rover)
+  =/  out=(list import-service-subtype:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.definitions.service-subtypes']
+  =/  label  (json-string 'label' u.object)
+  ?:  ?|  ?=(~ label)
+          =(%.n (nonempty u.label))
+      ==
+    [%| %bad-shape 'import.definitions.service-subtypes.label']
+  =/  time-text  (json-string 'defaultTimeInterval' u.object)
+  =/  time-unit-text  (json-string 'defaultTimeUnit' u.object)
+  =/  distance-text  (json-string 'defaultDistanceInterval' u.object)
+  =/  distance-unit-text  (json-string 'defaultDistanceUnit' u.object)
+  =/  has-default
+    ?|  ?=(^ time-text)
+        ?=(^ time-unit-text)
+        ?=(^ distance-text)
+        ?=(^ distance-unit-text)
+    ==
+  =/  default=(unit import-subtype-default:rover)
+    ?.  has-default
+      ~
+    ?:  ?|  ?=(~ time-text)
+            ?=(~ time-unit-text)
+            ?=(~ distance-text)
+            ?=(~ distance-unit-text)
+        ==
+      ~
+    =/  time  (slaw %ud u.time-text)
+    =/  time-unit  (slaw %tas u.time-unit-text)
+    =/  distance  (parse-decimal:render u.distance-text 3)
+    =/  distance-unit  (slaw %tas u.distance-unit-text)
+    ?:  ?|  ?=(~ time)
+            =(0 u.time)
+            ?=(~ time-unit)
+            ?=(%| -.distance)
+            =(0 digits.p.distance)
+            ?=(~ distance-unit)
+        ==
+      ~
+    ?.  ?&  ?=(reminder-time-unit:rover u.time-unit)
+            ?|  =(%mi u.distance-unit)
+                =(%km u.distance-unit)
+            ==
+        ==
+      ~
+    :-  ~
+    :*  u.time
+        ;;(reminder-time-unit:rover u.time-unit)
+        digits.p.distance
+        places.p.distance
+        ;;(distance-unit:rover u.distance-unit)
+    ==
+  ?:  ?&  has-default
+          ?=(~ default)
+      ==
+    [%| %bad-shape 'import.definitions.service-subtypes.default']
+  $(values t.values, out [[u.label default] out])
+::
 ++  decode-import-subtypes
   |=  values=(list json)
   ^-  (each (list import-energy-subtype:rover) entry-verdict:rover)
@@ -711,6 +776,15 @@
           =(%.n (nonempty u.label))
       ==
     [%| %bad-shape 'import.places.label']
+  =/  station-kind-text  (json-string 'stationKind' u.object)
+  =/  station-kind-term=(unit @tas)
+    ?~  station-kind-text
+      `%fuel
+    (slaw %tas u.station-kind-text)
+  ?.  ?&  ?=(^ station-kind-term)
+          ?=(station-kind:rover u.station-kind-term)
+      ==
+    [%| %bad-shape 'import.places.stationKind']
   =/  address-value  (~(get by u.object) 'address')
   =/  address=(unit import-place-address:rover)
     ?~  address-value
@@ -787,7 +861,8 @@
           ?=(~ coordinates)
       ==
     [%| %bad-shape 'import.places.coordinates']
-  =/  row=import-place:rover  [u.label address coordinates]
+  =/  row=import-place:rover
+    [u.label ;;(station-kind:rover u.station-kind-term) address coordinates]
   $(values t.values, out [row out])
 ::
 ++  decode-import-fills
@@ -820,6 +895,51 @@
   =/  row=import-fill:rover
     [p.decoded u.app-term u.record-id source-total]
   $(values t.values, out [row out])
+::
+++  decode-import-events
+  |=  [vehicle=@t kind=event-kind:rover values=(list json)]
+  ^-  (each (list import-event:rover) entry-verdict:rover)
+  =/  out=(list import-event:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.events']
+  =/  decoded  (decode-event-object kind `u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.events.vehicle']
+  =/  app-text  (json-string 'sourceApp' u.object)
+  ?~  app-text
+    [%| %missing-key 'import.vehicle.events.sourceApp']
+  =/  app-term  (slaw %tas u.app-text)
+  ?~  app-term
+    [%| %bad-shape 'import.vehicle.events.sourceApp']
+  =/  record-id  (json-string 'sourceRecordId' u.object)
+  ?:  ?|  ?=(~ record-id)
+          =(%.n (nonempty u.record-id))
+      ==
+    [%| %missing-key 'import.vehicle.events.sourceRecordId']
+  $(values t.values, out [[p.decoded u.app-term u.record-id] out])
+::
+++  decode-import-reminders
+  |=  [vehicle=@t values=(list json)]
+  ^-  (each (list reminder-entry:rover) entry-verdict:rover)
+  =/  out=(list reminder-entry:rover)  ~
+  |-
+  ?~  values
+    [%& (flop out)]
+  =/  object  (json-map i.values)
+  ?~  object
+    [%| %bad-shape 'import.vehicle.reminders']
+  =/  decoded  (decode-reminder-object `u.object)
+  ?:  ?=(%| -.decoded)
+    decoded
+  ?.  =(vehicle vehicle-label.p.decoded)
+    [%| %bad-shape 'import.vehicle.reminders.vehicle']
+  $(values t.values, out [p.decoded out])
 ::
 ++  decode-import-vehicles
   |=  values=(list json)
@@ -883,19 +1003,54 @@
     [%| %missing-key field]
   ?.  (nonempty u.default)
     [%| %bad-shape 'import.vehicle.defaultEnergy']
+  =/  specification-value  (~(get by u.object) 'specification')
+  =/  specification=(each vehicle-spec-entry:rover entry-verdict:rover)
+    ?~  specification-value
+      [%& *vehicle-spec-entry:rover]
+    =/  specification-object  (json-map u.specification-value)
+    ?~  specification-object
+      [%| %bad-shape 'import.vehicle.specification']
+    (decode-spec-object u.specification-object)
+  ?:  ?=(%| -.specification)
+    specification
   =/  fill-json  (json-array 'fills' u.object)
   ?~  fill-json
     [%| %missing-key 'import.vehicle.fills']
   =/  fills  (decode-import-fills u.label u.fill-json)
   ?:  ?=(%| -.fills)
     fills
+  =/  service-json  (json-array 'serviceEvents' u.object)
+  =/  services=(each (list import-event:rover) entry-verdict:rover)
+    ?~  service-json
+      [%& ~]
+    (decode-import-events u.label %service u.service-json)
+  ?:  ?=(%| -.services)
+    services
+  =/  note-json  (json-array 'noteEvents' u.object)
+  =/  notes=(each (list import-event:rover) entry-verdict:rover)
+    ?~  note-json
+      [%& ~]
+    (decode-import-events u.label %note u.note-json)
+  ?:  ?=(%| -.notes)
+    notes
+  =/  reminder-json  (json-array 'reminders' u.object)
+  =/  reminders=(each (list reminder-entry:rover) entry-verdict:rover)
+    ?~  reminder-json
+      [%& ~]
+    (decode-import-reminders u.label u.reminder-json)
+  ?:  ?=(%| -.reminders)
+    reminders
   =/  row=import-vehicle:rover
     :*  u.label
         ;;(distance-unit:rover u.distance-term)
         u.volume-term
         tank-size
         u.default
+        p.specification
         p.fills
+        p.services
+        p.notes
+        p.reminders
     ==
   $(values t.values, out [row out])
 ::
@@ -923,6 +1078,7 @@
   ?~  definitions-object
     [%| %bad-shape 'import.definitions']
   =/  energy-json  (json-array 'energy' u.definitions-object)
+  =/  service-json  (json-array 'service-subtypes' u.definitions-object)
   =/  additive-json  (json-array 'additives' u.definitions-object)
   =/  mode-json  (json-array 'driving-modes' u.definitions-object)
   =/  tag-json  (json-array 'tags' u.definitions-object)
@@ -937,6 +1093,12 @@
   =/  energy  (decode-import-energy u.energy-json)
   ?:  ?=(%| -.energy)
     energy
+  =/  services=(each (list import-service-subtype:rover) entry-verdict:rover)
+    ?~  service-json
+      [%& ~]
+    (decode-import-service-subtypes u.service-json)
+  ?:  ?=(%| -.services)
+    services
   =/  additives  (decode-import-simple 'import.definitions.additives' u.additive-json)
   ?:  ?=(%| -.additives)
     additives
@@ -962,7 +1124,7 @@
   ?:  ?=(%| -.vehicles)
     vehicles
   =/  definitions=import-definitions:rover
-    [p.energy p.additives p.modes p.tags p.payments]
+    [p.energy p.services p.additives p.modes p.tags p.payments]
   [%& definitions p.places p.vehicles]
 ::
 ++  decode-consumable
@@ -1063,7 +1225,11 @@
   ::  name a kind that disagrees with the typed child the route selects.
   |=  [kind=event-kind:rover body=@t]
   ^-  (each event-entry:rover entry-verdict:rover)
-  =/  object  (json-object body)
+  (decode-event-object kind (json-object body))
+::
+++  decode-event-object
+  |=  [kind=event-kind:rover object=(unit (map @t json))]
+  ^-  (each event-entry:rover entry-verdict:rover)
   ?~  object
     [%| %bad-shape 'event']
   =/  vehicle  (json-string 'vehicle' u.object)
@@ -1218,7 +1384,11 @@
 ++  decode-reminder
   |=  body=@t
   ^-  (each reminder-entry:rover entry-verdict:rover)
-  =/  object  (json-object body)
+  (decode-reminder-object (json-object body))
+::
+++  decode-reminder-object
+  |=  object=(unit (map @t json))
+  ^-  (each reminder-entry:rover entry-verdict:rover)
   ?~  object
     [%| %bad-shape 'reminder']
   =/  vehicle  (json-string 'vehicle' u.object)
@@ -1681,6 +1851,53 @@
     [%| %bad-shape 'vehicle.def-tank-size']
   [%& u.label u.energy additional-labels mode-labels def-enabled def-tank-size]
 ::
+++  decode-spec-object
+  |=  object=(map @t json)
+  ^-  (each vehicle-spec-entry:rover entry-verdict:rover)
+  =/  spec-text-of
+    |=  key=@t
+    ^-  spec-text:rover
+    =/  text  (json-string key object)
+    ?~  text
+      ~
+    ?.  (nonempty u.text)
+      [~ ~]
+    ``u.text
+  =/  year-text  (json-string 'specYear' object)
+  =/  model-year=spec-number:rover
+    ?~  year-text
+      ~
+    ?.  (nonempty u.year-text)
+      [~ ~]
+    =/  parsed  (parse-decimal:render u.year-text 0)
+    ?:  ?=(%| -.parsed)
+      ~
+    ?:  ?|  (lth digits.p.parsed 1.000)
+            (gth digits.p.parsed 9.999)
+        ==
+      ~
+    ``digits.p.parsed
+  ?:  ?&  ?=(^ year-text)
+          (nonempty u.year-text)
+          ?=(~ model-year)
+      ==
+    [%| %bad-shape 'vehicle.specification.year']
+  :-  %&
+  :*  (spec-text-of 'specVin')
+      (spec-text-of 'specPlate')
+      model-year
+      (spec-text-of 'specMake')
+      (spec-text-of 'specModel')
+      (spec-text-of 'specSubModel')
+      (spec-text-of 'specBodyType')
+      (spec-text-of 'specColor')
+      (spec-text-of 'specEngine')
+      (spec-text-of 'specTransmission')
+      (spec-text-of 'specDriveType')
+      (spec-text-of 'specBedType')
+      (spec-text-of 'specNotes')
+  ==
+::
 ++  decode-vehicle-edit
   |=  body=@t
   ^-  (each vehicle-edit-entry:rover entry-verdict:rover)
@@ -1786,58 +2003,10 @@
           ?=(~ def-tank-size)
       ==
     [%| %bad-shape 'vehicle.def-tank-size']
-  ::  M7 T7. Each specification field is read on its own. A key the body never
-  ::  names is untouched, a key sent empty clears its row, and a key with a
-  ::  value writes one. This is what lets a client that knows nothing about the
-  ::  specification save vehicle settings without erasing it.
-  =/  spec-text-of
-    |=  key=@t
-    ^-  spec-text:rover
-    =/  text  (json-string key u.object)
-    ?~  text
-      ~
-    ?.  (nonempty u.text)
-      [~ ~]
-    ``u.text
-  =/  year-text  (json-string 'specYear' u.object)
-  =/  model-year=spec-number:rover
-    ?~  year-text
-      ~
-    ?.  (nonempty u.year-text)
-      [~ ~]
-    ::  A person types 2019, not the 2.019 that Hoon's own @ud syntax wants, so
-    ::  this reads a plain decimal and refuses a fractional one.
-    =/  parsed  (parse-decimal:render u.year-text 0)
-    ?:  ?=(%| -.parsed)
-      ~
-    ::  A year a person reads is four digits. A zero, a two-digit shorthand,
-    ::  and a mistyped seven-digit number are all refused rather than stored.
-    ?:  ?|  (lth digits.p.parsed 1.000)
-            (gth digits.p.parsed 9.999)
-        ==
-      ~
-    ``digits.p.parsed
-  ?:  ?&  ?=(^ year-text)
-          (nonempty u.year-text)
-          ?=(~ model-year)
-      ==
-    [%| %bad-shape 'vehicle.specification.year']
-  =/  specification=vehicle-spec-entry:rover
-    :*  (spec-text-of 'specVin')
-        (spec-text-of 'specPlate')
-        model-year
-        (spec-text-of 'specMake')
-        (spec-text-of 'specModel')
-        (spec-text-of 'specSubModel')
-        (spec-text-of 'specBodyType')
-        (spec-text-of 'specColor')
-        (spec-text-of 'specEngine')
-        (spec-text-of 'specTransmission')
-        (spec-text-of 'specDriveType')
-        (spec-text-of 'specBedType')
-        (spec-text-of 'specNotes')
-    ==
-  [%& u.vehicle u.label tank-size refill-reserve default-subtype default-energy energy-labels mode-labels def-enabled def-tank-size specification]
+  =/  specification  (decode-spec-object u.object)
+  ?:  ?=(%| -.specification)
+    specification
+  [%& u.vehicle u.label tank-size refill-reserve default-subtype default-energy energy-labels mode-labels def-enabled def-tank-size p.specification]
 ::
 ++  decode-custom-definition
   |=  body=@t

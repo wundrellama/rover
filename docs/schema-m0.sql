@@ -7,6 +7,7 @@
 -- Amended 2026-08-17 (M7 T2): +service-subtype-definitions,
 --                     +vehicle-event-service-subtypes.
 -- Amended 2026-08-18 (M7 T7): +the thirteen vehicle specification relations.
+-- Amended 2026-08-18 (M7 T9): +service-subtype-reminder-defaults.
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
 -- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
@@ -781,6 +782,15 @@ CREATE TABLE rover..vehicle-event-notes
 CREATE TABLE rover..service-subtype-definitions
   (service-subtype-id @ux, label @t, archived @f, recorded-at @da)
   PRIMARY KEY (service-subtype-id);
+
+-- The aCar subtype catalog supplies both default intervals together. This
+-- child row stays absent for a subtype that has no source default.
+CREATE TABLE rover..service-subtype-reminder-defaults
+  (service-subtype-id @ux, time-interval @ud, time-unit @tas,
+   distance-digits @ud, distance-decimals @ud, distance-unit @tas)
+  PRIMARY KEY (service-subtype-id)
+  FOREIGN KEY (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- Many-to-many, and keyed to the event PARENT. One real service record in the
 -- owner's corpus carries ten subtypes at once, so this is a link relation from

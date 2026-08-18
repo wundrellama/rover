@@ -1309,6 +1309,11 @@
       ::  reference.
       :-  %service-subtype-definitions
       "CREATE TABLE rover..service-subtype-definitions (service-subtype-id @ux, label @t, archived @f, recorded-at @da) PRIMARY KEY (service-subtype-id); "
+      ::  M7 T9. aCar's subtype catalog carries a default maintenance cadence.
+      ::  The source supplies both halves together, so this one absent child
+      ::  holds both mandatory intervals without changing the populated parent.
+      :-  %service-subtype-reminder-defaults
+      "CREATE TABLE rover..service-subtype-reminder-defaults (service-subtype-id @ux, time-interval @ud, time-unit @tas, distance-digits @ud, distance-decimals @ud, distance-unit @tas) PRIMARY KEY (service-subtype-id) FOREIGN KEY (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       ::  Many-to-many, and keyed to the event PARENT. One real service record
       ::  in the owner's corpus carries ten subtypes at once, so this is a link
       ::  relation from the start and never a column. An event with no subtype

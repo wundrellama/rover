@@ -106,6 +106,15 @@
   ==
 +$  import-simple-definition
   [label=@t]
++$  import-subtype-default
+  $:  time-interval=@ud
+      time-unit=reminder-time-unit
+      distance-digits=@ud
+      distance-places=@ud
+      distance-unit=distance-unit
+  ==
++$  import-service-subtype
+  [label=@t default=(unit import-subtype-default)]
 +$  import-energy-subtype
   $:  label=@t
       octane=(unit @ud)
@@ -129,6 +138,7 @@
   ==
 +$  import-place
   $:  label=@t
+      station-kind=station-kind
       address=(unit import-place-address)
       coordinates=(unit import-place-coordinates)
   ==
@@ -138,16 +148,26 @@
       source-record-id=@t
       source-total=(unit @t)
   ==
++$  import-event
+  $:  input=event-entry
+      source-app=@tas
+      source-record-id=@t
+  ==
 +$  import-vehicle
   $:  label=@t
       distance-unit=distance-unit
       volume-unit=@tas
       tank-size=(unit scaled-entry)
       default-energy=@t
+      specification=vehicle-spec-entry
       fills=(list import-fill)
+      service-events=(list import-event)
+      note-events=(list import-event)
+      reminders=(list reminder-entry)
   ==
 +$  import-definitions
   $:  energy=(list import-energy-definition)
+      service-subtypes=(list import-service-subtype)
       additives=(list import-simple-definition)
       driving-modes=(list import-simple-definition)
       tags=(list import-simple-definition)
@@ -161,14 +181,17 @@
 +$  import-simple-kind  ?(%additive %driving-mode %tag %payment-method)
 +$  import-work
   $%  [%energy value=import-energy-definition]
+      [%service-subtype value=import-service-subtype]
       [%simple kind=import-simple-kind value=import-simple-definition]
-      [%place station-kind=station-kind value=import-place]
+      [%place value=import-place]
       [%vehicle value=import-vehicle]
       $:  %fill
           distance-unit=distance-unit
           volume-unit=@tas
           value=import-fill
       ==
+      [%event value=import-event]
+      [%reminder value=reminder-entry]
   ==
 +$  import-report
   $:  imported=@ud
@@ -186,6 +209,13 @@
       total-off-by-one=@ud
       total-beyond=@ud
       unit-mismatches=@ud
+      events-imported=@ud
+      events-already-imported=@ud
+      event-conflicts=@ud
+      reminders-imported=@ud
+      reminders-already-imported=@ud
+      subtype-defaults-created=@ud
+      subtype-defaults-reused=@ud
       messages=(list @t)
   ==
 +$  import-run

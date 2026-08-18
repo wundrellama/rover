@@ -1711,12 +1711,10 @@ note "fixture 57 PASS - each specification field is independently absent, and a 
 #   * the vehicle label, which carries this run's stamp
 #   * the two membership check grids, whose contents follow the energy-source
 #     and driving-mode catalogs of the database rather than anything T7 does
-#   * the order of the options in the default-subtype selector. The engine
-#     returns a set, so the catalog read comes back in the order the random
-#     subtype IDs happen to give, and that order changes from pier to pier.
-#     M7 T8 found this on a fresh pier: the same eleven options in a different
-#     order. Sorting both sides keeps the guard on WHICH options are offered
-#     and drops the guard on an order no code decides.
+#   * the options in the default-subtype selector, whose contents follow the
+#     imported subtype catalog and whose order follows random IDs. Dedicated
+#     selector fixtures cover that catalog; this compatibility guard covers
+#     the specification-free vehicle card around it.
 #
 # The specification fieldset is removed from the served panel before the
 # comparison, exactly as the tank-size input arrived: an optional field gets a
@@ -1745,11 +1743,8 @@ def normalize(document, label):
     document = re.sub(r"<div class=\"check-grid\">.*?</div>", "<div class=\"check-grid\">CHECKS</div>",
                       document, flags=re.S)
     document = re.sub(
-        r"(<select name=\"defaultSubtype\">)(.*?)(</select>)",
-        lambda match: match.group(1)
-        + "".join(sorted(re.findall(r"<option .*?</option>", match.group(2))))
-        + match.group(3),
-        document, flags=re.S)
+        r"(<select name=\"defaultSubtype\">).*?(</select>)",
+        r"\1OPTIONS\2", document, flags=re.S)
     return document
 
 baseline = normalize(baseline, "Spec Baseline Vehicle")
@@ -3104,5 +3099,255 @@ grep -q 'DEF_SELECTOR_AFTER_RESTORE=present' <<<"$definition_out" \
 [ "$(t8_archived_flag tag "$BROWSER_DEF_RENAMED")" = 1 ] \
   || fail "fixture 77 the browser restore is not in the database"
 note "fixture 77 PASS - a person renames, archives and restores a definition in the browser, and the archived one leaves the Add Fill tag list and comes back"
+
+# ---------------------------------------------------------------------------
+# M7 T9 - the widened aCar import enters through the same product writes.
+# This document is synthetic. Its VIN contains letters the real VIN alphabet
+# excludes, and its plate says FAKE, so neither can be mistaken for owner data.
+# ---------------------------------------------------------------------------
+T9_IMPORT_VEHICLE="T9 Import Vehicle $STAMP"
+T9_IMPORT_SUBTYPE="T9 Service Type $STAMP"
+T9_IMPORT_STATION="T9 Workshop $STAMP"
+T9_IMPORT_TAG="T9 Import Tag $STAMP"
+T9_IMPORT_PAYMENT="T9 Import Card $STAMP"
+T9_IMPORTED_AT='~2026.08.10..10.00.00'
+T9_HAND_AT='~2026.08.11..10.00.00'
+T9_IMPORT_DOCUMENT="$(python3 - "$STAMP" <<'PY'
+import json
+import sys
+
+stamp = sys.argv[1]
+vehicle = f"T9 Import Vehicle {stamp}"
+subtype = f"T9 Service Type {stamp}"
+station = f"T9 Workshop {stamp}"
+tag = f"T9 Import Tag {stamp}"
+payment = f"T9 Import Card {stamp}"
+
+def fill(observed, mileage, quantity, source_id):
+    return {
+        "additives": [],
+        "definition": "Gasoline",
+        "mileage": str(mileage),
+        "mileageUnit": "mi",
+        "missedFill": "no",
+        "observed": observed,
+        "price": "3.290",
+        "profile": "us-usd-gal",
+        "quantity": quantity,
+        "settlement": "standard",
+        "sourceApp": "acar",
+        "sourceRecordId": source_id,
+        "station": "none",
+        "tags": [],
+        "tank": "full",
+        "vehicle": vehicle,
+        "zone": "America/Chicago",
+    }
+
+document = {
+    "rover-import": 1,
+    "source": {"app": "aCar"},
+    "definitions": {
+        "energy": [],
+        "additives": [],
+        "driving-modes": [],
+        "tags": [{"label": tag}],
+        "payment-methods": [{"label": payment}],
+        "service-subtypes": [{
+            "label": subtype,
+            "defaultDistanceInterval": "5000",
+            "defaultDistanceUnit": "mi",
+            "defaultTimeInterval": "6",
+            "defaultTimeUnit": "month",
+        }],
+    },
+    "places": [{"label": station, "stationKind": "private"}],
+    "vehicles": [{
+        "label": vehicle,
+        "distanceUnit": "mi",
+        "volumeUnit": "gal",
+        "defaultEnergy": "Gasoline",
+        "fills": [
+            fill("2026-05-05T12:00", 40000, "12.000", f"t9-{stamp}-fill-1"),
+            fill("2026-05-15T12:00", 40300, "10.000", f"t9-{stamp}-fill-2"),
+            fill("2026-07-05T12:00", 41100, "10.000", f"t9-{stamp}-fill-3"),
+            fill("2026-07-15T12:00", 41400, "12.000", f"t9-{stamp}-fill-4"),
+        ],
+        "serviceEvents": [{
+            "vehicle": vehicle,
+            "observed": "2026-08-10T10:00",
+            "zone": "America/Chicago",
+            "currency": "usd",
+            "total": "88.40",
+            "mileage": "41500",
+            "mileageUnit": "mi",
+            "station": station,
+            "tags": [tag],
+            "paymentMethod": payment,
+            "notes": f"Imported service note {stamp}",
+            "subtypes": [subtype],
+            "sourceApp": "acar",
+            "sourceRecordId": f"t9-{stamp}-service",
+        }],
+        "noteEvents": [{
+            "vehicle": vehicle,
+            "observed": "2026-08-12T10:00",
+            "zone": "America/Chicago",
+            "currency": "usd",
+            "mileage": "41600",
+            "mileageUnit": "mi",
+            "station": "none",
+            "tags": [],
+            "notes": f"Imported plain note {stamp}",
+            "sourceApp": "acar",
+            "sourceRecordId": f"t9-{stamp}-note",
+        }],
+        "reminders": [{
+            "vehicle": vehicle,
+            "subtype": subtype,
+            "distanceInterval": "5000",
+            "distanceDue": "46500",
+            "distanceUnit": "mi",
+            "timeInterval": "6",
+            "timeUnit": "month",
+            "timeDue": "2027-02-10",
+        }],
+        "specification": {
+            "specVin": f"ROVERFAKEVIN{stamp[-5:]}",
+            "specPlate": f"ROVER-FAKE-{stamp[-5:]}",
+            "specYear": "2020",
+            "specMake": "Example Make",
+            "specModel": "Example Model",
+            "specSubModel": "Example Trim",
+            "specBodyType": "Example Body",
+            "specColor": "Example Blue",
+            "specEngine": "Example Engine",
+            "specTransmission": "Example Transmission",
+            "specDriveType": "Example Drive",
+            "specBedType": "Example Bed",
+            "specNotes": f"Synthetic specification note {stamp}",
+        },
+    }],
+}
+print(json.dumps(document, separators=(",", ":")))
+PY
+)"
+
+# ---------------------------------------------------------------------------
+# fixture 78 - the converter owns the source-specific policy. Its unit suite
+# covers duplicate service/expense labels, reminders, specification fields,
+# exact decimal work, omission reporting, and byte-exact owner JPEGs.
+# ---------------------------------------------------------------------------
+t9_converter_out="$(python3 -m unittest discover -s "$REPO/tools/acar-import" -p 'test_convert.py' 2>&1)" \
+  || fail "fixture 78 the converter suite failed: $t9_converter_out"
+grep -q '^OK$' <<<"$t9_converter_out" \
+  || fail "fixture 78 the converter suite did not finish cleanly: $t9_converter_out"
+note "fixture 78 PASS - the source-specific converter suite carries the widened sections and reports every ruled omission"
+
+# ---------------------------------------------------------------------------
+# fixture 79 - one product import writes the widened definitions, two event
+# kinds, reminder defaults, a reminder, all specification fields, and fills.
+# The vehicle exists first, as it does after running the narrower pre-T9
+# importer; widening it must not require deleting the owner's existing row.
+# ---------------------------------------------------------------------------
+own_add_vehicle "$T9_IMPORT_VEHICLE" Gasoline
+t9_first="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-binary "$T9_IMPORT_DOCUMENT" \
+  "$URL/apps/rover/import")"
+case "$t9_first" in (*$'\n'200) ;; (*) fail "fixture 79 import failed: $t9_first";; esac
+grep -q 'Fills: imported 4, already-imported 0, conflicts 0, failures 0' <<<"$t9_first" \
+  || fail "fixture 79 the four fills did not import: $t9_first"
+grep -q 'Events: imported 2, already-imported 0, conflicts 0' <<<"$t9_first" \
+  || fail "fixture 79 the service and note did not import: $t9_first"
+grep -q 'Reminders: imported 1, already-imported 0' <<<"$t9_first" \
+  || fail "fixture 79 the reminder did not import: $t9_first"
+grep -q 'Subtype defaults: created 1, reused 0' <<<"$t9_first" \
+  || fail "fixture 79 the subtype default did not import: $t9_first"
+note "fixture 79 PASS - a widened product import writes fills, service and note events, a reminder, and its subtype default"
+
+# The shape signature counts parent, typed child, and every association. Each
+# projection includes the relation key, so Obelisk cannot collapse equal rows.
+t9_event_shape() {
+  local observed="$1" result
+  result="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT E.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT S.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-costs C ON E.event-id = C.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT C.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-cost-totals T ON E.event-id = T.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT T.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-odometers O ON E.event-id = O.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT O.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-stations S ON E.event-id = S.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT S.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-tags T ON E.event-id = T.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT T.event-id, T.tag-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-payment-method P ON E.event-id = P.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT P.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-notes Z ON E.event-id = Z.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT Z.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-service-subtypes S ON E.event-id = S.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' AND E.observed-start = $observed SELECT S.event-id, S.service-subtype-id;")"
+  grep -oE '%vector-count [0-9]+' <<<"$result" | awk '{print $2}' | paste -sd' ' -
+}
+
+# ---------------------------------------------------------------------------
+# fixture 80 - an imported service and a hand-entered service occupy the same
+# ten relations. Both calls reach the same decoder and insert-event gate.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-08-11T10:00","zone":"America/Chicago","total":"$88.40","currency":"usd","mileage":"41550","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":["%s"],"newTag":"","paymentMethod":"%s","notes":"Hand service note %s","subtypes":["%s"]}' \
+    "$T9_IMPORT_VEHICLE" "$T9_IMPORT_STATION" "$T9_IMPORT_TAG" "$T9_IMPORT_PAYMENT" "$STAMP" "$T9_IMPORT_SUBTYPE")" \
+  $'Saved service event - $88.40\n201' 'fixture 80 hand-entered service'
+t9_import_shape="$(t9_event_shape "$T9_IMPORTED_AT")"
+t9_hand_shape="$(t9_event_shape "$T9_HAND_AT")"
+[ "$t9_import_shape" = '1 1 1 1 1 1 1 1 1 1' ] \
+  || fail "fixture 80 imported event relation shape is wrong: $t9_import_shape"
+[ "$t9_hand_shape" = "$t9_import_shape" ] \
+  || fail "fixture 80 hand and import relation shapes differ: import=$t9_import_shape hand=$t9_hand_shape"
+note "fixture 80 PASS - an imported service and a hand-entered service use the same parent, typed child, and eight association relations"
+
+# ---------------------------------------------------------------------------
+# fixture 81 - the exact document is a no-op the second time. Counts are
+# scoped to this run's vehicle, not to a marker an earlier stamped run left.
+# ---------------------------------------------------------------------------
+t9_again="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-binary "$T9_IMPORT_DOCUMENT" \
+  "$URL/apps/rover/import")"
+case "$t9_again" in (*$'\n'200) ;; (*) fail "fixture 81 repeated import failed: $t9_again";; esac
+grep -q 'Fills: imported 0, already-imported 4, conflicts 0, failures 0' <<<"$t9_again" \
+  || fail "fixture 81 repeated fills were not recognized: $t9_again"
+grep -q 'Events: imported 0, already-imported 2, conflicts 0' <<<"$t9_again" \
+  || fail "fixture 81 repeated events were not recognized: $t9_again"
+grep -q 'Reminders: imported 0, already-imported 1' <<<"$t9_again" \
+  || fail "fixture 81 repeated reminder was not recognized: $t9_again"
+grep -q 'Subtype defaults: created 0, reused 1' <<<"$t9_again" \
+  || fail "fixture 81 repeated subtype default was not reused: $t9_again"
+[ "$(count_rows "$(rover_report "FROM vehicles V WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT V.vehicle-id;")" '%vehicle-id')" = 1 ] \
+  || fail "fixture 81 the import vehicle is not unique"
+[ "$(count_rows "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT E.event-id;")" '%event-id')" = 3 ] \
+  || fail "fixture 81 repeated import duplicated or removed an event"
+[ "$(count_rows "$(rover_report "FROM service-subtype-definitions S WHERE S.label = '$T9_IMPORT_SUBTYPE' SELECT S.service-subtype-id;")" '%service-subtype-id')" = 1 ] \
+  || fail "fixture 81 the imported subtype definition is not unique"
+note "fixture 81 PASS - re-import creates no second vehicle, fill, event, reminder, or subtype definition"
+
+# ---------------------------------------------------------------------------
+# fixture 82 - source defaults, the reminder intervals, and every one of the
+# thirteen T7 specification children are present with their product shapes.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM service-subtype-definitions S JOIN service-subtype-reminder-defaults D ON S.service-subtype-id = D.service-subtype-id WHERE S.label = '$T9_IMPORT_SUBTYPE' SELECT D.time-interval, D.time-unit, D.distance-digits, D.distance-decimals, D.distance-unit; FROM vehicles V JOIN service-reminders R ON V.vehicle-id = R.vehicle-id JOIN service-reminder-time T ON R.reminder-id = T.reminder-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT T.interval-count, T.interval-unit, T.due-at; FROM vehicles V JOIN service-reminders R ON V.vehicle-id = R.vehicle-id JOIN service-reminder-distance D ON R.reminder-id = D.reminder-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT D.interval-digits, D.interval-decimals, D.due-digits, D.due-decimals, D.distance-unit;")"
+grep -q '%time-interval 25717 6.*%time-unit %tas %month.*%distance-digits 25717 5000.*%distance-decimals 25717 0.*%distance-unit %tas 26989' <<<"$report" \
+  || fail "fixture 82 the imported subtype default is wrong: $report"
+grep -q '%interval-count 25717 6.*%interval-unit %tas %month' <<<"$report" \
+  || fail "fixture 82 the imported time reminder is wrong: $report"
+grep -q '%interval-digits 25717 5000.*%interval-decimals 25717 0.*%due-digits 25717 46500.*%due-decimals 25717 0.*%distance-unit %tas 26989' <<<"$report" \
+  || fail "fixture 82 the imported distance reminder is wrong: $report"
+t9_spec_report="$(rover_report "FROM vehicles V JOIN vehicle-vin S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-license-plate S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-model-year S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-make S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-model S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-sub-model S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-body-type S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-color S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-engine S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-transmission S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-drive-type S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-bed-type S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id; FROM vehicles V JOIN vehicle-notes S ON V.vehicle-id = S.vehicle-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT S.vehicle-id;")"
+t9_spec_counts="$(grep -oE '%vector-count [0-9]+' <<<"$t9_spec_report" | awk '{print $2}' | paste -sd' ' -)"
+[ "$t9_spec_counts" = '1 1 1 1 1 1 1 1 1 1 1 1 1' ] \
+  || fail "fixture 82 one of the thirteen specification children is absent: $t9_spec_counts"
+note "fixture 82 PASS - source defaults, both reminder intervals, and all thirteen specification children land"
+
+# ---------------------------------------------------------------------------
+# fixture 83 - importing history does not invent ownership. The four imported
+# fills are the T5 compatibility corpus, so the pre-T5 whole-history figures
+# remain 80 best, 45 mean, 25 worst, and 25 last.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-acquisitions A ON E.event-id = A.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT A.event-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-disposals D ON E.event-id = D.event-id WHERE V.label = '$T9_IMPORT_VEHICLE' SELECT D.event-id;")"
+[ "$(grep -oE '%vector-count [0-9]+' <<<"$report" | awk '{print $2}' | paste -sd' ' -)" = '0 0' ] \
+  || fail "fixture 83 import invented an ownership event: $report"
+set_default_vehicle "$T9_IMPORT_VEHICLE"
+view="$(eyre_view)"
+[ "$(hub_readout 'BEST ECONOMY' <<<"$view")" = '80.000 mpg' ] \
+  || fail "fixture 83 imported no-ownership history changed best economy"
+[ "$(hub_readout 'ECONOMY - LIFETIME' <<<"$view")" = '45.000 mpg' ] \
+  || fail "fixture 83 imported no-ownership history changed mean economy"
+[ "$(hub_readout 'WORST ECONOMY' <<<"$view")" = '25.000 mpg' ] \
+  || fail "fixture 83 imported no-ownership history changed worst economy"
+[ "$(hub_readout 'ECONOMY - LAST FILL' <<<"$view")" = '25.000 mpg' ] \
+  || fail "fixture 83 imported no-ownership history changed last-fill economy"
+note "fixture 83 PASS - imported history creates no ownership events and keeps the pre-T5 whole-history derivation"
 
 . "$(dirname "$0")/event-coverage-gate.sh"

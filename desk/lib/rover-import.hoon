@@ -109,6 +109,7 @@
   ^-  @t
   ?-  -.work
     %energy  (cat 3 'energy definition ' label.value.work)
+    %service-subtype  (cat 3 'service subtype ' label.value.work)
     %simple
       %-  crip
       ;:  weld
@@ -119,6 +120,16 @@
     %place  (cat 3 'place ' label.value.work)
     %vehicle  (cat 3 'vehicle ' label.value.work)
     %fill  (fill-name value.work)
+    %event
+      %-  crip
+      ;:  weld
+        (trip (scot %tas kind.input.value.work))
+        " event for "
+        (trip vehicle-label.input.value.work)
+        " / "
+        (scow %da observed-start.input.value.work)
+      ==
+    %reminder  (cat 3 'reminder ' subtype-label.value.work)
   ==
 ::
 ++  fill-work-value
@@ -130,7 +141,7 @@
 ::
 ++  empty-report
   ^-  import-report:rover
-  [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ~]
+  *import-report:rover
 ::
 ++  initial-report
   |=  document=import-document:rover
@@ -217,6 +228,20 @@
       (scow %ud total-beyond.report)
       "\0aUnit mismatches: "
       (scow %ud unit-mismatches.report)
+      "\0aEvents: imported "
+      (scow %ud events-imported.report)
+      ", already-imported "
+      (scow %ud events-already-imported.report)
+      ", conflicts "
+      (scow %ud event-conflicts.report)
+      "\0aReminders: imported "
+      (scow %ud reminders-imported.report)
+      ", already-imported "
+      (scow %ud reminders-already-imported.report)
+      "\0aSubtype defaults: created "
+      (scow %ud subtype-defaults-created.report)
+      ", reused "
+      (scow %ud subtype-defaults-reused.report)
       "\0asourceEfficiency: ignored by the Hoon import path\0a"
     ==
   =/  messages  messages.report
@@ -272,14 +297,14 @@
       $(chars t.chars)
   ==
 ::
-++  replace-fill-note
-  |=  [commands=(list command:ast) note=@t]
+++  replace-note
+  |=  [commands=(list command:ast) relation=@tas note=@t]
   ^-  (each (list command:ast) @t)
   =/  out=(list command:ast)  ~
   =/  replaced=?  %.n
   |-
   ?~  commands
-    ?:(replaced [%& (flop out)] [%| 'parsed script lacks one fill-notes insert'])
+    ?:(replaced [%& (flop out)] [%| 'parsed script lacks one note insert'])
   =/  command  i.commands
   ?.  ?=(%crud-txn -.command)
     $(commands t.commands, out [command out])
@@ -287,18 +312,18 @@
   ?.  ?=(%insert -.body.transaction)
     $(commands t.commands, out [command out])
   =/  insertion=insert:ast  +.body.transaction
-  ?.  =(%fill-notes name.qualified-table.insertion)
+  ?.  =(relation name.qualified-table.insertion)
     $(commands t.commands, out [command out])
   ?:  replaced
     [%| 'parsed script contains more than one fill-notes insert']
   ?.  ?=([%data *] values.insertion)
-    [%| 'fill-notes insert does not contain literal data']
+    [%| 'note insert does not contain literal data']
   =/  rows=(list (list value-or-default:ast))  +.values.insertion
   ?.  =(1 (lent rows))
-    [%| 'fill-notes insert does not contain one row']
+    [%| 'note insert does not contain one row']
   =/  row  (snag 0 rows)
   ?.  =(2 (lent row))
-    [%| 'fill-notes insert does not contain two values']
+    [%| 'note insert does not contain two values']
   =/  patched-row=(list value-or-default:ast)
     [(snag 0 row) [%t note] ~]
   =/  patched-insertion=insert:ast
@@ -306,6 +331,14 @@
   =/  patched-transaction=crud-txn:ast
     transaction(body [%insert patched-insertion])
   $(commands t.commands, out [patched-transaction out], replaced %.y)
+::
+++  replace-fill-note
+  |=  [commands=(list command:ast) note=@t]
+  (replace-note commands %fill-notes note)
+::
+++  replace-event-note
+  |=  [commands=(list command:ast) note=@t]
+  (replace-note commands %vehicle-event-notes note)
 ::
 ++  unique-texts
   |=  values=(list @t)
@@ -363,6 +396,11 @@
     |=  value=import-energy-definition:rover
     ^-  import-work:rover
     [%energy value]
+  =/  subtype-work
+    %+  turn  service-subtypes.definitions.document
+    |=  value=import-service-subtype:rover
+    ^-  import-work:rover
+    [%service-subtype value]
   =/  simples
     |=  [kind=import-simple-kind:rover values=(list import-simple-definition:rover)]
     ^-  (list import-work:rover)
@@ -381,7 +419,7 @@
     %+  turn  places.document
     |=  value=import-place:rover
     ^-  import-work:rover
-    [%place (station-kind-for label.value vehicles.document) value]
+    [%place value]
   =/  vehicle-work
     %+  turn  vehicles.document
     |=  value=import-vehicle:rover
@@ -401,12 +439,47 @@
         [%fill distance-unit.vehicle volume-unit.vehicle value]
       $(values t.values)
     (build vehicles.document)
+  =/  event-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values
+        ~
+      =/  vehicle  i.values
+      %+  weld
+        %+  turn  service-events.vehicle
+        |=  value=import-event:rover
+        ^-  import-work:rover
+        [%event value]
+      %+  weld
+        %+  turn  note-events.vehicle
+        |=  value=import-event:rover
+        ^-  import-work:rover
+        [%event value]
+      $(values t.values)
+    (build vehicles.document)
+  =/  reminder-work
+    =/  build
+      |=  values=(list import-vehicle:rover)
+      ^-  (list import-work:rover)
+      ?~  values
+        ~
+      %+  weld
+        %+  turn  reminders.i.values
+        |=  value=reminder-entry:rover
+        ^-  import-work:rover
+        [%reminder value]
+      $(values t.values)
+    (build vehicles.document)
   ;:  weld
     energy-work
+    subtype-work
     simple-work
     place-work
     vehicle-work
     fill-work
+    event-work
+    reminder-work
   ==
 ::
 ++  simple-table
@@ -453,6 +526,19 @@
     "' SELECT D."
     (trip id.meta)
     ", D.label, D.archived;"
+  ==
+::
+++  service-subtype-lookup
+  |=  label=@t
+  ^-  tape
+  =/  quoted  (sql-quote:act label)
+  ;:  weld
+    "FROM service-subtype-definitions S WHERE S.label = '"
+    quoted
+    "' SELECT S.service-subtype-id, S.label, S.archived; "
+    "FROM service-subtype-definitions S JOIN service-subtype-reminder-defaults D ON S.service-subtype-id = D.service-subtype-id WHERE S.label = '"
+    quoted
+    "' SELECT D.service-subtype-id, D.time-interval, D.time-unit, D.distance-digits, D.distance-decimals, D.distance-unit;"
   ==
 ::
 ++  place-lookup
@@ -548,6 +634,8 @@
   ?-  -.work
     %energy
       (energy-lookup value.work)
+    %service-subtype
+      (service-subtype-lookup label.value.work)
     %simple
       (simple-lookup kind.work label.value.work)
     %place
@@ -556,6 +644,45 @@
       (vehicle-lookup value.work)
     %fill
       (fill-existing-lookup value.work)
+    %event
+      (event-import-lookup value.work)
+    %reminder
+      (reminder-import-lookup value.work)
+  ==
+::
+++  event-import-lookup
+  |=  event=import-event:rover
+  ^-  tape
+  =/  input  input.event
+  =/  child=tape
+    ?-  kind.input
+      %service      "service-events"
+      %note         "note-events"
+      %expense      "expense-events"
+      %acquisition  "vehicle-acquisitions"
+      %disposal     "vehicle-disposals"
+    ==
+  ;:  weld
+    "FROM vehicle-events E JOIN vehicles V ON E.vehicle-id = V.vehicle-id JOIN "
+    child
+    " K ON E.event-id = K.event-id WHERE V.label = '"
+    (sql-quote:act vehicle-label.input)
+    "' AND E.observed-start = "
+    (scow %da observed-start.input)
+    " SELECT E.event-id; "
+    (event-lookup:act vehicle-label.input)
+  ==
+::
+++  reminder-import-lookup
+  |=  input=reminder-entry:rover
+  ^-  tape
+  ;:  weld
+    "FROM service-reminders R JOIN vehicles V ON R.vehicle-id = V.vehicle-id JOIN service-subtype-definitions S ON R.service-subtype-id = S.service-subtype-id WHERE V.label = '"
+    (sql-quote:act vehicle-label.input)
+    "' AND S.label = '"
+    (sql-quote:act subtype-label.input)
+    "' SELECT R.reminder-id; "
+    (reminder-lookup:act vehicle-label.input)
   ==
 ::
 ++  insert-energy-subtypes
@@ -636,6 +763,50 @@
     "', N, "
     (scow %da recorded-at)
     ");"
+  ==
+::
+++  insert-subtype-default
+  |=  [subtype-id=@ux value=import-subtype-default:rover]
+  ^-  tape
+  ;:  weld
+    " INSERT INTO service-subtype-reminder-defaults VALUES ("
+    (scow %ux subtype-id)
+    ", "
+    (sql-ud:act time-interval.value)
+    ", "
+    (sql-term:act time-unit.value)
+    ", "
+    (sql-ud:act distance-digits.value)
+    ", "
+    (sql-ud:act distance-places.value)
+    ", "
+    (sql-term:act distance-unit.value)
+    ");"
+  ==
+::
+++  insert-service-subtype
+  |=  [base=@ux input=import-service-subtype:rover recorded-at=@da]
+  ^-  tape
+  =/  subtype-id  (fixture-id:act base 1)
+  ;:  weld
+    "INSERT INTO service-subtype-definitions VALUES ("
+    (scow %ux subtype-id)
+    ", '"
+    (sql-quote:act label.input)
+    "', N, "
+    (scow %da recorded-at)
+    ");"
+    ?~(default.input ~ (insert-subtype-default subtype-id u.default.input))
+  ==
+::
+++  subtype-default-matches
+  |=  [value=import-subtype-default:rover row=vector:ast]
+  ^-  ?
+  ?&  =(time-interval.value (cell-atom:view %time-interval row))
+      =(time-unit.value (cell-term:view %time-unit row))
+      =(distance-digits.value (cell-atom:view %distance-digits row))
+      =(distance-places.value (cell-atom:view %distance-decimals row))
+      =(distance-unit.value (cell-term:view %distance-unit row))
   ==
 ::
 ++  insert-address-parts
@@ -771,6 +942,7 @@
         recorded-at
     ==
     tank-row
+    (spec-write:act vehicle-id specification.input recorded-at)
   ==
 ::
 ::  Widening an existing vehicle. Import adds a link the vehicle lacks and
@@ -840,9 +1012,11 @@
           archived-definition-ids=(list @ux)
           linked-mode-ids=(list @ux)
           archived-mode-ids=(list @ux)
+          specification=vehicle-spec-entry:rover
+          recorded-at=@da
       ==
   ^-  tape
-  %+  weld
+  ;:  weld
     %:  widen-energy-links
         vehicle-id
         (unique-ids:act definition-ids)
@@ -854,6 +1028,8 @@
       (unique-ids:act mode-ids)
       linked-mode-ids
       archived-mode-ids
+    ==
+    (spec-write:act vehicle-id specification recorded-at)
   ==
 ::
 ++  fill-existing-lookup

@@ -63,10 +63,16 @@ def write_synthetic_export(directory):
     )
     for name, root in (
         ("trip-types.xml", "trip-types"),
-        ("event-subtypes.xml", "event-subtypes"),
         ("preferences.xml", "preferences"),
     ):
         (directory / name).write_text(f"<{root}/>", encoding="utf-8")
+    (directory / "event-subtypes.xml").write_text(
+        """<event-subtypes>
+<event-subtype id="synthetic-service" type="service"><name>Example Service</name><default-distance-reminder-interval>5000</default-distance-reminder-interval><default-time-reminder-interval>6</default-time-reminder-interval></event-subtype>
+<event-subtype id="synthetic-expense" type="expense"><name>Example Service</name><default-distance-reminder-interval></default-distance-reminder-interval><default-time-reminder-interval></default-time-reminder-interval></event-subtype>
+</event-subtypes>""",
+        encoding="utf-8",
+    )
     fill = synthetic_fill()
     fields = "".join(
         f"<{key}>{value}</{key}>"
@@ -74,10 +80,18 @@ def write_synthetic_export(directory):
         if key != "_remote_id"
     )
     (directory / "vehicles.xml").write_text(
-        f"""<vehicles><vehicle>
+        f"""<vehicles><vehicle id="synthetic-vehicle">
 <name>Synthetic Vehicle</name><distance-unit>mile</distance-unit>
 <volume-unit>us_gallon</volume-unit><fuel-tank-capacity>20.0</fuel-tank-capacity>
+<vin>ROVERFAKEVIN00009</vin><license-plate>ROVER-FAKE-09</license-plate>
+<year>2020</year><make>Example Make</make><model>Example Model</model>
+<sub-model>Example Trim</sub-model><body-type>Example Body</body-type>
+<color>Example Blue</color><engine>Example Engine</engine>
+<transmission>Example Transmission</transmission><drive-type>Example Drive</drive-type>
+<bed-type>Example Bed</bed-type><notes>Example vehicle note</notes>
 <fillup-record>{fields}<sync-metadata><remote-id>{fill["_remote_id"]}</remote-id></sync-metadata></fillup-record>
+<event-record id="synthetic-event"><date>07/31/2026 - 10:30</date><type>service</type><odometer-reading>12400.0</odometer-reading><total-cost>88.40</total-cost><place-name>Example Workshop</place-name><payment-type>Example Card</payment-type><tags>Example Tag</tags><notes>Example service note</notes><subtypes><subtype id="synthetic-service"/></subtypes><sync-metadata><remote-id>synthetic-event-remote</remote-id></sync-metadata></event-record>
+<reminders><reminder id="synthetic-reminder" event-subtype-id="synthetic-service" event-type="service"><distance-interval>5000</distance-interval><distance-due>17400</distance-due><time-interval>6</time-interval><time-unit>months</time-unit><time-due>01/31/2027</time-due></reminder></reminders>
 </vehicle></vehicles>""",
         encoding="utf-8",
     )
@@ -106,6 +120,11 @@ class DecimalTests(unittest.TestCase):
             and node.func.id in {"float", "round"}
         ]
         self.assertEqual(forbidden, [])
+
+    def test_reminder_due_timestamp_maps_to_its_calendar_day(self):
+        self.assertEqual(
+            convert.calendar_day("10/01/2025 - 10:45"), "2025-10-01"
+        )
 
 
 class FillMappingTests(unittest.TestCase):
@@ -189,7 +208,7 @@ class FillMappingTests(unittest.TestCase):
         }
         report = convert.render_report(document=document, stats=stats, dry_run=True)
         self.assertIn("Station-none fills with unmapped address text: 1", report)
-        self.assertIn(address, report)
+        self.assertNotIn(address, report)
 
 
 class CorrectionTests(unittest.TestCase):
@@ -250,8 +269,8 @@ class CorrectionTests(unittest.TestCase):
         }
         report = convert.render_report(document=document, stats=stats, dry_run=True)
         self.assertIn("Corrections that would be applied: 1", report)
-        self.assertIn("Example Diesel -> Example Gasoline", report)
-        self.assertIn("Synthetic owner-ratified correction.", report)
+        self.assertNotIn("Example Diesel -> Example Gasoline", report)
+        self.assertNotIn("Synthetic owner-ratified correction.", report)
 
     def test_correction_with_stale_from_is_a_hard_error(self):
         record = synthetic_fill(**{"fuel-type-id": "synthetic-electricity"})
@@ -338,6 +357,7 @@ class VehicleDefaultTests(unittest.TestCase):
                 },
                 vehicles=[vehicle],
                 fuel_types=FUEL_TYPES,
+                event_subtypes={},
                 zone="America/Chicago",
                 stats=convert.ReportStats(),
             )
@@ -385,8 +405,131 @@ class VehicleUnitTests(unittest.TestCase):
             dry_run=True,
         )
         self.assertIn("Unit mismatches: 2", report)
-        self.assertIn("distance km != vehicle mi", report)
-        self.assertIn("volume litre != vehicle gal", report)
+        self.assertNotIn("Synthetic Unit Vehicle", report)
+
+
+class ImportWideningTests(unittest.TestCase):
+    def test_events_subtypes_reminders_and_specification_enter_the_document(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            export_dir = root / "export"
+            output_dir = root / "output"
+            write_synthetic_export(export_dir)
+
+            document, _, report = convert.convert_export(
+                export_dir,
+                output_dir,
+                dry_run=True,
+                zone="America/Chicago",
+            )
+
+        subtypes = document["definitions"]["service-subtypes"]
+        self.assertEqual(
+            subtypes,
+            [
+                {
+                    "defaultDistanceInterval": "5000",
+                    "defaultDistanceUnit": "mi",
+                    "defaultTimeInterval": "6",
+                    "defaultTimeUnit": "month",
+                    "label": "Example Service",
+                }
+            ],
+        )
+        vehicle = document["vehicles"][0]
+        self.assertEqual(len(vehicle["serviceEvents"]), 1)
+        event = vehicle["serviceEvents"][0]
+        self.assertNotIn("kind", event)
+        self.assertEqual(event["subtypes"], ["Example Service"])
+        self.assertEqual(event["mileage"], "12400.0")
+        self.assertEqual(event["station"], "Example Workshop")
+        self.assertEqual(event["total"], "88.40")
+        self.assertEqual(event["sourceRecordId"], "synthetic-event-remote")
+        self.assertEqual(vehicle["noteEvents"], [])
+        self.assertEqual(
+            vehicle["reminders"],
+            [
+                {
+                    "distanceDue": "17400",
+                    "distanceInterval": "5000",
+                    "distanceUnit": "mi",
+                    "subtype": "Example Service",
+                    "timeDue": "2027-01-31",
+                    "timeInterval": "6",
+                    "timeUnit": "month",
+                    "vehicle": "Synthetic Vehicle",
+                }
+            ],
+        )
+        self.assertEqual(
+            set(vehicle["specification"]),
+            {
+                "specBedType",
+                "specBodyType",
+                "specColor",
+                "specDriveType",
+                "specEngine",
+                "specMake",
+                "specModel",
+                "specNotes",
+                "specPlate",
+                "specTransmission",
+                "specSubModel",
+                "specVin",
+                "specYear",
+            },
+        )
+        self.assertIn("Service events imported: 1", report)
+        self.assertIn("Reminders imported: 1", report)
+        self.assertIn("Source subtype definitions processed: 2", report)
+        self.assertIn("Duplicate service/expense labels reused: 1", report)
+
+    def test_report_explains_ruled_omissions_in_owner_language(self):
+        stats = convert.ReportStats()
+        stats.trip_records = 2
+        stats.trip_types = 6
+        stats.attachments = 3
+        stats.attachment_fill_count = 2
+        stats.attachment_vehicle_count = 1
+        stats.attachment_records = 3
+        stats.attachment_raw_hashes.update({"one", "two", "three"})
+        stats.unmapped_nonempty.update(
+            {
+                "vehicle.insurance-policy": 2,
+                "fill.device-coordinate-pair": 4,
+                "vehicle.active": 2,
+            }
+        )
+        document = {
+            "definitions": {
+                "energy": [],
+                "additives": [],
+                "driving-modes": [],
+                "tags": [],
+                "payment-methods": [],
+            },
+            "places": [],
+            "vehicles": [],
+        }
+
+        report = convert.render_report(document=document, stats=stats, dry_run=True)
+
+        self.assertIn(
+            "Insurance policy strings: 2 not imported (insurance is fenced; a policy string is not an insurance feature)",
+            report,
+        )
+        self.assertIn(
+            "Device coordinate pairs on fills: 4 not imported (device location is not evidence of the station location)",
+            report,
+        )
+        self.assertIn(
+            "Source field vehicle.active: 2 not imported (no ratified Rover target; no mapping was invented)",
+            report,
+        )
+        self.assertIn(
+            "Photos extracted to disk, not the database: 3",
+            report,
+        )
 
 
 class CrossCheckTests(unittest.TestCase):
@@ -464,13 +607,13 @@ class CrossCheckTests(unittest.TestCase):
 
 
 class AttachmentTests(unittest.TestCase):
-    def test_jpeg_app_markers_are_removed(self):
+    def test_owner_attachment_preserves_jpeg_app_markers(self):
         app1 = b"\xff\xe1\x00\x06EXIF"
         dqt = b"\xff\xdb\x00\x04AB"
         scan = b"\xff\xda\x00\x04CDimage-data\xff\xd9"
-        stripped = convert.strip_jpeg_app_segments(b"\xff\xd8" + app1 + dqt + scan)
-        self.assertEqual(stripped, b"\xff\xd8" + dqt + scan)
-        self.assertNotIn(b"\xff\xe1", stripped)
+        original = b"\xff\xd8" + app1 + dqt + scan
+        self.assertEqual(convert.owner_jpeg_bytes(original), original)
+        self.assertIn(b"\xff\xe1", convert.owner_jpeg_bytes(original))
 
 
 if __name__ == "__main__":

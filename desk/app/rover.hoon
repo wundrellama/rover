@@ -3301,6 +3301,51 @@
           :_  this(import-run `next)
           (import-write-cards our.bowl serial.run script)
         ::
+        %service-subtype
+          ?.  (gte (lent commands) 2)
+            (fail 'incomplete service subtype lookup result')
+          =/  definitions  (rows-at:view commands 0)
+          =/  defaults  (rows-at:view commands 1)
+          ?:  ?|  (gth (lent definitions) 1)
+                  (gth (lent defaults) 1)
+              ==
+            (fail 'ambiguous existing service subtype label')
+          ?^  definitions
+            =/  report
+              report.run(definitions-reused +(definitions-reused.report.run))
+            ?~  default.value.work
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+            ?^  defaults
+              ?:  (subtype-default-matches:imp u.default.value.work i.defaults)
+                =/  reused
+                  report(subtype-defaults-reused +(subtype-defaults-reused.report))
+                (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report reused))
+              =/  conflicted
+                %_  report
+                  conflicts  +(conflicts.report)
+                  messages
+                    [(import-detail 'Conflict' work 'default reminder interval differs') messages.report]
+                ==
+              (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report conflicted))
+            =/  script
+              (insert-subtype-default:imp `@ux`(cell-atom:view %service-subtype-id i.definitions) u.default.value.work)
+            =/  created
+              report(subtype-defaults-created +(subtype-defaults-created.report))
+            =/  next  run(writing %.y, serial +(serial.run), report created)
+            :_  this(import-run `next)
+            (import-write-cards our.bowl serial.run script)
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script  (insert-service-subtype:imp base value.work now.bowl)
+          =/  report
+            %_  report.run
+              definitions-created  +(definitions-created.report.run)
+              subtype-defaults-created
+                ?~(default.value.work subtype-defaults-created.report.run +(subtype-defaults-created.report.run))
+            ==
+          =/  next  run(writing %.y, serial +(serial.run), report report)
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
+        ::
         %simple
           =/  rows  (rows-at:view commands 0)
           ?:  (gth (lent rows) 1)
@@ -3347,7 +3392,7 @@
             %:  insert-place:imp
                 base
                 value.work
-                station-kind.work
+                station-kind.value.work
                 existing-place-id
                 now.bowl
             ==
@@ -3389,6 +3434,8 @@
                   (row-ids:view %energy-definition-id archived-definitions)
                   (row-ids:view %mode-id linked-modes)
                   (row-ids:view %mode-id archived-modes)
+                  specification.value.work
+                  now.bowl
               ==
             ?~  script
               (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
@@ -3447,6 +3494,136 @@
             (fail (cat 3 'unit mismatch: ' (join-fields:imp mismatches)))
           :_  this
           (import-support-cards our.bowl serial.run value.work)
+        ::
+        %event
+          ?.  (gte (lent commands) 7)
+            (fail 'incomplete event lookup result')
+          =/  existing  (rows-at:view commands 0)
+          ?:  (gth (lent existing) 1)
+            =/  report
+              report.run(event-conflicts +(event-conflicts.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          ?^  existing
+            =/  report
+              report.run(events-already-imported +(events-already-imported.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  input  input.value.work
+          =/  event-vehicle-rows  (rows-at:view commands 1)
+          ?.  =(1 (lent event-vehicle-rows))
+            (fail 'event vehicle was not found')
+          =/  event-vehicle-row=vector:ast  (snag 0 event-vehicle-rows)
+          =/  station-rows  (rows-at:view commands 2)
+          =/  tag-rows  (rows-at:view commands 3)
+          =/  payment-rows  (rows-at:view commands 4)
+          =/  subtype-rows  (rows-at:view commands 5)
+          =/  disposal-rows  (rows-at:view commands 6)
+          =/  station-id=(unit @ux)
+            ?~  station-label.input
+              ~
+            =/  found  (row-by-text:view %label u.station-label.input station-rows)
+            ?~  found
+              ~
+            ``@ux`(cell-atom:view %station-id u.found)
+          ?:  ?&  ?=(^ station-label.input)
+                  ?=(~ station-id)
+              ==
+            (fail 'event station was not found')
+          =/  tag-proof
+            (ids-for-labels:view tag-labels.input tag-rows %label %tag-id)
+          ?:  ?=(%| -.tag-proof)
+            (fail 'an event tag definition was not found')
+          =/  subtype-proof
+            (ids-for-labels:view subtype-labels.input subtype-rows %label %service-subtype-id)
+          ?:  ?=(%| -.subtype-proof)
+            (fail 'an event subtype definition was not found')
+          =/  disposal-kind-id=(unit @ux)
+            ?~  disposal-kind-label.input
+              ~
+            =/  found  (row-by-text:view %label u.disposal-kind-label.input disposal-rows)
+            ?~  found
+              ~
+            ``@ux`(cell-atom:view %disposal-kind-id u.found)
+          ?:  ?&  ?=(^ disposal-kind-label.input)
+                  ?=(~ disposal-kind-id)
+              ==
+            (fail 'event disposal kind was not found')
+          =/  payment-id=(unit @ux)
+            ?~  payment-method-label.input
+              ~
+            =/  found  (row-by-text:view %label u.payment-method-label.input payment-rows)
+            ?~  found
+              ~
+            ``@ux`(cell-atom:view %method-id u.found)
+          ?:  ?&  ?=(^ payment-method-label.input)
+                  ?=(~ payment-id)
+              ==
+            (fail 'event payment method was not found')
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  ids=event-ids:act
+            :*  (fixture-id:act base 201)
+                (fixture-id:act base 202)
+                (fixture-id:act base 203)
+                (fixture-id:act base 204)
+                (fixture-id:act base 205)
+            ==
+          =/  command-note=(unit @t)
+            ?~  notes.input
+              ~
+            ?:  (urql-cord-safe:imp u.notes.input)
+              ~
+            notes.input
+          =/  script-input=event-entry:rover
+            ?~  command-note
+              input
+            input(notes `'Rover import note placeholder')
+          =/  script
+            %:  insert-event:act
+                ids
+                `@ux`(cell-atom:view %vehicle-id event-vehicle-row)
+                station-id
+                p.tag-proof
+                p.subtype-proof
+                disposal-kind-id
+                payment-id
+                script-input
+                now.bowl
+            ==
+          =/  next  run(writing %.y, serial +(serial.run))
+          :_  this(import-run `next)
+          ?~  command-note
+            (import-write-cards our.bowl serial.run script)
+          (import-parse-cards our.bowl serial.run script)
+        ::
+        %reminder
+          ?.  (gte (lent commands) 3)
+            (fail 'incomplete reminder lookup result')
+          =/  existing  (rows-at:view commands 0)
+          ?:  (gth (lent existing) 1)
+            (fail 'ambiguous existing reminder')
+          ?^  existing
+            =/  report
+              report.run(reminders-already-imported +(reminders-already-imported.report.run))
+            (advance run(writing %.n, serial +(serial.run), remaining t.remaining.run, report report))
+          =/  reminder-vehicle-rows  (rows-at:view commands 1)
+          =/  subtypes  (rows-at:view commands 2)
+          ?.  =(1 (lent reminder-vehicle-rows))
+            (fail 'reminder vehicle was not found')
+          =/  reminder-vehicle-row=vector:ast  (snag 0 reminder-vehicle-rows)
+          =/  found  (row-by-text:view %label subtype-label.value.work subtypes)
+          ?~  found
+            (fail 'reminder subtype was not found')
+          =/  base=@ux  (cut 7 [0 1] eny.bowl)
+          =/  script
+            %:  insert-reminder:act
+                (fixture-id:act base 601)
+                `@ux`(cell-atom:view %vehicle-id reminder-vehicle-row)
+                `@ux`(cell-atom:view %service-subtype-id u.found)
+                value.work
+                now.bowl
+            ==
+          =/  next  run(writing %.y, serial +(serial.run))
+          :_  this(import-run `next)
+          (import-write-cards our.bowl serial.run script)
       ==
     ::
         %kick
@@ -3739,25 +3916,42 @@
           %script
         i.t.wire
       ?:  =(%parse phase)
-        ?.  =(%fill -.work)
-          (advance-failure 'internal note parse work mismatch')
-        =/  fill  (fill-work-value:imp work)
-        ?~  notes.input.fill
-          (advance-failure 'internal note parse lacks a note')
         =/  parsed  ;;((each (list command:ast) tang) +.q.cage.sign)
         ?:  ?=(%.n -.parsed)
           (advance-failure 'atomic database mutation parse refused')
         =/  patched
-          (replace-fill-note:imp p.parsed u.notes.input.fill)
+          ?-  -.work
+            %fill
+              =/  fill  (fill-work-value:imp work)
+              (replace-fill-note:imp p.parsed (need notes.input.fill))
+            %event
+              (replace-event-note:imp p.parsed (need notes.input.value.work))
+            %energy           !!
+            %service-subtype  !!
+            %simple           !!
+            %place            !!
+            %vehicle          !!
+            %reminder         !!
+          ==
         ?:  ?=(%| -.patched)
           (advance-failure p.patched)
         :_  this
         (import-command-write-cards our.bowl serial.run p.patched)
       ?:  =(%cmd-list phase)
         =/  report
-          ?:  =(%fill -.work)
-            report.run(imported +(imported.report.run))
-          report.run
+          ?-  -.work
+            %fill
+              report.run(imported +(imported.report.run))
+            %event
+              report.run(events-imported +(events-imported.report.run))
+            %reminder
+              report.run(reminders-imported +(reminders-imported.report.run))
+            %energy           report.run
+            %service-subtype  report.run
+            %simple           report.run
+            %place            report.run
+            %vehicle          report.run
+          ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
         =/  continued=[(list card) state-17]
@@ -3771,9 +3965,19 @@
             messages
               [(import-detail 'Failure' work 'atomic database mutation refused') messages.report.run]
           ==
-        ?:  =(%fill -.work)
-          report.run(imported +(imported.report.run))
-        report.run
+        ?-  -.work
+          %fill
+            report.run(imported +(imported.report.run))
+          %event
+            report.run(events-imported +(events-imported.report.run))
+          %reminder
+            report.run(reminders-imported +(reminders-imported.report.run))
+          %energy           report.run
+          %service-subtype  report.run
+          %simple           report.run
+          %place            report.run
+          %vehicle          report.run
+        ==
       =/  next
         run(writing %.n, remaining t.remaining.run, report report)
       =/  continued=[(list card) state-17]

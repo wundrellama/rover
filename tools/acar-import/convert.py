@@ -37,6 +37,15 @@ class FuelType:
 
 
 @dataclasses.dataclass(frozen=True)
+class EventSubtype:
+    source_id: str
+    label: str
+    source_kind: str
+    default_distance_interval: str
+    default_time_interval: str
+
+
+@dataclasses.dataclass(frozen=True)
 class Correction:
     source_record_id: str
     field: str
@@ -58,6 +67,21 @@ class ReportStats:
     reminders: int = 0
     trip_types: int = 0
     event_subtypes: int = 0
+    fuel_types: int = 0
+    fuel_types_out: int = 0
+    sync_metadata_records: int = 0
+    event_subtypes_out: int = 0
+    event_subtype_duplicates: int = 0
+    event_subtype_defaults: int = 0
+    service_events_out: int = 0
+    note_events_out: int = 0
+    expense_events_unmapped: int = 0
+    note_events_with_cost: int = 0
+    reminders_out: int = 0
+    vehicle_specifications: int = 0
+    vehicle_spec_fields: collections.Counter[str] = dataclasses.field(
+        default_factory=collections.Counter
+    )
     preferences: int = 0
     notes_imported: int = 0
     deleted_tags_suppressed: int = 0
@@ -88,6 +112,7 @@ class ReportStats:
     attachment_records: int = 0
     attachment_fill_count: int = 0
     attachment_event_count: int = 0
+    attachment_vehicle_count: int = 0
     attachment_raw_bytes: int = 0
     attachment_written_bytes: int = 0
     attachment_files_with_app_segments: int = 0
@@ -106,6 +131,9 @@ class VehicleSource:
     volume_unit: str
     tank_capacity: str
     records: list[dict[str, str]]
+    events: list[dict[str, str]] = dataclasses.field(default_factory=list)
+    reminders: list[dict[str, str]] = dataclasses.field(default_factory=list)
+    specification: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -179,6 +207,17 @@ VEHICLE_FIELDS = {
     "country-name",
     "region-name",
     "city-name",
+    "make-id",
+    "model-id",
+    "body-type-id",
+    "bed-type-id",
+    "drive-type-id",
+    "engine-id",
+    "transmission-id",
+    "generic-engine-base-id",
+    "generic-fuel-type-id",
+    "country-id",
+    "region-id",
 }
 
 ADDRESS_PARTS = (
@@ -193,24 +232,53 @@ UNMAPPED_VEHICLE_FIELDS = {
     "active",
     "vehicle-id",
     "type",
-    "make",
-    "model",
-    "sub-model",
-    "year",
-    "vin",
-    "license-plate",
-    "notes",
-    "photo",
-    "color",
-    "engine",
-    "transmission",
-    "body-type",
-    "bed-type",
-    "drive-type",
     "insurance-policy",
     "country-name",
     "region-name",
     "city-name",
+    "make-id",
+    "model-id",
+    "body-type-id",
+    "bed-type-id",
+    "drive-type-id",
+    "engine-id",
+    "transmission-id",
+    "generic-engine-base-id",
+    "generic-fuel-type-id",
+    "country-id",
+    "region-id",
+}
+
+VEHICLE_SPEC_FIELDS = {
+    "vin": "specVin",
+    "license-plate": "specPlate",
+    "year": "specYear",
+    "make": "specMake",
+    "model": "specModel",
+    "sub-model": "specSubModel",
+    "body-type": "specBodyType",
+    "color": "specColor",
+    "engine": "specEngine",
+    "transmission": "specTransmission",
+    "drive-type": "specDriveType",
+    "bed-type": "specBedType",
+    "notes": "specNotes",
+}
+
+VEHICLE_SPEC_REPORT_LABELS = {
+    "specVin": "VIN",
+    "specPlate": "licence plate",
+    "specYear": "model year",
+    "specMake": "make",
+    "specModel": "model",
+    "specSubModel": "sub-model",
+    "specBodyType": "body type",
+    "specColor": "colour",
+    "specEngine": "engine",
+    "specTransmission": "transmission",
+    "specDriveType": "drive type",
+    "specBedType": "bed type",
+    "specNotes": "notes",
 }
 
 
@@ -280,6 +348,20 @@ def observed_start(text: str) -> str:
     except ValueError as exc:
         raise ConversionError(f"invalid aCar date shape: {text!r}") from exc
     return parsed.strftime("%Y-%m-%dT%H:%M")
+
+
+def calendar_day(text: str) -> str:
+    source = text.strip()
+    parsed = None
+    for shape in ("%m/%d/%Y", DATE_FORMAT):
+        try:
+            parsed = datetime.datetime.strptime(source, shape)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        raise ConversionError(f"invalid aCar calendar date: {text!r}")
+    return parsed.strftime("%Y-%m-%d")
 
 
 def record_ref(vehicle_dir: str, record: dict[str, str]) -> str:
@@ -499,6 +581,13 @@ def strip_jpeg_app_segments(data: bytes) -> bytes:
     raise ConversionError("JPEG has no scan or end marker")
 
 
+def owner_jpeg_bytes(data: bytes) -> bytes:
+    """Validate an owner attachment without altering its metadata."""
+    if len(data) < 4 or data[:3] != b"\xff\xd8\xff":
+        raise ConversionError("photo is not a JPEG")
+    return data
+
+
 def read_properties(path: pathlib.Path) -> dict[str, str]:
     properties: dict[str, str] = {}
     with path.open(encoding="utf-8-sig") as handle:
@@ -537,6 +626,83 @@ def read_fuel_types(path: pathlib.Path) -> dict[str, FuelType]:
         )
         element.clear()
     return fuel_types
+
+
+def read_event_subtypes(path: pathlib.Path) -> dict[str, EventSubtype]:
+    subtypes: dict[str, EventSubtype] = {}
+    for _, element in ET.iterparse(path, events=("end",)):
+        if local_name(element.tag) != "event-subtype":
+            continue
+        values = {
+            local_name(child.tag): (child.text or "").strip() for child in element
+        }
+        source_id = element.attrib.get("id", "").strip()
+        source_kind = element.attrib.get("type", "").strip()
+        label = values.get("name", "")
+        if not source_id or not label or source_kind not in {"service", "expense"}:
+            raise ConversionError("event subtype lacks a supported id, type, or name")
+        subtypes[source_id] = EventSubtype(
+            source_id=source_id,
+            label=label,
+            source_kind=source_kind,
+            default_distance_interval=values.get(
+                "default-distance-reminder-interval", ""
+            ),
+            default_time_interval=values.get("default-time-reminder-interval", ""),
+        )
+        element.clear()
+    return subtypes
+
+
+def build_service_subtypes(
+    source: dict[str, EventSubtype],
+    *,
+    distance_unit: str,
+    stats: ReportStats,
+) -> list[dict[str, object]]:
+    by_label: dict[str, dict[str, object]] = {}
+    for subtype in source.values():
+        row: dict[str, object] = {"label": subtype.label}
+        has_distance = bool(subtype.default_distance_interval)
+        has_time = bool(subtype.default_time_interval)
+        if has_distance != has_time:
+            raise ConversionError(
+                f"service subtype {subtype.label!r} has only half a default interval"
+            )
+        if has_distance:
+            distance = parse_decimal(subtype.default_distance_interval)
+            time = parse_decimal(subtype.default_time_interval)
+            if distance.sign < 0 or time.sign < 0 or distance.scale or time.scale:
+                raise ConversionError(
+                    f"service subtype {subtype.label!r} has a non-integer default"
+                )
+            if distance.digits == 0 or time.digits == 0:
+                raise ConversionError(
+                    f"service subtype {subtype.label!r} has a zero default"
+                )
+            row.update(
+                {
+                    "defaultDistanceInterval": str(distance.digits),
+                    "defaultDistanceUnit": distance_unit,
+                    "defaultTimeInterval": str(time.digits),
+                    "defaultTimeUnit": "month",
+                }
+            )
+        previous = by_label.get(subtype.label)
+        if previous is None:
+            by_label[subtype.label] = row
+        else:
+            stats.event_subtype_duplicates += 1
+            if len(row) > 1:
+                if len(previous) > 1 and previous != row:
+                    raise ConversionError(
+                        f"duplicate service subtype {subtype.label!r} has conflicting defaults"
+                    )
+                by_label[subtype.label] = row
+    rows = [by_label[label] for label in sorted(by_label)]
+    stats.event_subtypes_out = len(rows)
+    stats.event_subtype_defaults = sum(len(row) > 1 for row in rows)
+    return rows
 
 
 def load_corrections(export_dir: pathlib.Path) -> dict[str, Correction]:
@@ -671,9 +837,9 @@ def extract_attachments(
             raise ConversionError(f"{vehicle_dir}/{observed}: invalid photo base64") from exc
         if raw[:3] != b"\xff\xd8\xff":
             raise ConversionError(f"{vehicle_dir}/{observed}: photo is not JPEG")
-        stripped = strip_jpeg_app_segments(raw)
+        written = owner_jpeg_bytes(raw)
         raw_hash = hashlib.sha256(raw).hexdigest()
-        written_hash = hashlib.sha256(stripped).hexdigest()
+        written_hash = hashlib.sha256(written).hexdigest()
         relative = pathlib.PurePosixPath(vehicle_dir) / (
             f"{safe_observed}-{ordinal}-{written_hash[:12]}.jpg"
         )
@@ -684,10 +850,10 @@ def extract_attachments(
         if not dry_run:
             destination = output_dir / pathlib.Path(relative_text)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(stripped)
+            destination.write_bytes(written)
         entries.append(
             {
-                "bytes": len(stripped),
+                "bytes": len(written),
                 "file": relative_text,
                 "odometer": fixed_decimal(
                     text_trimmed(record, "odometer-reading"), 1
@@ -696,20 +862,69 @@ def extract_attachments(
                 "ordinal": ordinal,
                 "record-kind": record_kind,
                 "sha256": written_hash,
-                "source-remote-id": remote_id,
                 "vehicle": vehicle_label,
             }
         )
         stats.attachments += 1
         stats.attachment_raw_bytes += len(raw)
-        stats.attachment_written_bytes += len(stripped)
+        stats.attachment_written_bytes += len(written)
         stats.attachment_raw_hashes.add(raw_hash)
         stats.attachment_written_hashes.add(written_hash)
-        stats.attachment_files_with_app_segments += int(raw != stripped)
+        stats.attachment_files_with_app_segments += int(raw != written)
         if record_kind == "fill":
             stats.attachment_fill_count += 1
-        else:
+        elif record_kind == "event":
             stats.attachment_event_count += 1
+        else:
+            stats.attachment_vehicle_count += 1
+
+
+def extract_vehicle_attachment(
+    photo_text: str,
+    *,
+    vehicle_label: str,
+    vehicle_dir: str,
+    output_dir: pathlib.Path,
+    dry_run: bool,
+    stats: ReportStats,
+    entries: list[dict[str, object]],
+    filenames: set[str],
+) -> None:
+    if not photo_text.strip():
+        return
+    compact = "".join(photo_text.split())
+    try:
+        raw = base64.b64decode(compact, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise ConversionError(f"{vehicle_dir}: invalid vehicle photo base64") from exc
+    written = owner_jpeg_bytes(raw)
+    digest = hashlib.sha256(written).hexdigest()
+    relative = pathlib.PurePosixPath(vehicle_dir) / f"vehicle-{digest[:12]}.jpg"
+    relative_text = relative.as_posix()
+    if relative_text in filenames:
+        raise ConversionError(f"attachment filename collision: {relative_text}")
+    filenames.add(relative_text)
+    if not dry_run:
+        destination = output_dir / pathlib.Path(relative_text)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(written)
+    entries.append(
+        {
+            "bytes": len(written),
+            "file": relative_text,
+            "ordinal": 1,
+            "record-kind": "vehicle",
+            "sha256": digest,
+            "vehicle": vehicle_label,
+        }
+    )
+    stats.attachments += 1
+    stats.attachment_records += 1
+    stats.attachment_vehicle_count += 1
+    stats.attachment_raw_bytes += len(raw)
+    stats.attachment_written_bytes += len(written)
+    stats.attachment_raw_hashes.add(hashlib.sha256(raw).hexdigest())
+    stats.attachment_written_hashes.add(digest)
 
 
 def read_vehicles(
@@ -725,9 +940,12 @@ def read_vehicles(
     stack: list[str] = []
     vehicle_values: dict[str, str] | None = None
     vehicle_records: list[dict[str, str]] | None = None
+    vehicle_events: list[dict[str, str]] | None = None
+    vehicle_reminders: list[dict[str, str]] | None = None
     vehicle_index = 0
     record: dict[str, str] | None = None
     record_kind = ""
+    reminder: dict[str, str] | None = None
 
     for event, element in ET.iterparse(path, events=("start", "end")):
         tag = local_name(element.tag)
@@ -737,9 +955,19 @@ def read_vehicles(
                 vehicle_index += 1
                 vehicle_values = {}
                 vehicle_records = []
+                vehicle_events = []
+                vehicle_reminders = []
             elif tag in {"fillup-record", "event-record"}:
                 record = {}
                 record_kind = "fill" if tag == "fillup-record" else "event"
+            elif tag == "reminder":
+                reminder = {
+                    "_source_id": element.attrib.get("id", "").strip(),
+                    "event-subtype-id": element.attrib.get(
+                        "event-subtype-id", ""
+                    ).strip(),
+                    "event-type": element.attrib.get("event-type", "").strip(),
+                }
             continue
 
         parent = stack[-2] if len(stack) >= 2 else ""
@@ -757,6 +985,19 @@ def read_vehicles(
             ):
                 record["_remote_id"] = raw_text.strip()
                 element.clear()
+            elif tag == "subtype" and parent == "subtypes":
+                source_id = element.attrib.get("id", "").strip()
+                if not source_id:
+                    raise ConversionError("event subtype link has no id")
+                current = record.get("_subtype_ids", "")
+                record["_subtype_ids"] = ",".join(
+                    value for value in (current, source_id) if value
+                )
+                element.clear()
+
+        if reminder is not None and parent == "reminder":
+            reminder[tag] = raw_text
+            element.clear()
 
         if tag in {"fillup-record", "event-record"}:
             if record is None or vehicle_values is None or vehicle_records is None:
@@ -792,12 +1033,19 @@ def read_vehicles(
                 vehicle_records.append(record)
             else:
                 stats.event_records += 1
+                if vehicle_events is None:
+                    raise ConversionError("event found outside a vehicle")
+                vehicle_events.append(record)
             record = None
             record_kind = ""
             element.clear()
 
         elif tag == "reminder":
+            if reminder is None or vehicle_reminders is None:
+                raise ConversionError("reminder found outside a vehicle")
             stats.reminders += 1
+            vehicle_reminders.append(reminder)
+            reminder = None
             element.clear()
         elif tag == "trip-record":
             stats.trip_records += 1
@@ -811,13 +1059,28 @@ def read_vehicles(
             vehicle_values[tag] = raw_text
             element.clear()
         elif tag == "vehicle":
-            if vehicle_values is None or vehicle_records is None:
+            if (
+                vehicle_values is None
+                or vehicle_records is None
+                or vehicle_events is None
+                or vehicle_reminders is None
+            ):
                 raise ConversionError("malformed vehicle element")
             label = vehicle_values.get("name", "")
             distance_unit = vehicle_values.get("distance-unit", "").strip()
             volume_unit = vehicle_values.get("volume-unit", "").strip()
             if not label or not distance_unit or not volume_unit:
                 raise ConversionError(f"vehicle-{vehicle_index} lacks required metadata")
+            extract_vehicle_attachment(
+                vehicle_values.get("photo", ""),
+                vehicle_label=label,
+                vehicle_dir=f"vehicle-{vehicle_index}",
+                output_dir=output_dir,
+                dry_run=dry_run,
+                stats=stats,
+                entries=attachment_entries,
+                filenames=attachment_filenames,
+            )
             for field in UNMAPPED_VEHICLE_FIELDS:
                 if vehicle_values.get(field, "").strip():
                     stats.unmapped_nonempty[f"vehicle.{field}"] += 1
@@ -829,11 +1092,19 @@ def read_vehicles(
                     volume_unit=volume_unit,
                     tank_capacity=vehicle_values.get("fuel-tank-capacity", "").strip(),
                     records=vehicle_records,
+                    events=vehicle_events,
+                    reminders=vehicle_reminders,
+                    specification={
+                        field: vehicle_values.get(field, "").strip()
+                        for field in VEHICLE_SPEC_FIELDS
+                    },
                 )
             )
             stats.vehicles += 1
             vehicle_values = None
             vehicle_records = None
+            vehicle_events = None
+            vehicle_reminders = None
             element.clear()
 
         stack.pop()
@@ -1013,14 +1284,182 @@ def convert_fill(
     return fill
 
 
+def convert_event(
+    *,
+    record: dict[str, str],
+    expected_kind: str,
+    vehicle_label: str,
+    distance_unit: str,
+    event_subtypes: dict[str, EventSubtype],
+    zone: str,
+    stats: ReportStats,
+) -> dict[str, object]:
+    source_kind = text_trimmed(record, "type")
+    if source_kind != expected_kind:
+        raise ConversionError(
+            f"event section {expected_kind!r} contains {source_kind!r}"
+        )
+    source_record_id = text_trimmed(record, "_remote_id")
+    if not source_record_id:
+        raise ConversionError("event record has no remote-id")
+    output: dict[str, object] = {
+        "currency": "usd",
+        "mileage": fixed_decimal(text_trimmed(record, "odometer-reading"), 1),
+        "mileageUnit": distance_unit,
+        "observed": observed_start(text_trimmed(record, "date")),
+        "sourceApp": "acar",
+        "sourceRecordId": source_record_id,
+        "station": "none",
+        "subtypes": [],
+        "tags": [],
+        "vehicle": vehicle_label,
+        "zone": zone,
+    }
+    total_text = text_trimmed(record, "total-cost")
+    if total_text:
+        total = parse_decimal(total_text)
+        if total.sign < 0:
+            raise ConversionError("event total is negative")
+        if total.digits:
+            output["total"] = render_scaled(total.digits, total.scale)
+            if expected_kind == "note":
+                stats.note_events_with_cost += 1
+    subtype_labels: list[str] = []
+    for source_id in split_list(record.get("_subtype_ids", "")):
+        try:
+            subtype = event_subtypes[source_id]
+        except KeyError as exc:
+            raise ConversionError("event references an unknown subtype") from exc
+        subtype_labels.append(subtype.label)
+    if expected_kind != "service" and subtype_labels:
+        raise ConversionError(f"{expected_kind} event carries service subtypes")
+    output["subtypes"] = sorted(set(subtype_labels))
+    output["tags"] = sorted(
+        {
+            tag
+            for tag in split_list(record.get("tags", ""))
+            if tag != "deleted"
+        }
+    )
+    place_label = resolve_place_label(record)
+    if place_label:
+        output["station"] = place_label
+    notes = record.get("notes", "")
+    if notes.strip():
+        output["notes"] = notes
+    payment = text_trimmed(record, "payment-type")
+    if payment:
+        output["paymentMethod"] = payment
+    if expected_kind == "service":
+        stats.service_events_out += 1
+    elif expected_kind == "note":
+        stats.note_events_out += 1
+    return output
+
+
+def reminder_time_unit(source: str) -> str:
+    mapping = {
+        "day": "day",
+        "days": "day",
+        "week": "week",
+        "weeks": "week",
+        "month": "month",
+        "months": "month",
+        "year": "year",
+        "years": "year",
+    }
+    try:
+        return mapping[source.strip().lower()]
+    except KeyError as exc:
+        raise ConversionError(f"unsupported reminder time unit: {source!r}") from exc
+
+
+def convert_reminder(
+    *,
+    source: dict[str, str],
+    vehicle_label: str,
+    distance_unit: str,
+    event_subtypes: dict[str, EventSubtype],
+    stats: ReportStats,
+) -> dict[str, object]:
+    if text_trimmed(source, "event-type") != "service":
+        raise ConversionError("only service reminders have a Rover target")
+    try:
+        subtype = event_subtypes[text_trimmed(source, "event-subtype-id")]
+    except KeyError as exc:
+        raise ConversionError("reminder references an unknown subtype") from exc
+    output: dict[str, object] = {
+        "subtype": subtype.label,
+        "vehicle": vehicle_label,
+    }
+    distance_interval = text_trimmed(source, "distance-interval")
+    distance_due = text_trimmed(source, "distance-due")
+    if bool(distance_interval) != bool(distance_due):
+        raise ConversionError("reminder has only half a distance interval")
+    if distance_interval:
+        output.update(
+            {
+                "distanceInterval": render_scaled(
+                    parse_decimal(distance_interval).digits,
+                    parse_decimal(distance_interval).scale,
+                ),
+                "distanceDue": render_scaled(
+                    parse_decimal(distance_due).digits,
+                    parse_decimal(distance_due).scale,
+                ),
+                "distanceUnit": distance_unit,
+            }
+        )
+    time_interval = text_trimmed(source, "time-interval")
+    time_due = text_trimmed(source, "time-due")
+    if bool(time_interval) != bool(time_due):
+        raise ConversionError("reminder has only half a time interval")
+    if time_interval:
+        parsed = parse_decimal(time_interval)
+        if parsed.sign < 0 or parsed.scale or parsed.digits == 0:
+            raise ConversionError("reminder time interval is not a positive integer")
+        output.update(
+            {
+                "timeInterval": str(parsed.digits),
+                "timeUnit": reminder_time_unit(text_trimmed(source, "time-unit")),
+                "timeDue": calendar_day(time_due),
+            }
+        )
+    if len(output) == 2:
+        raise ConversionError("reminder has no interval")
+    stats.reminders_out += 1
+    return output
+
+
+def convert_vehicle_specification(values: dict[str, str]) -> dict[str, str]:
+    output = {
+        target: values.get(source, "").strip()
+        for source, target in VEHICLE_SPEC_FIELDS.items()
+        if values.get(source, "").strip()
+    }
+    year = output.get("specYear")
+    if year:
+        parsed = parse_decimal(year)
+        if parsed.sign < 0 or parsed.scale or parsed.digits == 0:
+            raise ConversionError("vehicle model year is not a positive integer")
+        output["specYear"] = str(parsed.digits)
+    return output
+
+
 def build_places(vehicles: list[VehicleSource]) -> list[dict[str, object]]:
     accumulated: dict[str, dict[str, object]] = {}
     for vehicle in vehicles:
-        for record in vehicle.records:
+        sources = [(record, "fuel") for record in vehicle.records]
+        sources.extend((record, "private") for record in vehicle.events)
+        for record, station_kind in sources:
             label = resolve_place_label(record)
             if not label:
                 continue
-            place = accumulated.setdefault(label, {"label": label})
+            place = accumulated.setdefault(
+                label, {"label": label, "stationKind": station_kind}
+            )
+            if place["stationKind"] != station_kind:
+                place["stationKind"] = "mixed"
             formatted = text_trimmed(record, "place-full-address")
             source_parts = {
                 output_key: text_trimmed(record, source_key)
@@ -1079,6 +1518,11 @@ def build_definitions(
             payment = text_trimmed(record, "payment-type")
             if payment:
                 payment_methods.add(payment)
+        for record in vehicle.events:
+            tags.update(tag for tag in split_list(record.get("tags", "")) if tag != "deleted")
+            payment = text_trimmed(record, "payment-type")
+            if payment:
+                payment_methods.add(payment)
 
     grouped: dict[str, list[FuelType]] = collections.defaultdict(list)
     for fuel in used_fuels.values():
@@ -1124,11 +1568,14 @@ def build_definitions(
 
 def count_record_unmapped(vehicles: list[VehicleSource], stats: ReportStats) -> None:
     for vehicle in vehicles:
-        for record in vehicle.records:
-            if text_trimmed(record, "place-google-places-id"):
-                stats.unmapped_nonempty["fill.place-google-places-id"] += 1
-            if text_trimmed(record, "device-latitude"):
-                stats.unmapped_nonempty["fill.device-coordinate-pair"] += 1
+        for kind, records in (("fill", vehicle.records), ("event", vehicle.events)):
+            for record in records:
+                if text_trimmed(record, "place-google-places-id"):
+                    stats.unmapped_nonempty[
+                        f"{kind}.place-google-places-id"
+                    ] += 1
+                if text_trimmed(record, "device-latitude"):
+                    stats.unmapped_nonempty[f"{kind}.device-coordinate-pair"] += 1
 
 
 def make_import_document(
@@ -1136,10 +1583,27 @@ def make_import_document(
     metadata: dict[str, str],
     vehicles: list[VehicleSource],
     fuel_types: dict[str, FuelType],
+    event_subtypes: dict[str, EventSubtype],
     zone: str,
     stats: ReportStats,
 ) -> dict[str, object]:
     definitions = build_definitions(vehicles, fuel_types)
+    stats.fuel_types_out = sum(
+        len(definition["subtypes"]) for definition in definitions["energy"]
+    )
+    distance_units = {distance_unit_label(vehicle.distance_unit) for vehicle in vehicles}
+    if len(distance_units) != 1 and any(
+        subtype.default_distance_interval for subtype in event_subtypes.values()
+    ):
+        raise ConversionError(
+            "subtype distance defaults are ambiguous across vehicle distance units"
+        )
+    default_distance_unit = next(iter(distance_units), "mi")
+    definitions["service-subtypes"] = build_service_subtypes(
+        event_subtypes,
+        distance_unit=default_distance_unit,
+        stats=stats,
+    )
     places = build_places(vehicles)
     output_vehicles: list[dict[str, object]] = []
     for vehicle in vehicles:
@@ -1149,8 +1613,15 @@ def make_import_document(
             "distanceUnit": rover_distance,
             "fills": [],
             "label": vehicle.label,
+            "noteEvents": [],
+            "reminders": [],
+            "serviceEvents": [],
+            "specification": convert_vehicle_specification(vehicle.specification),
             "volumeUnit": quantity_unit,
         }
+        if output_vehicle["specification"]:
+            stats.vehicle_specifications += 1
+            stats.vehicle_spec_fields.update(output_vehicle["specification"].keys())
         if vehicle.tank_capacity:
             capacity = parse_decimal(vehicle.tank_capacity)
             if capacity.digits:
@@ -1174,6 +1645,44 @@ def make_import_document(
             for record in vehicle.records
         ]
         output_vehicle["fills"] = fills
+        for record in vehicle.events:
+            kind = text_trimmed(record, "type")
+            if kind == "service":
+                output_vehicle["serviceEvents"].append(
+                    convert_event(
+                        record=record,
+                        expected_kind="service",
+                        vehicle_label=vehicle.label,
+                        distance_unit=rover_distance,
+                        event_subtypes=event_subtypes,
+                        zone=zone,
+                        stats=stats,
+                    )
+                )
+            elif kind == "note":
+                output_vehicle["noteEvents"].append(
+                    convert_event(
+                        record=record,
+                        expected_kind="note",
+                        vehicle_label=vehicle.label,
+                        distance_unit=rover_distance,
+                        event_subtypes=event_subtypes,
+                        zone=zone,
+                        stats=stats,
+                    )
+                )
+            else:
+                stats.expense_events_unmapped += 1
+        output_vehicle["reminders"] = [
+            convert_reminder(
+                source=reminder,
+                vehicle_label=vehicle.label,
+                distance_unit=rover_distance,
+                event_subtypes=event_subtypes,
+                stats=stats,
+            )
+            for reminder in vehicle.reminders
+        ]
         check_import_units(
             vehicle_label=vehicle.label,
             distance_unit=rover_distance,
@@ -1245,12 +1754,28 @@ def render_report(
         "Records",
         f"Vehicles in/out: {stats.vehicles}/{len(document['vehicles'])}",
         f"Fills in/out/dropped: {stats.fills_in}/{stats.fills_out}/{stats.fills_dropped}",
-        f"Event records unmapped (M7): {stats.event_records}",
-        f"Trip records unmapped: {stats.trip_records}",
-        f"Reminders unmapped (M7): {stats.reminders}",
-        f"Trip types unmapped: {stats.trip_types}",
-        f"Event subtype definitions unmapped (M7): {stats.event_subtypes}",
-        f"Preferences ignored (application settings): {stats.preferences}",
+        f"Service events imported: {stats.service_events_out}",
+        f"Note events imported: {stats.note_events_out}",
+        f"Expense events not imported: {stats.expense_events_unmapped} (Rover T9 carries service and note history; every expense remains named here)",
+        f"Note events with a nonzero total kept as notes: {stats.note_events_with_cost} (the source kind is authoritative; the entered total was retained)",
+        f"Trip records not imported: {stats.trip_records} (Rover has no trip-record model)",
+        f"Reminders imported: {stats.reminders_out}",
+        f"Trip types not imported: {stats.trip_types} (aCar defaults carry tax-deduction rates Rover does not model)",
+        f"Source subtype definitions processed: {stats.event_subtypes}",
+        f"Rover service subtype definitions emitted: {stats.event_subtypes_out}",
+        f"Duplicate service/expense labels reused: {stats.event_subtype_duplicates} (T2 uses one shared service catalog entry for the same label)",
+        f"Subtype default intervals imported: {stats.event_subtype_defaults}",
+        f"Vehicle specifications imported: {stats.vehicle_specifications}",
+        "Specification values imported by field: "
+        + ", ".join(
+            f"{VEHICLE_SPEC_REPORT_LABELS[field]}={stats.vehicle_spec_fields[field]}"
+            for field in VEHICLE_SPEC_FIELDS.values()
+        ),
+        f"Source fuel definitions processed: {stats.fuel_types}",
+        f"Referenced fuel definitions emitted: {stats.fuel_types_out}",
+        f"Unused source fuel definitions not imported: {stats.fuel_types - stats.fuel_types_out} (unused aCar catalog entries would add definitions the owner never selected)",
+        f"Preferences not imported: {stats.preferences} (application settings do not describe vehicle history)",
+        f"Sync metadata records not imported: {stats.sync_metadata_records} (account and synchronization bookkeeping is not vehicle history)",
         "",
         "Definitions and places",
         f"Energy definitions: {len(definitions['energy'])}",
@@ -1262,19 +1787,10 @@ def render_report(
         f"Fill notes imported verbatim: {stats.notes_imported}",
         f"Suppressed literal 'deleted' tags: {stats.deleted_tags_suppressed}",
         f"Parts-only addresses imported: {stats.parts_only_addresses}",
-        f"Station-none fills with unmapped address text: {len(stats.unlabelled_station_addresses)}",
+        f"Station-none fills with unmapped address text: {len(stats.unlabelled_station_addresses)} (the text has no source label that can identify a station)",
         f"Corrections {'that would be applied' if dry_run else 'applied'}: {len(stats.corrections_applied)}",
         f"Unit mismatches: {stats.unit_mismatches}",
     ]
-    lines.extend(
-        f"{'Would correct' if dry_run else 'Corrected'}: {item}"
-        for item in stats.corrections_applied
-    )
-    lines.extend(
-        f"Unmapped station address: {address}"
-        for address in stats.unlabelled_station_addresses
-    )
-    lines.extend(f"Unit mismatch: {item}" for item in stats.unit_mismatch_details)
     lines.extend(
         [
             "",
@@ -1285,7 +1801,6 @@ def render_report(
             f"Beyond one cent: {stats.total_beyond}",
         ]
     )
-    lines.extend(f"Mismatch: {item}" for item in stats.total_mismatches)
     lines.extend(
         [
             "",
@@ -1296,7 +1811,6 @@ def render_report(
             f"Beyond 0.01 mpg: {stats.efficiency_beyond}",
         ]
     )
-    lines.extend(f"Mismatch: {item}" for item in stats.efficiency_mismatches)
     lines.extend(
         [
             "",
@@ -1309,22 +1823,37 @@ def render_report(
             f"Skipped device values exceeding scale 7: {stats.device_coordinate_values_rounded}",
             "",
             "Attachments (no database rows)",
-            f"Photos extracted: {stats.attachments}",
+            f"Photos extracted to disk, not the database: {stats.attachments}",
             f"Records carrying photos: {stats.attachment_records}",
-            f"Fill/event photo split: {stats.attachment_fill_count}/{stats.attachment_event_count}",
+            f"Fill/event/vehicle photo split: {stats.attachment_fill_count}/{stats.attachment_event_count}/{stats.attachment_vehicle_count}",
             f"Raw/written bytes: {stats.attachment_raw_bytes}/{stats.attachment_written_bytes}",
             f"Distinct raw hashes: {len(stats.attachment_raw_hashes)}",
             f"Duplicate raw photos: {stats.attachments - len(stats.attachment_raw_hashes)}",
             f"Distinct filenames: {stats.attachments}",
-            f"Files changed by APPn stripping: {stats.attachment_files_with_app_segments}",
-            f"PDF tags/nonempty PDFs: {stats.pdf_tags}/{stats.nonempty_pdfs}",
+            "Owner JPEG metadata preserved: yes (EXIF is stripped only from a later published artifact)",
+            f"PDF tags/nonempty PDFs: {stats.pdf_tags}/{stats.nonempty_pdfs} (empty PDFs contain nothing to carry; nonempty PDFs remain attachment-task scope)",
             "",
             "Other nonempty unmapped fields",
         ]
     )
     if stats.unmapped_nonempty:
+        reasons = {
+            "vehicle.insurance-policy": "insurance is fenced; a policy string is not an insurance feature",
+            "fill.device-coordinate-pair": "device location is not evidence of the station location",
+            "event.device-coordinate-pair": "device location is not evidence of the station location",
+            "fill.place-google-places-id": "the external directory identifier has no ratified Rover target",
+            "event.place-google-places-id": "the external directory identifier has no ratified Rover target",
+        }
+        labels = {
+            "vehicle.insurance-policy": "Insurance policy strings",
+            "fill.device-coordinate-pair": "Device coordinate pairs on fills",
+            "event.device-coordinate-pair": "Device coordinate pairs on events",
+            "fill.place-google-places-id": "External place-directory identifiers on fills",
+            "event.place-google-places-id": "External place-directory identifiers on events",
+        }
         lines.extend(
-            f"{field}: {count}" for field, count in sorted(stats.unmapped_nonempty.items())
+            f"{labels.get(field, f'Source field {field}')}: {count} not imported ({reasons.get(field, 'no ratified Rover target; no mapping was invented')})"
+            for field, count in sorted(stats.unmapped_nonempty.items())
         )
     else:
         lines.append("None")
@@ -1373,6 +1902,11 @@ def convert_export(
     )
     stats.preferences = count_elements(export_dir / "preferences.xml", "preference")
     fuel_types = read_fuel_types(export_dir / "fuel-types.xml")
+    stats.fuel_types = len(fuel_types)
+    sync_path = export_dir / "sync-metadata.xml"
+    if sync_path.is_file():
+        stats.sync_metadata_records = count_elements(sync_path, "sync-metadata")
+    event_subtypes = read_event_subtypes(export_dir / "event-subtypes.xml")
     corrections = load_corrections(export_dir)
     metadata = read_properties(export_dir / "metadata.inf")
     parsed = read_vehicles(
@@ -1386,6 +1920,7 @@ def convert_export(
         metadata=metadata,
         vehicles=parsed.vehicles,
         fuel_types=fuel_types,
+        event_subtypes=event_subtypes,
         zone=zone,
         stats=stats,
     )
