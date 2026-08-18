@@ -128,6 +128,23 @@ TRADE_OUT_ODO="$((61000 + STAMP % 1000))"
 # The vehicle fixture 32 archives. Archiving is a display state, so it must
 # leave no disposal behind, and it needs a vehicle of its own to hide.
 ARCHIVE_VEHICLE="Archive Vehicle $STAMP"
+# Deliberately impossible fixture identity. This is 17 characters only so the
+# battery exercises the full field shape; it is not copied from any vehicle.
+SYNTHETIC_VIN='SYNTHETICVIN00000'
+CORRECTED_SYNTHETIC_VIN='SYNTHETICVIN11111'
+SYNTHETIC_PLATE="TEST-PLATE-$STAMP"
+SPEC_EMPTY_VEHICLE="Specification Empty $STAMP"
+SPEC_PARTIAL_VEHICLE="Specification Partial $STAMP"
+SPEC_MAKE="Fixture Motors $STAMP"
+SPEC_MODEL="Road Test $STAMP"
+SPEC_SUB_MODEL="Synthetic Edition $STAMP"
+SPEC_ENGINE="Fixture engine $STAMP"
+SPEC_TRANSMISSION="Fixture transmission $STAMP"
+SPEC_DRIVE_TYPE="Fixture drive $STAMP"
+SPEC_BED_TYPE="Fixture bed $STAMP"
+SPEC_COLOR="Fixture blue $STAMP"
+SPEC_BODY_TYPE="Fixture utility $STAMP"
+SPEC_NOTES="Synthetic vehicle notes $STAMP"
 
 click_file() {
   local body="$1" file out
@@ -228,6 +245,19 @@ for match in re.finditer(pattern, document, re.S):
 ' "$kind" "$needle" <<<"$view"
 }
 
+vehicle_settings_card() {
+  local vehicle="$1"
+  python3 -c '
+import html, re, sys
+document = sys.stdin.read()
+vehicle = html.escape(sys.argv[1], quote=True)
+pattern = r"<article class=\"vehicle-card\" data-vehicle-settings-panel data-vehicle=\"%s\" hidden>.*?</article>" % re.escape(vehicle)
+match = re.search(pattern, document, re.S)
+if match:
+    sys.stdout.write(match.group(0))
+' "$vehicle"
+}
+
 count_rows() {
   local report="$1" marker="$2"
   grep -o "$marker" <<<"$report" | wc -l
@@ -308,6 +338,138 @@ report="$(rover_report "FROM vehicles V WHERE V.label = '$VEHICLE' SELECT V.vehi
 grep -q "%station 116 '$STATION'" <<<"$report" \
   || fail "fixture 3 the baseline station is absent: $report"
 note "fixture 3 PASS - baseline vehicle, fill, station, tag, and payment method exist"
+
+# ---------------------------------------------------------------------------
+# fixture 55 - tracer bullet for T7. A vehicle gains a VIN through the same
+# settings endpoint the browser uses, and the value lives in its own optional
+# row. The pre-T7 desk accepts the extra JSON key but writes no row, so this is
+# the first deliberately red fixture for the task.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id WHERE V.label = '$VEHICLE' SELECT V.vehicle-id, A.acquisition-id, L.odometer-id;")"
+identity_before="$(grep -o '%vehicle-id [0-9]* 0x[0-9a-f.]*' <<<"$report" | head -1)"
+[ -n "$identity_before" ] \
+  || fail "fixture 55 could not read the vehicle identity before adding a VIN: $report"
+eyre_post edit-vehicle \
+  "$(printf '{"vehicle":"%s","label":"%s","vin":"%s"}' "$VEHICLE" "$VEHICLE" "$SYNTHETIC_VIN")" \
+  $'Saved vehicle settings\n201' 'fixture 55 add VIN'
+report="$(rover_report "FROM vehicles V JOIN vehicle-vins I ON V.vehicle-id = I.vehicle-id JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id WHERE V.label = '$VEHICLE' SELECT V.vehicle-id, I.vin, A.acquisition-id, L.odometer-id;")"
+grep -qF "%vin 116 '$SYNTHETIC_VIN'" <<<"$report" \
+  || fail "fixture 55 the settings endpoint wrote no VIN row: $report"
+grep -qF "$identity_before" <<<"$report" \
+  || fail "fixture 55 adding the VIN re-keyed the vehicle: $report"
+note "fixture 55 PASS - the settings endpoint adds a VIN evidence row without changing vehicle identity"
+
+# ---------------------------------------------------------------------------
+# fixture 56 - the T7 shape. Each relation keys only to vehicle-id, all FKs are
+# RESTRICT, and the two identifying values occupy different relations from
+# each other and from all descriptive data. That is the row boundary a future
+# grant needs to reveal either identifier independently.
+# ---------------------------------------------------------------------------
+report="$(rover_report 'FROM sys.tables WHERE namespace = %dbo SELECT name;')"
+for relation in vehicle-vins vehicle-license-plates vehicle-make-model \
+  vehicle-model-years vehicle-drivetrains vehicle-appearances vehicle-notes; do
+  grep -q "%name %tas %$relation" <<<"$report" \
+    || fail "fixture 56 the pour is missing $relation"
+done
+report="$(rover_report 'FROM sys.foreign-keys WHERE child-table = %vehicle-vins SELECT parent-table, parent-column, child-column, on-delete, on-update; FROM sys.foreign-keys WHERE child-table = %vehicle-license-plates SELECT parent-table, parent-column, child-column, on-delete, on-update;')"
+[ "$(grep -o '%parent-table %tas %vehicles' <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 56 VIN and plate do not each key to vehicles: $report"
+[ "$(grep -o '%on-delete %tas %restrict' <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 56 an identifier FK is not RESTRICT: $report"
+report="$(rover_report 'FROM sys.columns WHERE name = %vehicle-vins SELECT col-name; FROM sys.columns WHERE name = %vehicle-license-plates SELECT col-name;')"
+grep -q '%col-name %tas %vin' <<<"$report" \
+  || fail "fixture 56 the VIN relation has no VIN column: $report"
+grep -q '%col-name %tas %license-plate' <<<"$report" \
+  || fail "fixture 56 the plate relation has no plate column: $report"
+for descriptive in make model sub-model year color body-type engine transmission drive-type bed-type; do
+  grep -q "%col-name %tas %$descriptive" <<<"$report" \
+    && fail "fixture 56 the identifier relation leaks descriptive field $descriptive: $report"
+done
+note "fixture 56 PASS - VIN and plate are separate, vehicle-keyed, independently gateable relations with no descriptive columns"
+
+# ---------------------------------------------------------------------------
+# fixture 57 - compatibility for every installed vehicle. A vehicle with no
+# specification writes no optional row and gets no empty description or
+# placeholder in the served card.
+# ---------------------------------------------------------------------------
+eyre_post add-vehicle \
+  "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$SPEC_EMPTY_VEHICLE")" \
+  "$(printf 'Added vehicle - %s\n201' "$SPEC_EMPTY_VEHICLE")" 'fixture 57 empty specification vehicle'
+report="$(rover_report "FROM vehicles V JOIN vehicle-vins I ON V.vehicle-id = I.vehicle-id WHERE V.label = '$SPEC_EMPTY_VEHICLE' SELECT I.vin; FROM vehicles V JOIN vehicle-license-plates P ON V.vehicle-id = P.vehicle-id WHERE V.label = '$SPEC_EMPTY_VEHICLE' SELECT P.license-plate; FROM vehicles V JOIN vehicle-make-model M ON V.vehicle-id = M.vehicle-id WHERE V.label = '$SPEC_EMPTY_VEHICLE' SELECT M.field, M.value; FROM vehicles V JOIN vehicle-model-years R ON V.vehicle-id = R.vehicle-id WHERE V.label = '$SPEC_EMPTY_VEHICLE' SELECT R.year; FROM vehicles V JOIN vehicle-drivetrains D ON V.vehicle-id = D.vehicle-id WHERE V.label = '$SPEC_EMPTY_VEHICLE' SELECT D.field, D.value; FROM vehicles V JOIN vehicle-appearances A ON V.vehicle-id = A.vehicle-id WHERE V.label = '$SPEC_EMPTY_VEHICLE' SELECT A.field, A.value; FROM vehicles V JOIN vehicle-notes Z ON V.vehicle-id = Z.vehicle-id WHERE V.label = '$SPEC_EMPTY_VEHICLE' SELECT Z.note;")"
+for marker in %vin %license-plate %field %year %note; do
+  grep -q "$marker" <<<"$report" \
+    && fail "fixture 57 an absent specification rendered as a stored value $marker: $report"
+done
+view="$(eyre_view)"
+card="$(vehicle_settings_card "$SPEC_EMPTY_VEHICLE" <<<"$view")"
+[ -n "$card" ] || fail "fixture 57 the unchanged vehicle card is absent"
+grep -q 'data-vehicle-description' <<<"$card" \
+  && fail "fixture 57 a no-data vehicle gained a synthetic description: $card"
+note "fixture 57 PASS - a vehicle with no specification has no rows and no rendered description or placeholder"
+
+# ---------------------------------------------------------------------------
+# fixture 58 - every requested value saves together, reads from its typed row,
+# and renders as a description through the owner view.
+# ---------------------------------------------------------------------------
+eyre_post edit-vehicle \
+  "$(printf '{"vehicle":"%s","label":"%s","vin":"%s","make":"%s","model":"%s","subModel":"%s","year":"1981","licensePlate":"%s","color":"%s","bodyType":"%s","engine":"%s","transmission":"%s","driveType":"%s","bedType":"%s","notes":"%s"}' "$VEHICLE" "$VEHICLE" "$SYNTHETIC_VIN" "$SPEC_MAKE" "$SPEC_MODEL" "$SPEC_SUB_MODEL" "$SYNTHETIC_PLATE" "$SPEC_COLOR" "$SPEC_BODY_TYPE" "$SPEC_ENGINE" "$SPEC_TRANSMISSION" "$SPEC_DRIVE_TYPE" "$SPEC_BED_TYPE" "$SPEC_NOTES")" \
+  $'Saved vehicle settings\n201' 'fixture 58 complete specification'
+report="$(rover_report "FROM vehicles V JOIN vehicle-vins I ON V.vehicle-id = I.vehicle-id WHERE V.label = '$VEHICLE' SELECT I.vin; FROM vehicles V JOIN vehicle-license-plates P ON V.vehicle-id = P.vehicle-id WHERE V.label = '$VEHICLE' SELECT P.license-plate; FROM vehicles V JOIN vehicle-make-model M ON V.vehicle-id = M.vehicle-id WHERE V.label = '$VEHICLE' SELECT M.field, M.value; FROM vehicles V JOIN vehicle-model-years R ON V.vehicle-id = R.vehicle-id WHERE V.label = '$VEHICLE' SELECT R.year; FROM vehicles V JOIN vehicle-drivetrains D ON V.vehicle-id = D.vehicle-id WHERE V.label = '$VEHICLE' SELECT D.field, D.value; FROM vehicles V JOIN vehicle-appearances A ON V.vehicle-id = A.vehicle-id WHERE V.label = '$VEHICLE' SELECT A.field, A.value; FROM vehicles V JOIN vehicle-notes Z ON V.vehicle-id = Z.vehicle-id WHERE V.label = '$VEHICLE' SELECT Z.note;")"
+for value in "$SYNTHETIC_VIN" "$SYNTHETIC_PLATE" "$SPEC_MAKE" "$SPEC_MODEL" \
+  "$SPEC_SUB_MODEL" "$SPEC_COLOR" "$SPEC_BODY_TYPE" "$SPEC_ENGINE" \
+  "$SPEC_TRANSMISSION" "$SPEC_DRIVE_TYPE" "$SPEC_BED_TYPE" "$SPEC_NOTES"; do
+  grep -qF "'$value'" <<<"$report" \
+    || fail "fixture 58 readback omits $value: $report"
+done
+grep -q '%year 25717 1981' <<<"$report" \
+  || fail "fixture 58 year did not read back as the number 1981: $report"
+[ "$(grep -o '%field %tas' <<<"$report" | wc -l)" = 9 ] \
+  || fail "fixture 58 expected nine independently keyed descriptive rows: $report"
+view="$(eyre_view)"
+card="$(vehicle_settings_card "$VEHICLE" <<<"$view")"
+for value in "$SPEC_MAKE" "$SPEC_MODEL" "$SPEC_SUB_MODEL" "$SPEC_COLOR" \
+  "$SPEC_BODY_TYPE" "$SPEC_ENGINE" "$SPEC_TRANSMISSION" "$SPEC_DRIVE_TYPE" \
+  "$SPEC_BED_TYPE" "$SPEC_NOTES" "$SYNTHETIC_VIN" "$SYNTHETIC_PLATE"; do
+  grep -qF "$value" <<<"$card" \
+    || fail "fixture 58 the owner description omits $value"
+done
+grep -q 'data-vehicle-description' <<<"$card" \
+  || fail "fixture 58 the owner view did not render a vehicle description"
+note "fixture 58 PASS - all thirteen vehicle identity, specification, and note values save and read back through Eyre"
+
+# ---------------------------------------------------------------------------
+# fixture 59 - every field is independently optional. This vehicle names only
+# make and model; every other concern stays rowless, and no empty text or zero
+# is written as a substitute.
+# ---------------------------------------------------------------------------
+eyre_post add-vehicle \
+  "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$SPEC_PARTIAL_VEHICLE")" \
+  "$(printf 'Added vehicle - %s\n201' "$SPEC_PARTIAL_VEHICLE")" 'fixture 59 partial specification vehicle'
+eyre_post edit-vehicle \
+  "$(printf '{"vehicle":"%s","label":"%s","vin":"","make":"Partial Make %s","model":"Partial Model %s","subModel":"","year":"","licensePlate":"","color":"","bodyType":"","engine":"","transmission":"","driveType":"","bedType":"","notes":""}' "$SPEC_PARTIAL_VEHICLE" "$SPEC_PARTIAL_VEHICLE" "$STAMP" "$STAMP")" \
+  $'Saved vehicle settings\n201' 'fixture 59 partial specification'
+report="$(rover_report "FROM vehicles V JOIN vehicle-make-model M ON V.vehicle-id = M.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT M.field, M.value; FROM vehicles V JOIN vehicle-vins I ON V.vehicle-id = I.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT I.vin; FROM vehicles V JOIN vehicle-license-plates P ON V.vehicle-id = P.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT P.license-plate; FROM vehicles V JOIN vehicle-model-years R ON V.vehicle-id = R.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT R.year; FROM vehicles V JOIN vehicle-drivetrains D ON V.vehicle-id = D.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT D.field, D.value; FROM vehicles V JOIN vehicle-appearances A ON V.vehicle-id = A.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT A.field, A.value; FROM vehicles V JOIN vehicle-notes Z ON V.vehicle-id = Z.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT Z.note;")"
+[ "$(grep -o '%field %tas' <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 59 make and model did not produce exactly two rows: $report"
+for marker in %vin %license-plate %year %note; do
+  grep -q "$marker" <<<"$report" \
+    && fail "fixture 59 unset field $marker produced a row: $report"
+done
+grep -q "%value 116 ''" <<<"$report" \
+  && fail "fixture 59 an empty string was stored: $report"
+note "fixture 59 PASS - make and model can exist alone, with no row, empty string, or zero for every unset field"
+
+# ---------------------------------------------------------------------------
+# fixture 60 - zero is not an absent year. The endpoint rejects it, and no year
+# row appears for the partial vehicle.
+# ---------------------------------------------------------------------------
+eyre_post edit-vehicle \
+  "$(printf '{"vehicle":"%s","label":"%s","year":"0"}' "$SPEC_PARTIAL_VEHICLE" "$SPEC_PARTIAL_VEHICLE")" \
+  $'%bad-shape: vehicle.year\n400' 'fixture 60 zero year'
+report="$(rover_report "FROM vehicles V JOIN vehicle-model-years R ON V.vehicle-id = R.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT R.year;")"
+grep -q '%year' <<<"$report" \
+  && fail "fixture 60 rejected zero but still wrote a year row: $report"
+note "fixture 60 PASS - a missing year is an absent row, and zero is rejected rather than stored"
 
 places_before="$(count_rows "$(rover_report 'FROM places P SELECT P.place-id;')" '%place-id')"
 stations_before="$(count_rows "$(rover_report 'FROM stations S SELECT S.station-id;')" '%station-id')"
@@ -424,6 +586,29 @@ report="$(scoped_rows vehicle-event-notes X note "$SERVICE_DA")"
 grep -qF "$SERVICE_NOTE" <<<"$report" \
   || fail "fixture 10 the event note is absent: $report"
 note "fixture 10 PASS - tag, payment method, and note rows key to vehicle-events"
+
+# ---------------------------------------------------------------------------
+# fixture 61 - correcting mistyped evidence updates the VIN row in place. The
+# vehicle, its fill, its service event, and both linked odometer observations
+# keep exactly the same IDs.
+# ---------------------------------------------------------------------------
+link_report() {
+  rover_report "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-odometers L ON A.acquisition-id = L.acquisition-id WHERE V.label = '$VEHICLE' SELECT V.vehicle-id, A.acquisition-id, L.odometer-id; FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-odometers L ON E.event-id = L.event-id WHERE V.label = '$VEHICLE' SELECT V.vehicle-id, E.event-id, L.odometer-id;"
+}
+links_before="$(link_report | grep -oE '%(vehicle-id|acquisition-id|event-id|odometer-id) [0-9]+ 0x[0-9a-f.]+' | sort)"
+[ -n "$links_before" ] || fail "fixture 61 could not read links before correcting the VIN"
+eyre_post edit-vehicle \
+  "$(printf '{"vehicle":"%s","label":"%s","vin":"%s","make":"%s","model":"%s","subModel":"%s","year":"1981","licensePlate":"%s","color":"%s","bodyType":"%s","engine":"%s","transmission":"%s","driveType":"%s","bedType":"%s","notes":"%s"}' "$VEHICLE" "$VEHICLE" "$CORRECTED_SYNTHETIC_VIN" "$SPEC_MAKE" "$SPEC_MODEL" "$SPEC_SUB_MODEL" "$SYNTHETIC_PLATE" "$SPEC_COLOR" "$SPEC_BODY_TYPE" "$SPEC_ENGINE" "$SPEC_TRANSMISSION" "$SPEC_DRIVE_TYPE" "$SPEC_BED_TYPE" "$SPEC_NOTES")" \
+  $'Saved vehicle settings\n201' 'fixture 61 corrected VIN'
+links_after="$(link_report | grep -oE '%(vehicle-id|acquisition-id|event-id|odometer-id) [0-9]+ 0x[0-9a-f.]+' | sort)"
+[ "$links_after" = "$links_before" ] \
+  || fail "fixture 61 correcting the VIN changed a vehicle, event, fill, or odometer link"
+report="$(rover_report "FROM vehicles V JOIN vehicle-vins I ON V.vehicle-id = I.vehicle-id WHERE V.label = '$VEHICLE' SELECT V.vehicle-id, I.vin;")"
+grep -qF "%vin 116 '$CORRECTED_SYNTHETIC_VIN'" <<<"$report" \
+  || fail "fixture 61 the corrected VIN did not replace the mistyped value: $report"
+grep -qF "$SYNTHETIC_VIN" <<<"$report" \
+  && fail "fixture 61 the mistyped VIN remained after correction: $report"
+note "fixture 61 PASS - correcting a VIN updates evidence in place and leaves every vehicle, fill, event, and odometer link unchanged"
 
 # ---------------------------------------------------------------------------
 # fixture 11 - the kind is which typed child exists, and exactly one exists
@@ -1596,6 +1781,31 @@ grep -q '%cost-state' <<<"$report" \
 note "fixture 12 PASS - every event, total, odometer link, station link, and reading survived a ship restart"
 
 # ---------------------------------------------------------------------------
+# fixture 62 - all T7 rows and their human rendering survive the same real
+# ship restart, while the deliberately partial vehicle remains partial.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM vehicles V JOIN vehicle-vins I ON V.vehicle-id = I.vehicle-id WHERE V.label = '$VEHICLE' SELECT I.vin; FROM vehicles V JOIN vehicle-license-plates P ON V.vehicle-id = P.vehicle-id WHERE V.label = '$VEHICLE' SELECT P.license-plate; FROM vehicles V JOIN vehicle-make-model M ON V.vehicle-id = M.vehicle-id WHERE V.label = '$VEHICLE' SELECT M.field, M.value; FROM vehicles V JOIN vehicle-model-years R ON V.vehicle-id = R.vehicle-id WHERE V.label = '$VEHICLE' SELECT R.year; FROM vehicles V JOIN vehicle-drivetrains D ON V.vehicle-id = D.vehicle-id WHERE V.label = '$VEHICLE' SELECT D.field, D.value; FROM vehicles V JOIN vehicle-appearances A ON V.vehicle-id = A.vehicle-id WHERE V.label = '$VEHICLE' SELECT A.field, A.value; FROM vehicles V JOIN vehicle-notes Z ON V.vehicle-id = Z.vehicle-id WHERE V.label = '$VEHICLE' SELECT Z.note;")"
+for value in "$CORRECTED_SYNTHETIC_VIN" "$SYNTHETIC_PLATE" "$SPEC_MAKE" \
+  "$SPEC_MODEL" "$SPEC_SUB_MODEL" "$SPEC_COLOR" "$SPEC_BODY_TYPE" \
+  "$SPEC_ENGINE" "$SPEC_TRANSMISSION" "$SPEC_DRIVE_TYPE" "$SPEC_BED_TYPE" \
+  "$SPEC_NOTES"; do
+  grep -qF "'$value'" <<<"$report" \
+    || fail "fixture 62 the restart lost $value: $report"
+done
+grep -q '%year 25717 1981' <<<"$report" \
+  || fail "fixture 62 the numeric year did not survive the restart: $report"
+view="$(eyre_view)"
+card="$(vehicle_settings_card "$VEHICLE" <<<"$view")"
+grep -qF "$CORRECTED_SYNTHETIC_VIN" <<<"$card" \
+  || fail "fixture 62 the corrected VIN is absent from the restarted owner view"
+grep -qF "$SPEC_NOTES" <<<"$card" \
+  || fail "fixture 62 vehicle notes are absent from the restarted owner view"
+report="$(rover_report "FROM vehicles V JOIN vehicle-make-model M ON V.vehicle-id = M.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT M.field, M.value; FROM vehicles V JOIN vehicle-drivetrains D ON V.vehicle-id = D.vehicle-id WHERE V.label = '$SPEC_PARTIAL_VEHICLE' SELECT D.field, D.value;")"
+[ "$(grep -o '%field %tas' <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 62 the partial vehicle changed shape over the restart: $report"
+note "fixture 62 PASS - every specification row, corrected VIN, optional absence, and rendered description survived a ship restart"
+
+# ---------------------------------------------------------------------------
 # fixture 21 - the subtype catalog and every subtype link survive the restart
 # ---------------------------------------------------------------------------
 report="$(subtype_labels)"
@@ -1900,5 +2110,45 @@ report="$(rem_rows service-reminder-time T interval-count "$REM_VEHICLE" 'Wheel 
 grep -q '%interval-count' <<<"$report" \
   && fail "fixture 54 the blank time interval was stored as a row: $report"
 note "fixture 54 PASS - a person records a reminder in the browser and sees the derived countdown come back on the hub"
+
+# ---------------------------------------------------------------------------
+# fixture 63 - a person reaches all thirteen T7 controls, saves them from the
+# vehicle settings form, and sees the description reload in the real browser.
+# ---------------------------------------------------------------------------
+specification_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/vehicle-specification-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$VEHICLE" \
+      "$CORRECTED_SYNTHETIC_VIN" "$SYNTHETIC_PLATE" "$SPEC_MAKE" \
+      "$SPEC_MODEL" "$SPEC_SUB_MODEL" '1981' "$SPEC_COLOR" \
+      "$SPEC_BODY_TYPE" "$SPEC_ENGINE" "$SPEC_TRANSMISSION" \
+      "$SPEC_DRIVE_TYPE" "$SPEC_BED_TYPE" "$SPEC_NOTES"
+} 2>&1)" || fail "fixture 63 the browser could not save the vehicle specification: $specification_out"
+grep -q 'SPECIFICATION_VERDICT=Saved vehicle settings' <<<"$specification_out" \
+  || fail "fixture 63 the form verdict is wrong: $specification_out"
+grep -q 'SPECIFICATION_FIELDS=13' <<<"$specification_out" \
+  || fail "fixture 63 the browser did not reach all thirteen controls: $specification_out"
+grep -qF "$CORRECTED_SYNTHETIC_VIN" <<<"$specification_out" \
+  || fail "fixture 63 the reloaded description omits the VIN: $specification_out"
+grep -qF "$SPEC_NOTES" <<<"$specification_out" \
+  || fail "fixture 63 the reloaded description omits the notes: $specification_out"
+note "fixture 63 PASS - all thirteen fields save from the browser and return in the human vehicle description"
+
+# ---------------------------------------------------------------------------
+# fixture 64 - the insurance fence and privacy fixture remain closed. The
+# schema and form carry no insurance stub, and every identity value this
+# battery supplies is visibly synthetic.
+# ---------------------------------------------------------------------------
+report="$(rover_report 'FROM sys.tables WHERE name = %vehicle-insurance-reference SELECT name; FROM sys.columns WHERE col-name = %insurance-policy SELECT name, col-name;')"
+grep -qE '%name|%col-name' <<<"$report" \
+  && fail "fixture 64 an insurance field or relation entered the schema: $report"
+git grep -qE 'vehicle-insurance-reference|name="insurancePolicy"|name="insurance-policy"' -- desk docs \
+  && fail "fixture 64 an insurance field or relation entered the tracked product tree"
+case "$SYNTHETIC_VIN:$CORRECTED_SYNTHETIC_VIN:$SYNTHETIC_PLATE" in
+  SYNTHETICVIN00000:SYNTHETICVIN11111:TEST-PLATE-*) ;;
+  *) fail "fixture 64 an identity fixture is not visibly synthetic" ;;
+esac
+note "fixture 64 PASS - no insurance stub exists, and every VIN and plate fixture is visibly synthetic"
 
 . "$(dirname "$0")/event-coverage-gate.sh"

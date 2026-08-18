@@ -1,4 +1,4 @@
--- Rover schema — full pour, 81 relations.
+-- Rover schema — full pour, 94 relations.
 -- Adopted 2026-07-29 (Gate 6 + schema Q1-11 + app-structure Q1-7 + import/consumables).
 -- Amended 2026-07-30: +energy-subtype-cetane (import Q1), +acquisition-imports (Q5),
 --                     +place-address-formatted / place-addresses loses formatted (Q9),
@@ -6,9 +6,14 @@
 -- Amended 2026-08-16 (M7 T1): +the eleven-relation vehicle-event family.
 -- Amended 2026-08-17 (M7 T2): +service-subtype-definitions,
 --                     +vehicle-event-service-subtypes.
+-- Amended 2026-08-17 (M7 T4): +disposal-kind-definitions,
+--                     +vehicle-acquisitions, +vehicle-disposals.
+-- Amended 2026-08-17 (M7 T6): +the three-relation reminder family.
+-- Amended 2026-08-18 (M7 T7): +seven vehicle identity and specification
+--                     child relations.
 -- Source of truth: ~/brain/projects/rover/schema-m0.md
 --
--- SYNTAX NOTES (verified against pinned Obelisk master @ eecab1b, zuse 408):
+-- SYNTAX NOTES (verified against pinned Obelisk master @ 9de6332, zuse 408):
 --   * Multi-FK continuation: FOREIGN KEY (a) REFERENCES t (a) ON ..., (b) REFERENCES u (b) ON ...
 --     Do NOT repeat the FOREIGN KEY keyword after the comma — the parser rejects it.
 --   * Every FK carries explicit ON DELETE RESTRICT ON UPDATE RESTRICT.
@@ -793,4 +798,102 @@ CREATE TABLE rover..vehicle-event-service-subtypes
   FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ===========================================================================
+-- M7 T4 - vehicle acquisition and disposal
+-- ===========================================================================
+CREATE TABLE rover..disposal-kind-definitions
+  (disposal-kind-id @ux, label @t, archived @f, recorded-at @da)
+  PRIMARY KEY (disposal-kind-id);
+
+CREATE TABLE rover..vehicle-acquisitions
+  (event-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-disposals
+  (event-id @ux, disposal-kind-id @ux)
+  PRIMARY KEY (event-id)
+  FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (disposal-kind-id) REFERENCES disposal-kind-definitions (disposal-kind-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ===========================================================================
+-- M7 T6 - service reminders
+-- ===========================================================================
+CREATE TABLE rover..service-reminders
+  (reminder-id @ux, vehicle-id @ux, service-subtype-id @ux, archived @f,
+   recorded-at @da)
+  PRIMARY KEY (reminder-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT,
+  (service-subtype-id) REFERENCES service-subtype-definitions (service-subtype-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..service-reminder-time
+  (reminder-id @ux, interval-count @ud, interval-unit @tas, due-at @da)
+  PRIMARY KEY (reminder-id)
+  FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..service-reminder-distance
+  (reminder-id @ux, interval-digits @ud, interval-decimals @ud,
+   due-digits @ud, due-decimals @ud, distance-unit @tas)
+  PRIMARY KEY (reminder-id)
+  FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- ===========================================================================
+-- M7 T7 - vehicle identity and specification
+-- ===========================================================================
+-- VIN and plate are separate evidence rows. Neither is vehicle identity, and
+-- neither shares a row with the other or with descriptive data. This relation
+-- boundary lets a future grant reveal one identifier without revealing the
+-- other.
+CREATE TABLE rover..vehicle-vins
+  (vehicle-id @ux, vin @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-license-plates
+  (vehicle-id @ux, license-plate @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- A concern relation carries one row per known field. The field term is part
+-- of the key, so a known make never requires a bunted or empty sub-model.
+CREATE TABLE rover..vehicle-make-model
+  (vehicle-id @ux, field @tas, value @t)
+  PRIMARY KEY (vehicle-id, field)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- Year stays numeric. It is a number a person reads, not a date.
+CREATE TABLE rover..vehicle-model-years
+  (vehicle-id @ux, year @ud)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-drivetrains
+  (vehicle-id @ux, field @tas, value @t)
+  PRIMARY KEY (vehicle-id, field)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-appearances
+  (vehicle-id @ux, field @tas, value @t)
+  PRIMARY KEY (vehicle-id, field)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE TABLE rover..vehicle-notes
+  (vehicle-id @ux, note @t)
+  PRIMARY KEY (vehicle-id)
+  FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;

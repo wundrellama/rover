@@ -340,6 +340,34 @@
       driving-mode-labels=(unit (list @t))
       def-enabled=(unit ?)
       def-tank-size=(unit scaled-entry)
+      vin=(unit @t)
+      make=(unit @t)
+      model=(unit @t)
+      sub-model=(unit @t)
+      year=(unit @ud)
+      license-plate=(unit @t)
+      color=(unit @t)
+      body-type=(unit @t)
+      engine=(unit @t)
+      transmission=(unit @t)
+      drive-type=(unit @t)
+      bed-type=(unit @t)
+      notes=(unit @t)
+  ==
++$  vehicle-specification-state
+  $:  vin=?
+      make=?
+      model=?
+      sub-model=?
+      year=?
+      license-plate=?
+      color=?
+      body-type=?
+      engine=?
+      transmission=?
+      drive-type=?
+      bed-type=?
+      notes=?
   ==
 +$  custom-definition-entry
   [label=@t content-type=@tas mandatory=?]

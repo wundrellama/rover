@@ -2937,6 +2937,13 @@
           consumable-tank-sizes=(list vector:ast)
           tank-sizes=(list vector:ast)
           refill-reserves=(list vector:ast)
+          vins=(list vector:ast)
+          license-plates=(list vector:ast)
+          make-model=(list vector:ast)
+          model-years=(list vector:ast)
+          drivetrains=(list vector:ast)
+          appearances=(list vector:ast)
+          vehicle-notes=(list vector:ast)
           events=event-rows
           is-default=?
           history-page=@ud
@@ -2958,6 +2965,31 @@
   =/  vehicle-definitions  (rows-for id definition-rows)
   =/  tank  (rows-for id tank-sizes)
   =/  refill-reserve  (rows-for id refill-reserves)
+  =/  vin-row  (rows-for id vins)
+  =/  plate-row  (rows-for id license-plates)
+  =/  make-model-rows  (rows-for id make-model)
+  =/  year-row  (rows-for id model-years)
+  =/  drivetrain-rows  (rows-for id drivetrains)
+  =/  appearance-rows  (rows-for id appearances)
+  =/  notes-row  (rows-for id vehicle-notes)
+  =/  make-row  (rows-by %field %make make-model-rows)
+  =/  model-row  (rows-by %field %model make-model-rows)
+  =/  sub-model-row  (rows-by %field %sub-model make-model-rows)
+  =/  engine-row  (rows-by %field %engine drivetrain-rows)
+  =/  transmission-row  (rows-by %field %transmission drivetrain-rows)
+  =/  drive-type-row  (rows-by %field %drive-type drivetrain-rows)
+  =/  color-row  (rows-by %field %color appearance-rows)
+  =/  body-type-row  (rows-by %field %body-type appearance-rows)
+  =/  bed-type-row  (rows-by %field %bed-type appearance-rows)
+  =/  has-description
+    ?|  ?=(^ vin-row)
+        ?=(^ plate-row)
+        ?=(^ make-model-rows)
+        ?=(^ year-row)
+        ?=(^ drivetrain-rows)
+        ?=(^ appearance-rows)
+        ?=(^ notes-row)
+    ==
   =/  tank-value=tape
     ?~  tank
       ~
@@ -3007,6 +3039,125 @@
     ?~  def-tank
       %gal
     (cell-term %unit u.def-tank)
+  =/  vin-value=tape
+    ?~  vin-row  ~  (escape (cell-text %vin i.vin-row))
+  =/  plate-value=tape
+    ?~  plate-row  ~  (escape (cell-text %license-plate i.plate-row))
+  =/  make-value=tape
+    ?~  make-row  ~  (escape (cell-text %value i.make-row))
+  =/  model-value=tape
+    ?~  model-row  ~  (escape (cell-text %value i.model-row))
+  =/  sub-model-value=tape
+    ?~  sub-model-row  ~  (escape (cell-text %value i.sub-model-row))
+  =/  year-value=tape
+    ?~  year-row
+      ~
+    (trip (format-scaled:render (cell-atom %year i.year-row) 0 %.n))
+  =/  engine-value=tape
+    ?~  engine-row  ~  (escape (cell-text %value i.engine-row))
+  =/  transmission-value=tape
+    ?~  transmission-row  ~  (escape (cell-text %value i.transmission-row))
+  =/  drive-type-value=tape
+    ?~  drive-type-row  ~  (escape (cell-text %value i.drive-type-row))
+  =/  color-value=tape
+    ?~  color-row  ~  (escape (cell-text %value i.color-row))
+  =/  body-type-value=tape
+    ?~  body-type-row  ~  (escape (cell-text %value i.body-type-row))
+  =/  bed-type-value=tape
+    ?~  bed-type-row  ~  (escape (cell-text %value i.bed-type-row))
+  =/  notes-value=tape
+    ?~  notes-row  ~  (escape (cell-text %note i.notes-row))
+  =/  has-model-description
+    ?|  ?=(^ year-row)
+        ?=(^ make-row)
+        ?=(^ model-row)
+        ?=(^ sub-model-row)
+    ==
+  =/  has-appearance-description
+    ?|  ?=(^ color-row)
+        ?=(^ body-type-row)
+        ?=(^ bed-type-row)
+    ==
+  =/  has-drivetrain-description
+    ?|  ?=(^ engine-row)
+        ?=(^ transmission-row)
+        ?=(^ drive-type-row)
+    ==
+  =/  description=tape
+    ?.  has-description
+      ~
+    ;:  weld
+      "<section class=\"vehicle-description\" data-vehicle-description><h3>About this vehicle</h3>"
+      ?:  has-model-description
+        ;:  weld
+          "<p class=\"vehicle-description-model\" data-specification-model>"
+          ?~(year-row ~ (weld year-value " "))
+          ?~(make-row ~ (weld make-value " "))
+          ?~(model-row ~ (weld model-value " "))
+          sub-model-value
+          "</p>"
+        ==
+      ~
+      ?:  has-appearance-description
+        ;:  weld
+          "<p data-specification-appearance><strong>Exterior.</strong> "
+          ?~(color-row ~ color-value)
+          ?~(body-type-row ~ (weld ?~(color-row ~ ", ") (weld body-type-value " body")))
+          ?~  bed-type-row
+            ~
+          ;:  weld
+            ?:  ?|  ?=(^ color-row)
+                    ?=(^ body-type-row)
+                ==
+              ", "
+            ~
+            bed-type-value
+            " bed"
+          ==
+          ".</p>"
+        ==
+      ~
+      ?:  has-drivetrain-description
+        ;:  weld
+          "<p data-specification-drivetrain><strong>Drivetrain.</strong> "
+          engine-value
+          ?~(transmission-row ~ (weld ?~(engine-row ~ ", ") transmission-value))
+          ?~  drive-type-row
+            ~
+          ;:  weld
+            ?:  ?|  ?=(^ engine-row)
+                    ?=(^ transmission-row)
+                ==
+              ", "
+            ~
+            drive-type-value
+          ==
+          ".</p>"
+        ==
+      ~
+      ?~  vin-row
+        ~
+      ;:  weld
+        "<p data-vehicle-vin><strong>VIN.</strong> "
+        vin-value
+        "</p>"
+      ==
+      ?~  plate-row
+        ~
+      ;:  weld
+        "<p data-vehicle-license-plate><strong>Licence plate.</strong> "
+        plate-value
+        "</p>"
+      ==
+      ?~  notes-row
+        ~
+      ;:  weld
+        "<p data-vehicle-notes><strong>Notes.</strong> "
+        notes-value
+        "</p>"
+      ==
+      "</section>"
+    ==
   =/  tank-text=tape
     ?~  tank
       "Unavailable - no tank size recorded"
@@ -3062,7 +3213,9 @@
     ~
     "<button type=\"button\" data-vehicle-action=\"odometer\" data-vehicle=\""
     (escape (cell-text %label row))
-    "\">Add Odometer</button></div><form class=\"vehicle-settings-form\"><input type=\"hidden\" name=\"vehicle\" value=\""
+    "\">Add Odometer</button></div>"
+    description
+    "<form class=\"vehicle-settings-form\"><input type=\"hidden\" name=\"vehicle\" value=\""
     (escape label)
     "\"><label class=\"settings-identity-row\">Vehicle name<input name=\"label\" value=\""
     (escape label)
@@ -3098,6 +3251,33 @@
         ">litre</option></select></span></label></fieldset>"
       ==
     ~
+    "<fieldset class=\"vehicle-settings-group\" data-settings-group=\"identity-specification\"><legend>Identity and Specification</legend><label>VIN<input name=\"vin\" autocomplete=\"off\" value=\""
+    vin-value
+    "\"></label><label>Licence plate<input name=\"licensePlate\" autocomplete=\"off\" value=\""
+    plate-value
+    "\"></label><label>Make<input name=\"make\" value=\""
+    make-value
+    "\"></label><label>Model<input name=\"model\" value=\""
+    model-value
+    "\"></label><label>Sub-model<input name=\"subModel\" value=\""
+    sub-model-value
+    "\"></label><label>Year<input name=\"year\" inputmode=\"numeric\" min=\"1\" step=\"1\" value=\""
+    year-value
+    "\"></label><label>Colour<input name=\"color\" value=\""
+    color-value
+    "\"></label><label>Body type<input name=\"bodyType\" value=\""
+    body-type-value
+    "\"></label><label>Engine<input name=\"engine\" value=\""
+    engine-value
+    "\"></label><label>Transmission<input name=\"transmission\" value=\""
+    transmission-value
+    "\"></label><label>Drive type<input name=\"driveType\" value=\""
+    drive-type-value
+    "\"></label><label>Bed type<input name=\"bedType\" value=\""
+    bed-type-value
+    "\"></label><label>Vehicle notes<textarea name=\"notes\">"
+    notes-value
+    "</textarea></label></fieldset>"
     "<button type=\"submit\">Save Vehicle Settings</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form>"
     preference-control
     "<button type=\"button\" class=\"archive-vehicle-control\" data-remove-vehicle data-vehicle=\""
@@ -3813,6 +3993,15 @@
         (rows-at commands 59)
         (rows-at commands 60)
     ==
+  ::  M7 T7 starts after the 61 result sets every earlier page expects. The
+  ::  append-only position keeps all settled indexes unchanged.
+  =/  vins  (rows-at commands 61)
+  =/  license-plates  (rows-at commands 62)
+  =/  make-model  (rows-at commands 63)
+  =/  model-years  (rows-at commands 64)
+  =/  drivetrains  (rows-at commands 65)
+  =/  appearances  (rows-at commands 66)
+  =/  vehicle-notes  (rows-at commands 67)
   =/  custom-definitions  (rows-at commands 18)
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
@@ -3882,6 +4071,13 @@
           consumable-tank-sizes
           tank-sizes
           refill-reserves
+          vins
+          license-plates
+          make-model
+          model-years
+          drivetrains
+          appearances
+          vehicle-notes
           events
           ?~(default-id %.n =((cell-atom %vehicle-id i.vehicles) u.default-id))
           history-page

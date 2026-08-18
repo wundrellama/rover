@@ -2159,9 +2159,27 @@
           ==
         :_  this
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: vehicle.consumable.DEF'))
+      =/  model-rows  (rows-at:view p.res 12)
+      =/  drivetrain-rows  (rows-at:view p.res 14)
+      =/  appearance-rows  (rows-at:view p.res 15)
+      =/  specification=vehicle-specification-state:rover
+        :*  ?=(^ (rows-at:view p.res 10))
+            (has-term:view %field %make model-rows)
+            (has-term:view %field %model model-rows)
+            (has-term:view %field %sub-model model-rows)
+            ?=(^ (rows-at:view p.res 13))
+            ?=(^ (rows-at:view p.res 11))
+            (has-term:view %field %color appearance-rows)
+            (has-term:view %field %body-type appearance-rows)
+            (has-term:view %field %engine drivetrain-rows)
+            (has-term:view %field %transmission drivetrain-rows)
+            (has-term:view %field %drive-type drivetrain-rows)
+            (has-term:view %field %bed-type appearance-rows)
+            ?=(^ (rows-at:view p.res 16))
+        ==
       =/  write-wire=path  /rover-edit-vehicle-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
-        !>([%script %rover %vector (update-vehicle-settings:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) p.decoded subtype-id current-energy-ids resolved-energy-ids default-energy-id current-mode-ids resolved-mode-ids current-def def-consumable-id now.bowl)])
+        !>([%script %rover %vector (update-vehicle-settings:act `@ux`(cell-atom:view %vehicle-id (snag 0 vehicles)) p.decoded subtype-id current-energy-ids resolved-energy-ids default-energy-id current-mode-ids resolved-mode-ids current-def def-consumable-id specification now.bowl)])
       =/  new-state
         %_  state
           pending  (~(put by (~(del by pending) wire)) write-wire u.body)

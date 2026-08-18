@@ -1786,7 +1786,60 @@
           ?=(~ def-tank-size)
       ==
     [%| %bad-shape 'vehicle.def-tank-size']
-  [%& u.vehicle u.label tank-size refill-reserve default-subtype default-energy energy-labels mode-labels def-enabled def-tank-size]
+  =/  vin  (optional-text 'vin' u.object)
+  =/  make  (optional-text 'make' u.object)
+  =/  model  (optional-text 'model' u.object)
+  =/  sub-model  (optional-text 'subModel' u.object)
+  =/  year-text  (json-string 'year' u.object)
+  =/  year=(unit @ud)
+    ?~  year-text
+      ~
+    ?.  (nonempty u.year-text)
+      ~
+    =/  parsed  (parse-decimal:render u.year-text 0)
+    ?:  ?=(%| -.parsed)
+      ~
+    `digits.p.parsed
+  ?:  ?&  ?=(^ year-text)
+          (nonempty u.year-text)
+          ?|  ?=(~ year)
+              =(0 u.year)
+          ==
+      ==
+    [%| %bad-shape 'vehicle.year']
+  =/  license-plate  (optional-text 'licensePlate' u.object)
+  =/  color  (optional-text 'color' u.object)
+  =/  body-type  (optional-text 'bodyType' u.object)
+  =/  engine  (optional-text 'engine' u.object)
+  =/  transmission  (optional-text 'transmission' u.object)
+  =/  drive-type  (optional-text 'driveType' u.object)
+  =/  bed-type  (optional-text 'bedType' u.object)
+  =/  notes  (optional-text 'notes' u.object)
+  :_  :*  u.vehicle
+          u.label
+          tank-size
+          refill-reserve
+          default-subtype
+          default-energy
+          energy-labels
+          mode-labels
+          def-enabled
+          def-tank-size
+          vin
+          make
+          model
+          sub-model
+          year
+          license-plate
+          color
+          body-type
+          engine
+          transmission
+          drive-type
+          bed-type
+          notes
+      ==
+  %.y
 ::
 ++  decode-custom-definition
   |=  body=@t

@@ -1174,6 +1174,26 @@
       ::  odometer, so two unit columns would only make a state that is wrong.
       :-  %service-reminder-distance
       "CREATE TABLE rover..service-reminder-distance (reminder-id @ux, interval-digits @ud, interval-decimals @ud, due-digits @ud, due-decimals @ud, distance-unit @tas) PRIMARY KEY (reminder-id) FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M7 T7. VIN and plate each have a relation of their own. A future
+      ::  grant can therefore reveal either row without revealing the other
+      ::  identifier or any descriptive specification.
+      :-  %vehicle-vins
+      "CREATE TABLE rover..vehicle-vins (vehicle-id @ux, vin @t) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-license-plates
+      "CREATE TABLE rover..vehicle-license-plates (vehicle-id @ux, license-plate @t) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  Descriptive values use one row per optional field. The field term is
+      ::  part of the key, so an unknown value is an absent row and never an
+      ::  empty column beside a known sibling value.
+      :-  %vehicle-make-model
+      "CREATE TABLE rover..vehicle-make-model (vehicle-id @ux, field @tas, value @t) PRIMARY KEY (vehicle-id, field) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-model-years
+      "CREATE TABLE rover..vehicle-model-years (vehicle-id @ux, year @ud) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-drivetrains
+      "CREATE TABLE rover..vehicle-drivetrains (vehicle-id @ux, field @tas, value @t) PRIMARY KEY (vehicle-id, field) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-appearances
+      "CREATE TABLE rover..vehicle-appearances (vehicle-id @ux, field @tas, value @t) PRIMARY KEY (vehicle-id, field) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-notes
+      "CREATE TABLE rover..vehicle-notes (vehicle-id @ux, note @t) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
 ::
 ++  relation-pour
@@ -1314,6 +1334,16 @@
     ::  history card; a reminder needs the id, because the id is what its own
     ::  row holds.
     " FROM vehicle-event-service-subtypes L SELECT L.event-id, L.service-subtype-id;"
+    ::  M7 T7. Optional specification rows stay separate and are assembled in
+    ::  Gall. Keeping VIN and plate in different result sets mirrors their
+    ::  independently gateable relation boundary.
+    " FROM vehicle-vins I SELECT I.vehicle-id, I.vin;"
+    " FROM vehicle-license-plates P SELECT P.vehicle-id, P.license-plate;"
+    " FROM vehicle-make-model M SELECT M.vehicle-id, M.field, M.value;"
+    " FROM vehicle-model-years R SELECT R.vehicle-id, R.year;"
+    " FROM vehicle-drivetrains D SELECT D.vehicle-id, D.field, D.value;"
+    " FROM vehicle-appearances A SELECT A.vehicle-id, A.field, A.value;"
+    " FROM vehicle-notes Z SELECT Z.vehicle-id, Z.note;"
   ==
 ::
 ++  sql-quote
@@ -1666,7 +1696,21 @@
   ^-  tape
   =/  id  (scow %ux vehicle-id)
   ;:  weld
-    "DELETE FROM vehicle-display-preferences WHERE vehicle-id = "
+    "DELETE FROM vehicle-vins WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-license-plates WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-make-model WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-model-years WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-drivetrains WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-appearances WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-notes WHERE vehicle-id = "
+    id
+    "; DELETE FROM vehicle-display-preferences WHERE vehicle-id = "
     id
     "; DELETE FROM vehicle-refill-reserve WHERE vehicle-id = "
     id
@@ -1759,7 +1803,28 @@
     "' AND C.label = 'DEF' SELECT C.consumable-id, T.digits, T.decimals, T.unit; "
     "FROM vehicles V JOIN vehicle-default-energy-definitions D ON V.vehicle-id = D.vehicle-id WHERE V.label = '"
     (sql-quote vehicle-label)
-    "' SELECT D.energy-definition-id;"
+    "' SELECT D.energy-definition-id; "
+    "FROM vehicles V JOIN vehicle-vins I ON V.vehicle-id = I.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT I.vehicle-id, I.vin; "
+    "FROM vehicles V JOIN vehicle-license-plates P ON V.vehicle-id = P.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT P.vehicle-id, P.license-plate; "
+    "FROM vehicles V JOIN vehicle-make-model M ON V.vehicle-id = M.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT M.vehicle-id, M.field, M.value; "
+    "FROM vehicles V JOIN vehicle-model-years R ON V.vehicle-id = R.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT R.vehicle-id, R.year; "
+    "FROM vehicles V JOIN vehicle-drivetrains D ON V.vehicle-id = D.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT D.vehicle-id, D.field, D.value; "
+    "FROM vehicles V JOIN vehicle-appearances A ON V.vehicle-id = A.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT A.vehicle-id, A.field, A.value; "
+    "FROM vehicles V JOIN vehicle-notes Z ON V.vehicle-id = Z.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' SELECT Z.vehicle-id, Z.note;"
   ==
 ::
 ++  has-id
@@ -1850,6 +1915,121 @@
     rest
   ==
 ::
+++  sync-vehicle-text
+  |=  $:  table=tape
+          column=tape
+          vehicle-id=@ux
+          value=(unit @t)
+          exists=?
+      ==
+  ^-  tape
+  =/  id  (scow %ux vehicle-id)
+  ?~  value
+    ?.  exists
+      ~
+    ;:  weld
+      "DELETE FROM "
+      table
+      " WHERE vehicle-id = "
+      id
+      "; "
+    ==
+  ?:  exists
+    ;:  weld
+      "UPDATE "
+      table
+      " SET "
+      column
+      " = '"
+      (sql-quote u.value)
+      "' WHERE vehicle-id = "
+      id
+      "; "
+    ==
+  ;:  weld
+    "INSERT INTO "
+    table
+    " VALUES ("
+    id
+    ", '"
+    (sql-quote u.value)
+    "'); "
+  ==
+::
+++  sync-vehicle-year
+  |=  [vehicle-id=@ux year=(unit @ud) exists=?]
+  ^-  tape
+  =/  id  (scow %ux vehicle-id)
+  ?~  year
+    ?.  exists
+      ~
+    ;:  weld
+      "DELETE FROM vehicle-model-years WHERE vehicle-id = "
+      id
+      "; "
+    ==
+  ?:  exists
+    ;:  weld
+      "UPDATE vehicle-model-years SET year = "
+      (sql-ud u.year)
+      " WHERE vehicle-id = "
+      id
+      "; "
+    ==
+  ;:  weld
+    "INSERT INTO vehicle-model-years VALUES ("
+    id
+    ", "
+    (sql-ud u.year)
+    "); "
+  ==
+::
+++  sync-vehicle-field
+  |=  $:  table=tape
+          vehicle-id=@ux
+          field=@tas
+          value=(unit @t)
+          exists=?
+      ==
+  ^-  tape
+  =/  id  (scow %ux vehicle-id)
+  =/  field-text  (sql-term field)
+  ?~  value
+    ?.  exists
+      ~
+    ;:  weld
+      "DELETE FROM "
+      table
+      " WHERE vehicle-id = "
+      id
+      " AND field = "
+      field-text
+      "; "
+    ==
+  ?:  exists
+    ;:  weld
+      "UPDATE "
+      table
+      " SET value = '"
+      (sql-quote u.value)
+      "' WHERE vehicle-id = "
+      id
+      " AND field = "
+      field-text
+      "; "
+    ==
+  ;:  weld
+    "INSERT INTO "
+    table
+    " VALUES ("
+    id
+    ", "
+    field-text
+    ", '"
+    (sql-quote u.value)
+    "'); "
+  ==
+::
 ++  update-vehicle-settings
   |=  $:  vehicle-id=@ux
           input=vehicle-edit-entry:rover
@@ -1861,6 +2041,7 @@
           mode-ids=(unit (list @ux))
           current-def=?
           def-consumable-id=(unit @ux)
+          specification=vehicle-specification-state:rover
           now=@da
       ==
   ^-  tape
@@ -1989,6 +2170,22 @@
       (sql-term value-unit.u.def-tank-size.input)
       "); "
     ==
+  =/  specification-script=tape
+    ;:  weld
+      (sync-vehicle-text "vehicle-vins" "vin" vehicle-id vin.input vin.specification)
+      (sync-vehicle-text "vehicle-license-plates" "license-plate" vehicle-id license-plate.input license-plate.specification)
+      (sync-vehicle-field "vehicle-make-model" vehicle-id %make make.input make.specification)
+      (sync-vehicle-field "vehicle-make-model" vehicle-id %model model.input model.specification)
+      (sync-vehicle-field "vehicle-make-model" vehicle-id %sub-model sub-model.input sub-model.specification)
+      (sync-vehicle-year vehicle-id year.input year.specification)
+      (sync-vehicle-field "vehicle-drivetrains" vehicle-id %engine engine.input engine.specification)
+      (sync-vehicle-field "vehicle-drivetrains" vehicle-id %transmission transmission.input transmission.specification)
+      (sync-vehicle-field "vehicle-drivetrains" vehicle-id %drive-type drive-type.input drive-type.specification)
+      (sync-vehicle-field "vehicle-appearances" vehicle-id %color color.input color.specification)
+      (sync-vehicle-field "vehicle-appearances" vehicle-id %body-type body-type.input body-type.specification)
+      (sync-vehicle-field "vehicle-appearances" vehicle-id %bed-type bed-type.input bed-type.specification)
+      (sync-vehicle-text "vehicle-notes" "note" vehicle-id notes.input notes.specification)
+    ==
   ;:  weld
     "UPDATE vehicles SET label = '"
     (sql-quote label.input)
@@ -2011,6 +2208,7 @@
     mode-script
     def-membership
     def-tank-insert
+    specification-script
   ==
 ::
 ++  insert-energy-links
