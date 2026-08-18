@@ -1702,6 +1702,60 @@
         });
       });
 
+      // M7 T8. Rename, archive and restore, for every definition family. One
+      // sender, because the three endpoints take the same body apart from the
+      // new label, and the button carries the family the server needs.
+      const definitionVerdict = app.querySelector('#definition-verdict');
+      const sendDefinition = async (path, payload) => {
+        const response = await fetch(`/apps/rover/${path}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'content-type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const text = await response.text();
+        if (definitionVerdict) definitionVerdict.value = text;
+        if (response.ok) await loadView();
+        else alert(text);
+      };
+
+      app.querySelectorAll('[data-rename-definition]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const label = button.dataset.label;
+          const newLabel = prompt(`New label for ${label}`, label);
+          if (!newLabel?.trim()) return;
+          await sendDefinition('rename-definition', {
+            family: button.dataset.family,
+            label,
+            newLabel: newLabel.trim()
+          });
+        });
+      });
+
+      app.querySelectorAll('[data-archive-definition]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const label = button.dataset.label;
+          // Archive is not delete, and the wording says so. A person who
+          // reads this and clicks OK has not been told anything untrue.
+          if (!confirm(
+            `Archive ${label}? It leaves every selector. Records that already name it keep it, and you can restore it later.`
+          )) return;
+          await sendDefinition('archive-definition', {
+            family: button.dataset.family,
+            label
+          });
+        });
+      });
+
+      app.querySelectorAll('[data-restore-definition]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          await sendDefinition('restore-definition', {
+            family: button.dataset.family,
+            label: button.dataset.label
+          });
+        });
+      });
+
       const form = app.querySelector('#fill-form');
       if (!form) return;
       const vehicle = form.elements.vehicle;

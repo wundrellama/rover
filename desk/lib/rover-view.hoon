@@ -1015,6 +1015,95 @@
     $(rows t.rows)
   ==
 ::
+::  M7 T8. The edit form of a record that already exists. An archived
+::  definition leaves the selector here the same way it leaves the entry form,
+::  with one difference the entry form cannot have: a record this old may
+::  already name the archived definition. That row stays on the list and stays
+::  selected, because dropping it would make saving an unrelated edit quietly
+::  delete an association the person never touched.
+++  selected-active-options
+  |=  $:  rows=(list vector:ast)
+          key=@tas
+          selected=(unit @t)
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (cell-text key i.rows)
+  =/  chosen  ?&(?=(^ selected) =(label u.selected))
+  ?:  ?&  =(0 (cell-atom %archived i.rows))
+          !chosen
+      ==
+    $(rows t.rows)
+  ;:  weld
+    "<option value=\""
+    (escape label)
+    "\""
+    ?:(chosen " selected" "")
+    ">"
+    (escape label)
+    "</option>"
+    $(rows t.rows)
+  ==
+::
+::  The same rule for the driving-mode select, which reads two flags rather
+::  than one: the definition can be archived, and this vehicle's membership in
+::  it can be archived independently.
+++  selected-active-mode-options
+  |=  $:  rows=(list vector:ast)
+          selected=(unit @t)
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (cell-text %label i.rows)
+  =/  chosen  ?&(?=(^ selected) =(label u.selected))
+  ?:  ?&  ?|  =(0 (cell-atom %mode-archived i.rows))
+              =(0 (cell-atom %link-archived i.rows))
+          ==
+          !chosen
+      ==
+    $(rows t.rows)
+  ;:  weld
+    "<option value=\""
+    (escape label)
+    "\""
+    ?:(chosen " selected" "")
+    ">"
+    (escape label)
+    "</option>"
+    $(rows t.rows)
+  ==
+::
+++  selected-active-check-options
+  |=  $:  rows=(list vector:ast)
+          key=@tas
+          selected=(list vector:ast)
+          selected-key=@tas
+          name=@t
+      ==
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (cell-text key i.rows)
+  =/  chosen  ?=(^ (row-by-text selected-key label selected))
+  ?:  ?&  =(0 (cell-atom %archived i.rows))
+          !chosen
+      ==
+    $(rows t.rows)
+  ;:  weld
+    "<label class=\"check-option\"><input type=\"checkbox\" name=\""
+    (escape name)
+    "\" value=\""
+    (escape label)
+    "\""
+    ?:(chosen " checked" "")
+    "><span>"
+    (escape label)
+    "</span></label>"
+    $(rows t.rows)
+  ==
+::
 ++  selected-check-options
   |=  $:  rows=(list vector:ast)
           key=@tas
@@ -1088,6 +1177,40 @@
     rest
   ==
 ::
+::  M7 T8. The three lifecycle controls one definition carries. An active
+::  definition offers Rename and Archive; an archived one offers Rename and
+::  Restore, because a person who archived by mistake needs the way back and a
+::  mistyped label is worth correcting whether or not the definition is still
+::  offered anywhere.
+::
+::  The family term rides the button, so the browser never has to know which
+::  relation a definition lives in.
+++  definition-lifecycle-controls
+  |=  [family=@t label=tape archived=?]
+  ^-  tape
+  ;:  weld
+    "<button type=\"button\" data-rename-definition data-family=\""
+    (escape family)
+    "\" data-label=\""
+    label
+    "\">Rename</button>"
+    ?:  archived
+      ;:  weld
+        "<button type=\"button\" data-restore-definition data-family=\""
+        (escape family)
+        "\" data-label=\""
+        label
+        "\">Restore</button>"
+      ==
+    ;:  weld
+      "<button type=\"button\" data-archive-definition data-family=\""
+      (escape family)
+      "\" data-label=\""
+      label
+      "\">Archive</button>"
+    ==
+  ==
+::
 ++  custom-definition-list
   |=  rows=(list vector:ast)
   ^-  tape
@@ -1098,29 +1221,81 @@
   ;:  weld
     "<li data-custom-definition=\""
     label
-    "\"><span>"
+    "\""
+    ?:(archived " data-definition-archived" "")
+    "><span>"
     label
     " - "
     (escape (scot %tas (cell-term %content-type i.rows)))
     ?:(=(0 (cell-atom %mandatory i.rows)) " - mandatory" "")
     ?:(archived " - archived" "")
-    "</span><button type=\"button\" data-archive-custom-field data-label=\""
-    label
-    "\">Archive</button><select data-change-custom-type><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select><button type=\"button\" data-change-custom-field data-label=\""
+    "</span>"
+    (definition-lifecycle-controls 'custom-field' label archived)
+    "<select data-change-custom-type><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select><button type=\"button\" data-change-custom-field data-label=\""
     label
     "\">Change type</button></li>"
     (custom-definition-list t.rows)
   ==
 ::
+::  Every definition of one family, active and archived alike. This list is the
+::  ONE place an archived definition is shown to a person: it has left every
+::  selector, so without a list that keeps showing it there is no way back.
+++  definition-list
+  |=  [family=@t rows=(list vector:ast)]
+  ^-  tape
+  ?~  rows
+    ~
+  =/  label  (escape (cell-text %label i.rows))
+  =/  archived  =(0 (cell-atom %archived i.rows))
+  ;:  weld
+    "<li data-definition-entry data-definition-family=\""
+    (escape family)
+    "\" data-definition-label=\""
+    label
+    "\""
+    ?:(archived " data-definition-archived" "")
+    "><span>"
+    label
+    ?:(archived " - archived" "")
+    "</span>"
+    (definition-lifecycle-controls family label archived)
+    "</li>"
+    $(rows t.rows)
+  ==
+::
+++  definition-panels
+  |=  panels=(list [family=@t title=@t rows=(list vector:ast)])
+  ^-  tape
+  ?~  panels
+    ~
+  ;:  weld
+    "<section class=\"definition-family\" data-definition-panel=\""
+    (escape family.i.panels)
+    "\"><h3>"
+    (escape title.i.panels)
+    "</h3><ul class=\"definition-list\">"
+    ?:  ?=(~ rows.i.panels)
+      "<li class=\"empty\">None yet.</li>"
+    (definition-list family.i.panels rows.i.panels)
+    "</ul></section>"
+    $(panels t.panels)
+  ==
+::
 ++  settings-screen
-  |=  custom-definitions=(list vector:ast)
+  |=  $:  custom-definitions=(list vector:ast)
+          panels=(list [family=@t title=@t rows=(list vector:ast)])
+      ==
   ^-  tape
   ;:  weld
     "<section id=\"settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER CONFIGURATION</p><h1>SETTINGS</h1></header>"
     "<section data-settings-section=\"theme\"><h2>Theme</h2><p>Colors use the UA 571-C palette. Use the header toggle to switch glow on or off.</p><div class=\"theme-swatches\"><span>Background</span><span>Amber</span><span>Warning</span></div><div class=\"theme-glow-control\"><label for=\"glow-intensity\">Glow intensity<input id=\"glow-intensity\" data-glow-intensity type=\"range\" min=\"0\" max=\"100\" step=\"1\" value=\"32\"></label><output data-glow-intensity-output for=\"glow-intensity\">32%</output></div></section>"
     "<section data-settings-section=\"custom-fields\"><h2>Custom fields</h2><form id=\"custom-field-definition-form\"><label>Label<input name=\"label\" required></label><label>Content type<select name=\"contentType\"><option value=\"number\">Number</option><option value=\"text\">Text</option><option value=\"boolean\">Boolean</option></select></label><label class=\"check-option\"><input type=\"checkbox\" name=\"mandatory\"><span>Mandatory on Add Fill</span></label><button type=\"submit\">Create custom field</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form><ul id=\"custom-field-definitions\">"
     (custom-definition-list custom-definitions)
-    "</ul></section><section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section class=\"settings-placeholder\"><h2>EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
+    "</ul></section>"
+    "<section data-settings-section=\"definitions\"><h2>Definitions</h2><p>Rename corrects a label everywhere it renders, including on records already saved. Archive removes a definition from every selector and keeps every record that names it. Nothing is deleted, and an archived definition can be restored.</p>"
+    (definition-panels panels)
+    "<output id=\"definition-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></section>"
+    "<section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section class=\"settings-placeholder\"><h2>EXPORT - COMING LATER</h2></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
   ==
 ::
 ::  The import screen carries no server-rendered data. The browser reads the
@@ -3404,15 +3579,15 @@
     ">Not recorded</option>"
     (selected-options (rows-by-text %energy (cell-text %energy row) subtypes) %label subtype-selected)
     "</select></label><fieldset><legend>Additives <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
-    (selected-check-options additives %label acquisition-additives %additive 'additives')
+    (selected-active-check-options additives %label acquisition-additives %additive 'additives')
     "</div></fieldset><fieldset><legend>Tags <span class=\"optional\">optional</span></legend><div class=\"check-grid\">"
-    (selected-check-options tags %label acquisition-tags %tag 'tags')
+    (selected-active-check-options tags %label acquisition-tags %tag 'tags')
     "</div></fieldset><label class=\"check-option\"><input type=\"checkbox\" name=\"missedFill\" value=\"yes\""
     ?:(missed-fill " checked" "")
     "><span>Missed fill</span></label><label>Driving mode <span class=\"optional\">optional</span><select name=\"drivingMode\"><option value=\"\""
     ?:  ?=(~ mode-selected)  " selected"  ""
     ">Not recorded</option>"
-    (selected-options (rows-by-text %vehicle vehicle driving-modes) %label mode-selected)
+    (selected-active-mode-options (rows-by-text %vehicle vehicle driving-modes) mode-selected)
     "</select></label><label>Average speed <span class=\"optional\">optional</span><div class=\"input-unit\"><input name=\"averageSpeed\" inputmode=\"decimal\" value=\""
     speed-value
     "\"><select name=\"speedUnit\"><option value=\"mph\""
@@ -3426,7 +3601,7 @@
     "</textarea></label><label>Payment Method<select name=\"paymentMethod\"><option value=\"\""
     ?:  ?=(~ payment-selected)  " selected"  ""
     ">Not recorded</option>"
-    (selected-options payment-methods %label payment-selected)
+    (selected-active-options payment-methods %label payment-selected)
     "</select></label><label>Quantity<input name=\"quantity\" inputmode=\"decimal\" value=\""
     (escape (format-scaled:render (cell-atom %quantity-milli row) 3 %.n))
     "\"></label><label>Unit price<input name=\"price\" inputmode=\"decimal\" value=\""
@@ -3961,6 +4136,23 @@
         (rows-at commands 60)
     ==
   =/  custom-definitions  (rows-at commands 18)
+  ::  M7 T8. The eight definition families the Definitions panel manages. Custom
+  ::  fields are the ninth and keep their own panel, because they carry a
+  ::  content type and a mandatory flag that no other family has.
+  ::
+  ::  Every list here was already read by the view. T8 added no query, no
+  ::  relation, and no column: `archived` was written on the first pour of each
+  ::  of these families and every selector already reads it.
+  =/  definition-panel-rows=(list [family=@t title=@t rows=(list vector:ast)])
+    :~  ['energy' 'Energy sources' starter-definitions]
+        ['driving-mode' 'Driving modes' available-modes]
+        ['consumable' 'Consumables' consumables]
+        ['service-subtype' 'Service subtypes' service-subtypes]
+        ['disposal-kind' 'Disposal kinds' disposal-kinds]
+        ['additive' 'Additives' additives]
+        ['tag' 'Tags' tags]
+        ['payment-method' 'Payment methods' payment-methods]
+    ==
   ::  M7 T7. The specification family, keyed by relation name. `spec-view-order`
   ::  is the one list that decides the query order, so the render never counts
   ::  indices by hand and a fourteenth field costs one entry there.
@@ -4085,7 +4277,7 @@
       "</section>"
       (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
       (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations ownership selected-vehicle history-page)
-      (settings-screen custom-definitions)
+      (settings-screen custom-definitions definition-panel-rows)
       import-screen
     ==
   (crip html)
