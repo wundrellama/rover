@@ -3076,6 +3076,31 @@ for attempt in $(seq 1 60); do
 done
 pgrep -f "snap-dir $PIER" >/dev/null && fail "fixture 12 the pier did not stop"
 tmux kill-session -t "$pier_session" 2>/dev/null
+# The serf exits first and the king outlives it, holding the pier lock on its
+# way out. Starting the next pier while the king still holds it makes the new
+# one exit at once, and the restart then reports as a pier that never came
+# back. The wait has to cover every urbit process on this pier, not only the
+# serf. It grows with the database, which is why two runs on a populated pier
+# find it and one run on a fresh pour does not.
+#
+# The match is scoped to `pgrep -x urbit` because a bare path match also
+# matches this battery's own command line, which never exits.
+pier_holders() {
+  local pid args held=""
+  for pid in $(pgrep -x urbit 2>/dev/null); do
+    args="$(ps -o args= -p "$pid" 2>/dev/null)"
+    case "$args" in
+      *"$PIER"*) held="$held $pid" ;;
+    esac
+  done
+  printf '%s' "${held# }"
+}
+for attempt in $(seq 1 120); do
+  [ -z "$(pier_holders)" ] && break
+  sleep 1
+done
+[ -z "$(pier_holders)" ] \
+  || fail "fixture 12 urbit still holds $PIER: $(pier_holders)"
 # script(1) gives the run a pty; without one vere refuses to start interactive.
 tmux new-session -d -s "$pier_session" \
   "exec script -q -f -e -O /dev/null -c $(printf '%q' "$pier_binary -p $ames_port $PIER")"
@@ -3088,7 +3113,10 @@ for attempt in $(seq 1 180); do
   fi
   sleep 1
 done
-[ "$ready" = 1 ] || fail "fixture 12 the pier did not restart"
+# A pier that will not come back says why. Without the pane text the failure
+# reads as "the pier did not restart" and the reason is gone with the session.
+[ "$ready" = 1 ] \
+  || fail "fixture 12 the pier did not restart: $(tmux capture-pane -pt "$pier_session" -S -40 2>&1 | tail -20)"
 URL="http://localhost:$PORT"
 eyre_login
 view="$(eyre_view)"
@@ -4050,12 +4078,72 @@ mapfile -t roundtrip_relations < <(
 [ "${#roundtrip_relations[@]}" = 101 ] \
   || fail "fixture 86 the count probe names ${#roundtrip_relations[@]} relations, want 101"
 
+# The count probe reads one whole relation per query, and `click` cannot carry
+# back an arbitrarily large result. This database grows every run, so a
+# relation eventually outgrows one read and the probe returns nothing at all:
+#
+#   FROM odometer-observations X SELECT X.odometer-id;   ->  cue failed
+#
+# Measured at 656 rows on a pier with several runs behind it. That is the
+# accumulation defect the two-run rule exists to find, and it reports as a
+# missing count rather than a wrong one.
+#
+# A relation that will not read in one piece is counted in key ranges and the
+# parts are added. The split is on the first projected column, which is the
+# leading column of the primary key. Rover ids are random 128-bit, so the
+# halves are even. A range that still will not read after six splits fails the
+# fixture: a count this probe cannot take is never reported as zero.
+roundtrip_count() {
+  local relation="$1" projection="$2" column="$3" lo="$4" hi="$5" depth="${6:-0}"
+  local predicate="" out value mid left right
+  if [ -n "$lo" ] && [ -n "$hi" ]; then
+    predicate=" WHERE X.$column >= $lo AND X.$column < $hi"
+  elif [ -n "$lo" ]; then
+    predicate=" WHERE X.$column >= $lo"
+  elif [ -n "$hi" ]; then
+    predicate=" WHERE X.$column < $hi"
+  fi
+  out="$(rover_report "FROM $relation X$predicate SELECT $projection;")"
+  value="$(grep -oE '%vector-count [0-9]+' <<<"$out" | awk '{print $2}' | head -1)"
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  [ "$depth" -ge 6 ] && return 1
+  mid="$(python3 -c '
+import sys
+
+
+def bound(text, default):
+    text = text.replace(".", "").replace("0x", "")
+    return int(text, 16) if text else default
+
+
+low = bound(sys.argv[1], 0)
+high = bound(sys.argv[2], 1 << 128)
+raw = format(low + (high - low) // 2, "032x")
+print("0x" + ".".join(raw[i:i + 4] for i in range(0, len(raw), 4)))
+' "$lo" "$hi")"
+  left="$(roundtrip_count "$relation" "$projection" "$column" "$lo" "$mid" $((depth + 1)))" \
+    || return 1
+  right="$(roundtrip_count "$relation" "$projection" "$column" "$mid" "$hi" $((depth + 1)))" \
+    || return 1
+  printf '%s\n' "$((left + right))"
+}
+
+roundtrip_counts() {
+  local target="$1" sql relation projection column
+  : > "$target"
+  for sql in "${roundtrip_sql_chunks[@]}"; do
+    relation="$(sed -n 's/^FROM \([^ ]*\) X SELECT.*/\1/p' <<<"$sql")"
+    projection="$(sed -n 's/^FROM [^ ]* X SELECT \(.*\);$/\1/p' <<<"$sql")"
+    column="$(sed -n 's/^X\.\([a-z0-9-]*\).*/\1/p' <<<"$projection")"
+    roundtrip_count "$relation" "$projection" "$column" '' '' 0 >> "$target"
+  done
+}
+
 ROUNDTRIP_COUNTS_BEFORE="$(mktemp /tmp/rover-export-counts-before.XXXXXX)"
-: > "$ROUNDTRIP_COUNTS_BEFORE"
-for roundtrip_sql in "${roundtrip_sql_chunks[@]}"; do
-  rover_report "$roundtrip_sql" | grep -oE '%vector-count [0-9]+' | awk '{print $2}' \
-    >> "$ROUNDTRIP_COUNTS_BEFORE"
-done
+roundtrip_counts "$ROUNDTRIP_COUNTS_BEFORE"
 [ "$(wc -l < "$ROUNDTRIP_COUNTS_BEFORE")" = 101 ] \
   || fail "fixture 86 the source count probe did not return all 101 relations"
 
@@ -4109,11 +4197,7 @@ grep -q '^SEMANTIC_EQUAL=yes$' <<<"$semantic_comparison" \
 while IFS= read -r line; do note "round-trip $line"; done <<<"$semantic_comparison"
 
 ROUNDTRIP_COUNTS_AFTER="$(mktemp /tmp/rover-export-counts-after.XXXXXX)"
-: > "$ROUNDTRIP_COUNTS_AFTER"
-for roundtrip_sql in "${roundtrip_sql_chunks[@]}"; do
-  rover_report "$roundtrip_sql" | grep -oE '%vector-count [0-9]+' | awk '{print $2}' \
-    >> "$ROUNDTRIP_COUNTS_AFTER"
-done
+roundtrip_counts "$ROUNDTRIP_COUNTS_AFTER"
 [ "$(wc -l < "$ROUNDTRIP_COUNTS_AFTER")" = 101 ] \
   || fail "fixture 86 the destination count probe did not return all 101 relations"
 cmp -s "$ROUNDTRIP_COUNTS_BEFORE" "$ROUNDTRIP_COUNTS_AFTER" \
