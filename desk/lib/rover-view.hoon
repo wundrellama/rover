@@ -4311,6 +4311,7 @@
           odometers=(list vector:ast)
           spans=(list ownership-interval)
           interval-rows=tape
+          vehicle-label=@t
       ==
   ^-  tape
   =/  row=tape
@@ -4341,7 +4342,9 @@
       ".</td></tr>"
     ==
   ;:  weld
-    "<section class=\"stat-table\" data-statistic=\"cost-per-distance\"><h2>Cost per distance, all-in</h2><table><thead><tr><th>Period</th><th>Cost per distance</th><th>Basis</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"cost-per-distance\" data-statistics-vehicle=\""
+    (escape vehicle-label)
+    "\"><h2>Cost per distance, all-in</h2><table><thead><tr><th>Period</th><th>Cost per distance</th><th>Basis</th></tr></thead><tbody>"
     row
     interval-rows
     "</tbody></table></section>"
@@ -4510,6 +4513,7 @@
 ++  ownership-cost-statistics
   |=  $:  cost-rows=statistics-cost-rows
           spans=(list ownership-interval)
+          vehicle-label=@t
       ==
   ^-  tape
   =/  cost-index
@@ -4557,11 +4561,15 @@
       "</td></tr>"
     ==
   ;:  weld
-    "<section class=\"stat-table\" data-statistic=\"total-cost-of-ownership\"><h2>Total cost of ownership</h2><table><thead><tr><th>Period</th><th>Total</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"total-cost-of-ownership\" data-statistics-vehicle=\""
+    (escape vehicle-label)
+    "\"><h2>Total cost of ownership</h2><table><thead><tr><th>Period</th><th>Total</th></tr></thead><tbody>"
     total-row
     "</tbody></table></section>"
-    (cost-per-distance-statistic total vehicle-odometers.cost-rows spans interval-rows)
-    "<section class=\"stat-table\" data-statistic=\"spend-by-family\"><h2>Spend by family</h2><table><thead><tr><th>Family</th><th>Records</th><th>Total</th></tr></thead><tbody>"
+    (cost-per-distance-statistic total vehicle-odometers.cost-rows spans interval-rows vehicle-label)
+    "<section class=\"stat-table\" data-statistic=\"spend-by-family\" data-statistics-vehicle=\""
+    (escape vehicle-label)
+    "\"><h2>Spend by family</h2><table><thead><tr><th>Family</th><th>Records</th><th>Total</th></tr></thead><tbody>"
     ?:  crosses-gap
       (ownership-interval-spend-rows spans 0 cost-rows cost-index total-index)
     ;:  weld
@@ -4574,7 +4582,9 @@
       (spend-family-row %note 'Notes' note)
     ==
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"service-history-summary\"><h2>Service history summary</h2><table><thead><tr><th>Service subtype</th><th>Events</th><th>Total</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"service-history-summary\" data-statistics-vehicle=\""
+    (escape vehicle-label)
+    "\"><h2>Service history summary</h2><table><thead><tr><th>Service subtype</th><th>Events</th><th>Total</th></tr></thead><tbody>"
     ?:  crosses-gap
       (ownership-interval-service-rows spans 0 cost-rows cost-index total-index)
     %:  service-summary-rows
@@ -4666,7 +4676,7 @@
     "</header>"
     selector
     "<p id=\"statistics-empty\" class=\"empty\" hidden>No statistics are recorded for this vehicle.</p>"
-    (ownership-cost-statistics cost-rows selected-spans)
+    (ownership-cost-statistics cost-rows selected-spans ?~(default-label '' u.default-label))
     "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"
     (statistic-fill-rows recent scoped-vehicles subtype-links derivations %economy)
     "</tbody></table></section>"

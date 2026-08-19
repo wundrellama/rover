@@ -1749,7 +1749,7 @@ const fs = require('fs');
     const selected = screen.querySelector('#statistics-vehicle-select').value;
     const tables = [...screen.querySelectorAll('[data-statistic]')].map((table) => {
       const rows = [...table.querySelectorAll('tbody tr')].filter((row) => !row.hidden);
-      if (rows.some((row) => row.dataset.statisticsVehicle !== selected)) {
+      if (rows.some((row) => (row.dataset.statisticsVehicle || table.dataset.statisticsVehicle) !== selected)) {
         throw new Error(`${table.dataset.statistic} leaks a row outside ${selected}`);
       }
       return [table.dataset.statistic, rows.map((row) => row.textContent.trim()).join('|')];
@@ -1806,7 +1806,7 @@ print("|".join([
     ",".join(data["changed"]),
 ]))' <<<"$statistics_switch"
   )"
-  expected_statistics_switch='Rover Demo Gasoline|Rover Demo Gasoline|Rover Demo Diesel|Rover Demo Diesel|economy-by-subtype,fuel-costs,distance-between-fills,time-between-fills,average-price-per-unit,distance-per-tank,def-economy'
+  expected_statistics_switch='Rover Demo Gasoline|Rover Demo Gasoline|Rover Demo Diesel|Rover Demo Diesel|total-cost-of-ownership,cost-per-distance,spend-by-family,economy-by-subtype,fuel-costs,distance-between-fills,time-between-fills,average-price-per-unit,distance-per-tank,def-economy'
   [ "$statistics_switch_summary" = "$expected_statistics_switch" ] \
     || fail "fixture 65 switching scope did not change every table and header: $statistics_switch_summary"
   note "fixture 65 PASS - selector changed the header and all seven statistics tables from gasoline to diesel"
