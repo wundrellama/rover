@@ -1811,7 +1811,7 @@ print("|".join([
   expected_statistics_switch='Rover Demo Gasoline|Rover Demo Gasoline|Rover Demo Diesel|Rover Demo Diesel|total-cost-of-ownership,cost-per-distance,spend-by-family,economy-by-subtype,fuel-costs,distance-between-fills,time-between-fills,average-price-per-unit,distance-per-tank,def-economy'
   [ "$statistics_switch_summary" = "$expected_statistics_switch" ] \
     || fail "fixture 65 switching scope did not change every table and header: $statistics_switch_summary"
-  note "fixture 65 PASS - selector changed the header and all seven statistics tables from gasoline to diesel"
+  note "fixture 65 PASS - selector changed the header and all ten data-dependent Statistics tables from gasoline to diesel"
 
   click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
