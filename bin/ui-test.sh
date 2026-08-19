@@ -1605,6 +1605,7 @@ print("|".join(part.strip() for part in match.groups()) if match else "")' <<<"$
   diesel_before_def="${demo_parts[1]}"
   seed_demo_def_via_eyre
   demo_after_def="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  demo_diesel_after_def="$(scoped_view_html "$(scoped_view 0 'Rover Demo Diesel')")"
   demo_sources_after="$(
     python3 -c 'import html, re, sys
 document = html.unescape(sys.stdin.read())
@@ -1953,7 +1954,7 @@ required = (
 )
 print("|".join(diesel))
 print("|".join(def_values))
-print("yes" if all(item in document for item in required) else "no")' <<<"$demo_after_def"
+print("yes" if all(item in document for item in required) else "no")' <<<"$demo_diesel_after_def"
   )"
   mapfile -t after_parts <<<"$after_summary"
   [ "${after_parts[0]:-}" = "$diesel_before_def" ] ||
