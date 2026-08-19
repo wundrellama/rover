@@ -4426,10 +4426,18 @@
           spans=(list ownership-interval)
       ==
   ^-  tape
-  ?~  service-rows
+  =/  owned-subtypes=(list vector:ast)
+    %+  skim  subtype-rows
+    |=  row=vector:ast
+    (statistic-owned-row row spans)
+  =/  owned-services=(list vector:ast)
+    %+  skim  service-rows
+    |=  row=vector:ast
+    (statistic-owned-row row spans)
+  ?~  owned-services
     "<tr class=\"empty-state\" data-service-empty><td colspan=\"3\">No service events recorded for this vehicle.</td></tr>"
   =/  groups
-    (index-rows %service-subtype subtype-rows *(map @ (list vector:ast)))
+    (index-rows %service-subtype owned-subtypes *(map @ (list vector:ast)))
   =/  rendered
     (service-summary-group-rows ~(tap by groups) cost-index total-index spans)
   ?:  ?=(^ rendered)
