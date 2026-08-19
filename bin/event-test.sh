@@ -3757,8 +3757,10 @@ grep -q 'conflicts 0' <<<"$roundtrip_import" \
 set_default_vehicle "$VEHICLE"
 ROUNDTRIP_HISTORY_AFTER="$(mktemp /tmp/rover-export-history-after.XXXXXX)"
 eyre_view | python3 "$REPO/bin/export-semantic.py" history > "$ROUNDTRIP_HISTORY_AFTER"
-cmp -s "$ROUNDTRIP_HISTORY_BEFORE" "$ROUNDTRIP_HISTORY_AFTER" \
-  || fail "fixture 86 the same vehicle did not render the same history after import"
+if ! cmp -s "$ROUNDTRIP_HISTORY_BEFORE" "$ROUNDTRIP_HISTORY_AFTER"; then
+  history_diff="$(diff -u "$ROUNDTRIP_HISTORY_BEFORE" "$ROUNDTRIP_HISTORY_AFTER" | head -80)"
+  fail "fixture 86 the same vehicle did not render the same history after import: $history_diff"
+fi
 [ "$(t8_archived_flag tag "$T8_LONE_TAG")" = 0 ] \
   || fail "fixture 86 the archived definition was resurrected"
 
