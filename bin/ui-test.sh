@@ -4240,6 +4240,44 @@ bootstrap_counts_after="$(rover_row_counts)"
 note "bootstrap idempotence counts - before $bootstrap_counts_before after $bootstrap_counts_after"
 note "fixture 123 PASS - a populated view does not re-pour, re-seed, or change fill and starter counts"
 
+statistics_cost_stamp="$(date +%s%N)"
+statistics_cost_vehicle="Statistics Cost Vehicle $statistics_cost_stamp"
+eyre_post add-vehicle \
+  "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$statistics_cost_vehicle")" \
+  "$(printf 'Added vehicle - %s\n201' "$statistics_cost_vehicle")" \
+  'fixture 134 cost vehicle'
+eyre_post add-acquisition-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-01-01T09:00","zone":"America/Chicago","total":"$10,000.00","currency":"usd","mileage":"1000","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":[],"disposalKind":"","notes":"Statistics purchase %s"}' "$statistics_cost_vehicle" "$statistics_cost_stamp")" \
+  $'Saved acquisition event - $10,000.00\n201' 'fixture 134 acquisition cost'
+eyre_post add-fill \
+  "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"10.000","price":"$2.99","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"2026-01-10T09:00","zone":"America/Chicago","mileage":"1200","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' "$statistics_cost_vehicle")" \
+  $'Saved fill - $2.999 - derived $29.99\n201' 'fixture 134 fuel cost'
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-01-15T09:00","zone":"America/Chicago","total":"$900.00","currency":"usd","mileage":"1400","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"Brake service %s","subtypes":["Brakes, Front"]}' "$statistics_cost_vehicle" "$statistics_cost_stamp")" \
+  $'Saved service event - $900.00\n201' 'fixture 134 service cost'
+eyre_post add-expense-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-01-20T09:00","zone":"America/Chicago","total":"$100.00","currency":"usd","mileage":"1500","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"Registration %s","subtypes":[]}' "$statistics_cost_vehicle" "$statistics_cost_stamp")" \
+  $'Saved expense event - $100.00\n201' 'fixture 134 expense cost'
+eyre_post add-consumable \
+  "$(printf '{"vehicle":"%s","consumable":"Washer Fluid","quantity":"2.000","price":"$4.00","profile":"us-usd-gal","settlement":"standard","observed":"2026-01-25T09:00","zone":"America/Chicago","mileage":"1600","mileageUnit":"mi"}' "$statistics_cost_vehicle")" \
+  $'Saved consumable purchase - $8.02\n201' 'fixture 134 consumable cost'
+eyre_post add-disposal-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-02-01T09:00","zone":"America/Chicago","total":"$5,000.00","currency":"usd","mileage":"2000","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":[],"disposalKind":"Sold","notes":"Statistics sale %s"}' "$statistics_cost_vehicle" "$statistics_cost_stamp")" \
+  $'Saved disposal event - $5,000.00\n201' 'fixture 134 disposal credit'
+statistics_cost_view="$(scoped_view_html "$(scoped_view 0 "$statistics_cost_vehicle")")"
+grep -q 'data-statistic="total-cost-of-ownership"' <<<"$statistics_cost_view" \
+  || fail "fixture 134 Statistics lacks total cost of ownership"
+grep -q 'data-total-cost-mills="6038008"' <<<"$statistics_cost_view" \
+  || fail "fixture 134 total cost is not the exact 6,038,008-mill sum"
+for family_total in service:900000 expense:100000 fuel:29990 consumables:8018 acquisition:10000000 disposal:-5000000; do
+  IFS=: read -r family total <<<"$family_total"
+  grep -q "data-cost-family=\"$family\" data-family-total-mills=\"$total\"" <<<"$statistics_cost_view" \
+    || fail "fixture 134 spend-by-family lacks $family at $total mills"
+done
+grep -q 'data-service-subtype="Brakes, Front" data-service-count="1" data-service-total-mills="900000"' <<<"$statistics_cost_view" \
+  || fail "fixture 134 service summary does not count and total Brakes, Front exactly"
+note "fixture 134 PASS - total cost is the exact mill sum of fuel, consumable, service, expense, acquisition, and disposal rows, and service subtype totals match"
+
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 python3 -c 'import sys
