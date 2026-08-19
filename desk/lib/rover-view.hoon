@@ -39,6 +39,32 @@
       acquisitions=(list vector:ast)
       disposals=(list vector:ast)
   ==
+::  The dedicated Statistics queries are selected-vehicle reads. Their wide
+::  rows retain every relation key while Gall assembles the common cost shape.
++$  statistics-cost-rows
+  $:  fuels=(list vector:ast)
+      consumables=(list vector:ast)
+      events=(list vector:ast)
+      services=(list vector:ast)
+      expenses=(list vector:ast)
+      notes=(list vector:ast)
+      acquisitions=(list vector:ast)
+      disposals=(list vector:ast)
+      costs=(list vector:ast)
+      totals=(list vector:ast)
+      event-odometers=(list vector:ast)
+      service-subtypes=(list vector:ast)
+      vehicle-odometers=(list vector:ast)
+  ==
+::  Signed mills keep disposal proceeds as credits. `entries` counts only
+::  records that carry a total; an absent cost never turns into zero.
++$  cost-tally
+  $:  entries=@ud
+      total=@sd
+      currency=(unit @tas)
+      minor-decimals=(unit @ud)
+      compatible=?
+  ==
 +$  interval-walk
   $:  prior=(unit interval-baseline)
       quantity=@ud
@@ -3964,6 +3990,298 @@
     rest
   ==
 ::
+++  statistic-owned-row
+  |=  [row=vector:ast spans=(list ownership-interval)]
+  ^-  ?
+  ?~  spans
+    %.y
+  =/  date=@da  `@da`(cell-atom %observed-start row)
+  ?~  (ownership-segment spans date)
+    %.n
+  %.y
+::
+++  empty-cost-tally
+  ^-  cost-tally
+  [0 (sun:si 0) ~ ~ %.y]
+::
+++  add-cost-tally
+  |=  $:  amount=@ud
+          currency=@tas
+          minor-decimals=@ud
+          credit=?
+          tally=cost-tally
+      ==
+  ^-  cost-tally
+  =/  signed=@sd  (new:si ?:(credit %.n %.y) amount)
+  =/  same-context=?
+    ?~  currency.tally
+      %.y
+    ?~  minor-decimals.tally
+      %.n
+    ?&  =(u.currency.tally currency)
+        =(u.minor-decimals.tally minor-decimals)
+    ==
+  :*  +(entries.tally)
+      (sum:si total.tally signed)
+      ?~(currency.tally `currency currency.tally)
+      ?~(minor-decimals.tally `minor-decimals minor-decimals.tally)
+      ?&(compatible.tally same-context)
+  ==
+::
+++  merge-cost-tallies
+  |=  [a=cost-tally b=cost-tally]
+  ^-  cost-tally
+  ?:  =(0 entries.a)
+    b
+  ?:  =(0 entries.b)
+    a
+  :*  (add entries.a entries.b)
+      (sum:si total.a total.b)
+      currency.a
+      minor-decimals.a
+      ?&  compatible.a
+          compatible.b
+          =(currency.a currency.b)
+          =(minor-decimals.a minor-decimals.b)
+      ==
+  ==
+::
+++  purchase-cost-tally
+  |=  $:  rows=(list vector:ast)
+          spans=(list ownership-interval)
+          tally=cost-tally
+      ==
+  ^-  cost-tally
+  ?~  rows
+    tally
+  ?.  (statistic-owned-row i.rows spans)
+    $(rows t.rows)
+  =/  proof
+    %:  derive-fill-total:act
+        (cell-atom %quantity-milli i.rows)
+        (cell-atom %unit-price-mills i.rows)
+        (cell-atom %minor-unit-decimals i.rows)
+        (cell-atom %cash-increment-mills i.rows)
+        ;;(settlement-mode:rover (cell-term %settlement-mode i.rows))
+    ==
+  =/  next
+    %:  add-cost-tally
+        total-mills.proof
+        (cell-term %currency i.rows)
+        (cell-atom %minor-unit-decimals i.rows)
+        %.n
+        tally
+    ==
+  $(rows t.rows, tally next)
+::
+++  event-cost-tally
+  |=  $:  rows=(list vector:ast)
+          cost-index=(map @ (list vector:ast))
+          total-index=(map @ (list vector:ast))
+          spans=(list ownership-interval)
+          credit=?
+          tally=cost-tally
+      ==
+  ^-  cost-tally
+  ?~  rows
+    tally
+  ?.  (statistic-owned-row i.rows spans)
+    $(rows t.rows)
+  =/  event-id  (cell-atom %event-id i.rows)
+  =/  cost  (one-indexed-row event-id cost-index)
+  =/  total-row  (one-indexed-row event-id total-index)
+  ?:  ?|(?=(~ cost) ?=(~ total-row))
+    $(rows t.rows)
+  =/  next
+    %:  add-cost-tally
+        (cell-atom %total-mills u.total-row)
+        (cell-term %currency u.cost)
+        (cell-atom %minor-unit-decimals u.cost)
+        credit
+        tally
+    ==
+  $(rows t.rows, tally next)
+::
+++  cost-tally-attribute
+  |=  tally=cost-tally
+  ^-  tape
+  (trip (format-sscaled:render total.tally 0 %.n))
+::
+++  cost-tally-money
+  |=  tally=cost-tally
+  ^-  @t
+  ?:  ?|  =(0 entries.tally)
+          =(%.n compatible.tally)
+          ?=(~ currency.tally)
+          ?=(~ minor-decimals.tally)
+      ==
+    'Unavailable'
+  =/  minor-scale  (pow-ten:render u.minor-decimals.tally)
+  =/  mill-step  (div 1.000 minor-scale)
+  =/  minor-units  (div (abs:si total.tally) mill-step)
+  =/  number
+    (format-scaled:render minor-units u.minor-decimals.tally %.y)
+  =/  amount=tape
+    ;:  weld
+      (currency-prefix:render u.currency.tally)
+      (trip number)
+    ==
+  ?:  (syn:si total.tally)
+    (crip amount)
+  (crip ['-' amount])
+::
+++  spend-family-row
+  |=  [family=@tas label=@t tally=cost-tally]
+  ^-  tape
+  ?:  =(0 entries.tally)
+    ~
+  ;:  weld
+    "<tr data-cost-family=\""
+    (escape (scot %tas family))
+    "\""
+    ?:  compatible.tally
+      ;:  weld
+        " data-family-total-mills=\""
+        (cost-tally-attribute tally)
+        "\""
+      ==
+    ""
+    "><td>"
+    (escape label)
+    "</td><td>"
+    (scow %ud entries.tally)
+    "</td><td>"
+    (escape (cost-tally-money tally))
+    "</td></tr>"
+  ==
+::
+++  service-summary-group-rows
+  |=  $:  groups=(list [@ (list vector:ast)])
+          cost-index=(map @ (list vector:ast))
+          total-index=(map @ (list vector:ast))
+          spans=(list ownership-interval)
+      ==
+  ^-  tape
+  ?~  groups
+    ~
+  =/  label=@t  `@t`-.i.groups
+  =/  rows=(list vector:ast)  +.i.groups
+  =/  tally
+    %:  event-cost-tally
+        rows
+        cost-index
+        total-index
+        spans
+        %.n
+        empty-cost-tally
+    ==
+  ;:  weld
+    "<tr data-service-subtype=\""
+    (escape label)
+    "\" data-service-count=\""
+    (scow %ud (lent rows))
+    "\""
+    ?:  =(0 entries.tally)
+      ""
+    ;:  weld
+      " data-service-total-mills=\""
+      (cost-tally-attribute tally)
+      "\""
+    ==
+    "><td>"
+    (escape label)
+    "</td><td>"
+    (scow %ud (lent rows))
+    "</td><td>"
+    ?:(=(0 entries.tally) "No costs recorded" (escape (cost-tally-money tally)))
+    "</td></tr>"
+    $(groups t.groups)
+  ==
+::
+++  service-summary-rows
+  |=  $:  subtype-rows=(list vector:ast)
+          service-rows=(list vector:ast)
+          cost-index=(map @ (list vector:ast))
+          total-index=(map @ (list vector:ast))
+          spans=(list ownership-interval)
+      ==
+  ^-  tape
+  ?~  service-rows
+    "<tr class=\"empty-state\" data-service-empty><td colspan=\"3\">No service events recorded for this vehicle.</td></tr>"
+  =/  groups
+    (index-rows %service-subtype subtype-rows *(map @ (list vector:ast)))
+  =/  rendered
+    (service-summary-group-rows ~(tap by groups) cost-index total-index spans)
+  ?:  ?=(^ rendered)
+    rendered
+  "<tr class=\"empty-state\" data-service-subtype-empty><td colspan=\"3\">Service events have no subtype recorded.</td></tr>"
+::
+++  ownership-cost-statistics
+  |=  $:  cost-rows=statistics-cost-rows
+          spans=(list ownership-interval)
+      ==
+  ^-  tape
+  =/  cost-index
+    (index-rows %event-id costs.cost-rows *(map @ (list vector:ast)))
+  =/  total-index
+    (index-rows %event-id totals.cost-rows *(map @ (list vector:ast)))
+  =/  fuel
+    (purchase-cost-tally fuels.cost-rows spans empty-cost-tally)
+  =/  consumables
+    (purchase-cost-tally consumables.cost-rows spans empty-cost-tally)
+  =/  service
+    (event-cost-tally services.cost-rows cost-index total-index spans %.n empty-cost-tally)
+  =/  expense
+    (event-cost-tally expenses.cost-rows cost-index total-index spans %.n empty-cost-tally)
+  =/  note
+    (event-cost-tally notes.cost-rows cost-index total-index spans %.n empty-cost-tally)
+  =/  acquisition
+    (event-cost-tally acquisitions.cost-rows cost-index total-index spans %.n empty-cost-tally)
+  =/  disposal
+    (event-cost-tally disposals.cost-rows cost-index total-index spans %.y empty-cost-tally)
+  =/  total
+    (merge-cost-tallies fuel consumables)
+  =.  total  (merge-cost-tallies total service)
+  =.  total  (merge-cost-tallies total expense)
+  =.  total  (merge-cost-tallies total note)
+  =.  total  (merge-cost-tallies total acquisition)
+  =.  total  (merge-cost-tallies total disposal)
+  =/  total-row=tape
+    ?:  =(0 entries.total)
+      "<tr class=\"empty-state\"><td colspan=\"2\">No costs recorded for this vehicle.</td></tr>"
+    ?.  compatible.total
+      "<tr data-total-cost-unavailable><td>Lifetime</td><td>Unavailable: recorded costs use more than one currency.</td></tr>"
+    ;:  weld
+      "<tr data-total-cost-mills=\""
+      (cost-tally-attribute total)
+      "\"><td>Lifetime</td><td>"
+      (escape (cost-tally-money total))
+      "</td></tr>"
+    ==
+  ;:  weld
+    "<section class=\"stat-table\" data-statistic=\"total-cost-of-ownership\"><h2>Total cost of ownership</h2><table><thead><tr><th>Period</th><th>Total</th></tr></thead><tbody>"
+    total-row
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"spend-by-family\"><h2>Spend by family</h2><table><thead><tr><th>Family</th><th>Records</th><th>Total</th></tr></thead><tbody>"
+    (spend-family-row %service 'Service' service)
+    (spend-family-row %expense 'Expense' expense)
+    (spend-family-row %fuel 'Fuel' fuel)
+    (spend-family-row %consumables 'Consumables' consumables)
+    (spend-family-row %acquisition 'Acquisition' acquisition)
+    (spend-family-row %disposal 'Disposal proceeds' disposal)
+    (spend-family-row %note 'Notes' note)
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"service-history-summary\"><h2>Service history summary</h2><table><thead><tr><th>Service subtype</th><th>Events</th><th>Total</th></tr></thead><tbody>"
+    %:  service-summary-rows
+        service-subtypes.cost-rows
+        services.cost-rows
+        cost-index
+        total-index
+        spans
+    ==
+    "</tbody></table></section>"
+  ==
+::
 ++  statistics-screen
   |=  $:  fills=(list vector:ast)
           vehicles=(list vector:ast)
@@ -3974,6 +4292,7 @@
           def-odometers=(list vector:ast)
           derivations=(map @ derived-fill)
           ownership=(map @ (list ownership-interval))
+          cost-rows=statistics-cost-rows
           selected-vehicle=(unit vector:ast)
           history-page=@ud
       ==
@@ -3998,6 +4317,10 @@
     ?~  selected-vehicle
       ~
     `(cell-text %label u.selected-vehicle)
+  =/  selected-spans=(list ownership-interval)
+    ?~  selected-vehicle
+      ~
+    (~(gut by ownership) (cell-atom %vehicle-id u.selected-vehicle) ~)
   =/  scope-header=tape
     ?~  default-label
       "<p id=\"statistics-vehicle-name\" data-statistics-scope-heading data-statistics-no-default>No default vehicle set.</p>"
@@ -4017,6 +4340,9 @@
     ==
   ?:  ?&  ?=(~ scoped-fills)
           ?=(~ scoped-def-purchases)
+          ?=(~ fuels.cost-rows)
+          ?=(~ consumables.cost-rows)
+          ?=(~ events.cost-rows)
       ==
     ;:  weld
       "<section id=\"statistics-screen\" class=\"app-screen\" hidden data-view-vehicle=\""
@@ -4035,6 +4361,7 @@
     "</header>"
     selector
     "<p id=\"statistics-empty\" class=\"empty\" hidden>No statistics are recorded for this vehicle.</p>"
+    (ownership-cost-statistics cost-rows selected-spans)
     "<section class=\"stat-table\" data-statistic=\"economy-by-subtype\"><h2>Economy per fill by fuel subtype</h2><table><thead><tr><th>Date</th><th>Fuel subtype</th><th>Economy</th><th>Eligibility</th></tr></thead><tbody>"
     (statistic-fill-rows recent scoped-vehicles subtype-links derivations %economy)
     "</tbody></table></section>"
@@ -4166,6 +4493,21 @@
     %+  ~(put by $(order t.order, index +(index)))
       relation.i.order
     (rows-at commands index)
+  =/  statistic-costs=statistics-cost-rows
+    :*  (rows-at commands 74)
+        (rows-at commands 75)
+        (rows-at commands 76)
+        (rows-at commands 77)
+        (rows-at commands 78)
+        (rows-at commands 79)
+        (rows-at commands 80)
+        (rows-at commands 81)
+        (rows-at commands 82)
+        (rows-at commands 83)
+        (rows-at commands 84)
+        (rows-at commands 85)
+        (rows-at commands 86)
+    ==
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
   =/  starter-subtype-html  (subtype-options subtypes)
@@ -4276,7 +4618,7 @@
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
       (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
-      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations ownership selected-vehicle history-page)
+      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations ownership statistic-costs selected-vehicle history-page)
       (settings-screen custom-definitions definition-panel-rows)
       import-screen
     ==

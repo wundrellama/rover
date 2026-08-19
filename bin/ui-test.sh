@@ -2693,7 +2693,10 @@ default_def_result="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
   "$URL/apps/rover/set-default-vehicle")"
 [ "$default_def_result" = $'Saved default vehicle\n201' ] \
   || fail "fixture 51 could not set DEF vehicle as default: $default_def_result"
-def_economy_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+def_economy_response="$(curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' "$URL/apps/rover/view")"
+[ "$(scoped_view_status "$def_economy_response")" = 200 ] \
+  || fail "fixture 51 Statistics view returned $(scoped_view_status "$def_economy_response"): $(scoped_view_html "$def_economy_response")"
+def_economy_view="$(scoped_view_html "$def_economy_response")"
 grep -q "data-def-economy-vehicle=\"$def_vehicle\" data-def-economy=\"500.000 mi/gal DEF\"" <<<"$def_economy_view" \
   || fail "fixture 51 exact DEF economy is absent from statistics"
 grep -q 'DEF ECONOMY - LAST INTERVAL' <<<"$def_economy_view" \
@@ -4277,6 +4280,9 @@ done
 grep -q 'data-service-subtype="Brakes, Front" data-service-count="1" data-service-total-mills="900000"' <<<"$statistics_cost_view" \
   || fail "fixture 134 service summary does not count and total Brakes, Front exactly"
 note "fixture 134 PASS - total cost is the exact mill sum of fuel, consumable, service, expense, acquisition, and disposal rows, and service subtype totals match"
+if [ "${ROVER_FIXTURE_STOP:-}" = 134 ]; then
+  exit 0
+fi
 
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"

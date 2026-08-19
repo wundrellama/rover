@@ -1416,7 +1416,87 @@
     "FROM sys.foreign-keys SELECT parent-table, child-table, ordinal, parent-column, child-column, on-delete, on-update;"
   ==
 ::
+++  statistics-scope
+  |=  selected-label=(unit @t)
+  ^-  [join=tape where=tape]
+  ?~  selected-label
+    :*  " JOIN app-default-vehicle Q ON V.vehicle-id = Q.vehicle-id"
+        " WHERE Q.scope = %app"
+    ==
+  :*  ~
+      ;:  weld
+        " WHERE V.label = '"
+        (sql-quote u.selected-label)
+        "'"
+      ==
+  ==
+::
+::  Statistics reads only the selected vehicle. Every projection includes its
+::  relation key, because the pinned engine collapses identical projected rows.
+::  The family rows stay separate so Gall can preserve honest absence.
+++  statistics-view
+  |=  selected-label=(unit @t)
+  ^-  tape
+  =/  scope  (statistics-scope selected-label)
+  ;:  weld
+    " FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN fuel-fills F ON A.acquisition-id = F.acquisition-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, A.acquisition-id, A.observed-start, F.quantity-milli, F.unit-price-mills, F.currency, F.settlement-mode, F.minor-unit-decimals, F.cash-increment-mills;"
+    " FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN consumable-purchases P ON A.consumable-acquisition-id = P.consumable-acquisition-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, A.consumable-acquisition-id, A.observed-start, P.quantity-milli, P.unit-price-mills, P.currency, P.settlement-mode, P.minor-unit-decimals, P.cash-increment-mills;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, E.observed-start;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, E.observed-start;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events X ON E.event-id = X.event-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, E.observed-start;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN note-events Z ON E.event-id = Z.event-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, E.observed-start;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-acquisitions A ON E.event-id = A.event-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, E.observed-start;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-disposals D ON E.event-id = D.event-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, E.observed-start;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-costs C ON E.event-id = C.event-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, C.cost-state, C.currency, C.minor-unit-decimals;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-cost-totals T ON E.event-id = T.event-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, T.total-mills;"
+    ::  Keep the link and odometer reads separate. A populated odometer table
+    ::  beside an empty event table crashes the pinned engine's four-way join.
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-odometers L ON E.event-id = L.event-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, L.odometer-id;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id JOIN vehicle-event-service-subtypes L ON E.event-id = L.event-id JOIN service-subtype-definitions D ON L.service-subtype-id = D.service-subtype-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, E.event-id, E.observed-start, D.service-subtype-id, D.label AS service-subtype;"
+    " FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id"
+    join.scope
+    where.scope
+    " SELECT V.vehicle-id, O.odometer-id, O.value-digits, O.decimal-places, O.unit, O.observed-start;"
+  ==
+::
 ++  ui-view
+  |=  selected-label=(unit @t)
   ^-  tape
   ;:  weld
     "FROM vehicles V SELECT V.vehicle-id, V.label, V.archived; "
@@ -1510,6 +1590,7 @@
     ::  so no earlier reader has to move.
     " "
     spec-queries
+    (statistics-view selected-label)
   ==
 ::
 ::  T10 reads every stored fact with a wide projection. Each query names the

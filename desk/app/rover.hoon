@@ -710,7 +710,11 @@
         /rover-bootstrap-probe/(scot %da now.bowl)/[eyre-id]
       =/  jon
         ?:  bootstrap-ready.sat
-          !>([%script %rover %vector ui-view:act])
+          =/  selected-label=(unit @t)
+            ?~  request-object
+              ~
+            (json-string:entry 'vehicle' u.request-object)
+          !>([%script %rover %vector (ui-view:act selected-label)])
         !>([%script %sys %vector database-list:act])
       =/  new-sat
         sat(pending (~(put by pending.sat) wir request-text), http-pending (~(put by http-pending.sat) wir eyre-id))
@@ -1197,7 +1201,7 @@
       /rover-bootstrap-probe/(scot %da now.bowl)/[eyre-id]
     =/  jon
       ?:  bootstrap-ready.sat
-        !>([%script %rover %vector ui-view:act])
+        !>([%script %rover %vector (ui-view:act ~)])
       !>([%script %sys %vector database-list:act])
     =/  new-sat
       sat(pending (~(put by pending.sat) wir '0'), http-pending (~(put by http-pending.sat) wir eyre-id))
@@ -2063,7 +2067,7 @@
         ?:  =(source %existing)
           =/  next-wire=path
             /rover-http/final/(scot %da now.bowl)/[u.eyre-id]
-          =/  jon  !>([%script %rover %vector ui-view:act])
+          =/  jon  !>([%script %rover %vector (ui-view:act ~)])
           =/  next-pending
             (~(put by (~(del by pending) wire)) next-wire u.request-text)
           =/  next-http
@@ -2100,7 +2104,7 @@
         /rover-bootstrap-starter-write/(scot %da now.bowl)/[u.eyre-id]
       =/  jon
         ?:  ?=(~ script)
-          !>([%script %rover %vector ui-view:act])
+          !>([%script %rover %vector (ui-view:act ~)])
         !>([%script %rover %vector script])
       =/  next-pending
         (~(put by (~(del by pending) wire)) next-wire u.request-text)
@@ -2149,7 +2153,7 @@
             `(text-octs 'Database setup failed while adding starter definitions. Obelisk refused the starter seed.')
         ==
       =/  next-wire=path  /rover-http/bootstrapped/(scot %da now.bowl)/[u.eyre-id]
-      =/  jon  !>([%script %rover %vector ui-view:act])
+      =/  jon  !>([%script %rover %vector (ui-view:act ~)])
       =/  next-pending
         (~(put by (~(del by pending) wire)) next-wire u.request-text)
       =/  next-http
