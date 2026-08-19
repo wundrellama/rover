@@ -4284,6 +4284,26 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 134 ]; then
   exit 0
 fi
 
+statistics_cost_per_distance_before="$(sed -n 's/.*data-cost-per-distance-mills="\([0-9-]*\)".*/\1/p' <<<"$statistics_cost_view" | head -1)"
+[ "$statistics_cost_per_distance_before" = 6038 ] \
+  || fail "fixture 135 initial all-in cost per mile is $statistics_cost_per_distance_before, want 6038 mills"
+grep -q 'data-cost-family="fuel" data-family-total-mills="29990"' <<<"$statistics_cost_view" \
+  || fail "fixture 135 initial fuel total moved from 29,990 mills"
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-01-28T09:00","zone":"America/Chicago","total":"$100.00","currency":"usd","mileage":"1700","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"Second brake service %s","subtypes":["Brakes, Front"]}' "$statistics_cost_vehicle" "$statistics_cost_stamp")" \
+  $'Saved service event - $100.00\n201' 'fixture 135 added service cost'
+statistics_cost_after_service="$(scoped_view_html "$(scoped_view 0 "$statistics_cost_vehicle")")"
+grep -q 'data-total-cost-mills="6138010"' <<<"$statistics_cost_after_service" \
+  || fail "fixture 135 service cost did not enter all-in total"
+grep -q 'data-cost-family="fuel" data-family-total-mills="29990"' <<<"$statistics_cost_after_service" \
+  || fail "fixture 135 fuel total changed when only service changed"
+grep -q 'data-cost-per-distance-mills="6138"' <<<"$statistics_cost_after_service" \
+  || fail "fixture 135 all-in cost per mile did not change from 6038 to 6138 mills"
+note "fixture 135 PASS - a service-only $100 change raises all-in cost from 6038 to 6138 mills per mile while fuel stays at 29990 mills"
+if [ "${ROVER_FIXTURE_STOP:-}" = 135 ]; then
+  exit 0
+fi
+
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 python3 -c 'import sys
