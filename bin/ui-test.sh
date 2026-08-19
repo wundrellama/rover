@@ -2791,8 +2791,18 @@ grep -q 'data-settings-section="theme"' <<<"$view" \
   || fail "Settings lacks theme controls"
 grep -q 'data-settings-section="import"' <<<"$view" \
   || fail "Settings lacks the import entry point"
-grep -q 'EXPORT.*COMING LATER' <<<"$view" \
-  || fail "Settings lacks the export placeholder"
+# T10 replaced the export placeholder with a real download control, so this
+# assertion now checks the control the way fixture 110 checks import. GRANTS
+# stays a placeholder, because sharing is the second pour and is unbuilt.
+grep -q 'data-settings-section="export"' <<<"$view" \
+  || fail "Settings lacks the export section"
+grep -q 'data-rover-export-download' <<<"$view" \
+  || fail "Settings lacks the export download control"
+grep -q 'href="/apps/rover/export"' <<<"$view" \
+  || fail "the export control does not address /apps/rover/export"
+if grep -q 'EXPORT.*COMING LATER' <<<"$view"; then
+  fail "Settings still shows the export placeholder"
+fi
 grep -q 'GRANTS.*COMING LATER' <<<"$view" \
   || fail "Settings lacks grants placeholder"
 grep -q 'id="vehicle-add-form"' <<<"$view" \
