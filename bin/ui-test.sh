@@ -4356,7 +4356,7 @@ statistics_empty_view="$(scoped_view_html "$(scoped_view 0 "$statistics_empty_ve
 statistics_service_empty="$(
   python3 -c 'import re, sys
 document = sys.stdin.read()
-match = re.search(r"<section class=\"stat-table\" data-statistic=\"service-history-summary\">.*?</section>", document, re.S)
+match = re.search(r"<section class=\"stat-table\" data-statistic=\"service-history-summary\"[^>]*>.*?</section>", document, re.S)
 print(match.group(0) if match else "")' <<<"$statistics_empty_view"
 )"
 grep -q 'No service events recorded for this vehicle.' <<<"$statistics_service_empty" \
