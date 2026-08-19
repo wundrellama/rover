@@ -10,6 +10,8 @@
   [distance-milli=@ud distance-unit=@tas elapsed-seconds=@ud]
 +$  economy-proof
   [milli=@ud unit=@t]
++$  distance-proof
+  [milli=@ud unit=@tas]
 +$  derived-fill
   [economy=(unit economy-proof) interval=(unit interval-proof) break-reason=(unit @tas)]
 +$  interval-baseline
@@ -191,6 +193,15 @@
   %+  turn  rows
   |=  row=vector:ast
   `@ux`(cell-atom key row)
+::
+++  last-vector
+  |=  rows=(list vector:ast)
+  ^-  (unit vector:ast)
+  ?~  rows
+    ~
+  ?~  t.rows
+    `i.rows
+  $(rows t.rows)
 ::
 ::  The @f bunt is %.y, so an archived link reads 0 and an active link reads 1.
 ++  archived-link-rows
@@ -4130,6 +4141,111 @@
     (crip amount)
   (crip ['-' amount])
 ::
+++  statistic-row-in-interval
+  |=  [row=vector:ast span=ownership-interval]
+  ^-  ?
+  =/  date=@da  `@da`(cell-atom %observed-start row)
+  ?&  ?~(start.span %.y (gte date u.start.span))
+      ?~(end.span %.y (lte date u.end.span))
+  ==
+::
+++  ownership-distance-proof
+  |=  $:  odometers=(list vector:ast)
+          span=(unit ownership-interval)
+      ==
+  ^-  (unit distance-proof)
+  =/  scoped=(list vector:ast)
+    ?~  span
+      odometers
+    %+  skim  odometers
+    |=  row=vector:ast
+    (statistic-row-in-interval row u.span)
+  =/  ordered  (order-vectors:act %observed-start %.n scoped)
+  ?~  ordered
+    ~
+  ?~  t.ordered
+    ~
+  =/  first=vector:ast  i.ordered
+  =/  last-row  (last-vector ordered)
+  ?~  last-row
+    ~
+  =/  last=vector:ast  u.last-row
+  =/  first-places  (cell-atom %decimal-places first)
+  =/  last-places  (cell-atom %decimal-places last)
+  ?:  ?|  (gth first-places 3)
+          (gth last-places 3)
+          !=((cell-term %unit first) (cell-term %unit last))
+      ==
+    ~
+  =/  first-milli
+    (mul (cell-atom %value-digits first) (pow-ten:render (sub 3 first-places)))
+  =/  last-milli
+    (mul (cell-atom %value-digits last) (pow-ten:render (sub 3 last-places)))
+  ?.  (gth last-milli first-milli)
+    ~
+  `[(sub last-milli first-milli) (cell-term %unit last)]
+::
+++  cost-per-distance-value
+  |=  [tally=cost-tally distance=distance-proof]
+  ^-  @sd
+  =/  magnitude
+    (round-div-half-up:act (mul (abs:si total.tally) 1.000) milli.distance)
+  (new:si (syn:si total.tally) magnitude)
+::
+++  cost-per-distance-money
+  |=  [value=@sd currency=@tas distance-unit=@tas]
+  ^-  @t
+  =/  number  (format-scaled:render (abs:si value) 3 %.y)
+  =/  amount=tape
+    ;:  weld
+      (currency-prefix:render currency)
+      (trip number)
+      "/"
+      (trip (scot %tas distance-unit))
+    ==
+  ?:  (syn:si value)
+    (crip amount)
+  (crip ['-' amount])
+::
+++  cost-per-distance-statistic
+  |=  $:  tally=cost-tally
+          odometers=(list vector:ast)
+          spans=(list ownership-interval)
+      ==
+  ^-  tape
+  =/  row=tape
+    ?:  (gth (lent spans) 1)
+      "<tr data-cost-per-distance-unavailable=\"ownership-gap\"><td>Lifetime</td><td>Unavailable</td><td>The vehicle was not owned for part of this interval, so the derived value is unavailable.</td></tr>"
+    ?:  ?|  =(0 entries.tally)
+            =(%.n compatible.tally)
+            ?=(~ currency.tally)
+        ==
+      "<tr data-cost-per-distance-unavailable=\"cost\"><td>Lifetime</td><td>Unavailable</td><td>Compatible recorded costs are required.</td></tr>"
+    =/  span=(unit ownership-interval)
+      ?~  spans
+        ~
+      `i.spans
+    =/  distance  (ownership-distance-proof odometers span)
+    ?~  distance
+      "<tr data-cost-per-distance-unavailable=\"distance\"><td>Lifetime</td><td>Unavailable</td><td>Two increasing odometer readings in one distance unit are required within the ownership interval.</td></tr>"
+    =/  value  (cost-per-distance-value tally u.distance)
+    ;:  weld
+      "<tr data-cost-per-distance-mills=\""
+      (trip (format-sscaled:render value 0 %.n))
+      "\"><td>Lifetime</td><td>"
+      (escape (cost-per-distance-money value u.currency.tally unit.u.distance))
+      "</td><td>Total ownership cost over "
+      (trip (format-scaled:render milli.u.distance 3 %.y))
+      " "
+      (trip (scot %tas unit.u.distance))
+      ".</td></tr>"
+    ==
+  ;:  weld
+    "<section class=\"stat-table\" data-statistic=\"cost-per-distance\"><h2>Cost per distance, all-in</h2><table><thead><tr><th>Period</th><th>Cost per distance</th><th>Basis</th></tr></thead><tbody>"
+    row
+    "</tbody></table></section>"
+  ==
+::
 ++  spend-family-row
   |=  [family=@tas label=@t tally=cost-tally]
   ^-  tape
@@ -4262,6 +4378,7 @@
     "<section class=\"stat-table\" data-statistic=\"total-cost-of-ownership\"><h2>Total cost of ownership</h2><table><thead><tr><th>Period</th><th>Total</th></tr></thead><tbody>"
     total-row
     "</tbody></table></section>"
+    (cost-per-distance-statistic total vehicle-odometers.cost-rows spans)
     "<section class=\"stat-table\" data-statistic=\"spend-by-family\"><h2>Spend by family</h2><table><thead><tr><th>Family</th><th>Records</th><th>Total</th></tr></thead><tbody>"
     (spend-family-row %service 'Service' service)
     (spend-family-row %expense 'Expense' expense)

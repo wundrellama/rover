@@ -4299,7 +4299,7 @@ grep -q 'data-cost-family="fuel" data-family-total-mills="29990"' <<<"$statistic
   || fail "fixture 135 fuel total changed when only service changed"
 grep -q 'data-cost-per-distance-mills="6138"' <<<"$statistics_cost_after_service" \
   || fail "fixture 135 all-in cost per mile did not change from 6038 to 6138 mills"
-note "fixture 135 PASS - a service-only $100 change raises all-in cost from 6038 to 6138 mills per mile while fuel stays at 29990 mills"
+note 'fixture 135 PASS - a service-only $100 change raises all-in cost from 6038 to 6138 mills per mile while fuel stays at 29990 mills'
 if [ "${ROVER_FIXTURE_STOP:-}" = 135 ]; then
   exit 0
 fi
