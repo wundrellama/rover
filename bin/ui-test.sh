@@ -1210,7 +1210,8 @@ if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
     "$URL/apps/rover/set-default-vehicle")"
   [ "$demo_default" = $'Saved default vehicle\n201' ] \
     || fail "fixture 63 could not set the demo app-default-vehicle: $demo_default"
-  demo_before_def="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  demo_before_def="$(scoped_view_html "$(scoped_view 0 'Rover Demo Gasoline')")"
+  demo_diesel_before_def="$(scoped_view_html "$(scoped_view 0 'Rover Demo Diesel')")"
   demo_summary="$(
     python3 -c 'import html, re, sys
 document = html.unescape(sys.stdin.read())
@@ -1232,7 +1233,8 @@ computed = {
 print("|".join(gas))
 print("|".join(diesel))
 print("|".join(name for name, present in computed.items() if present))
-print("yes" if "data-economy-break=\"%missed-fill\"" in document else "no")' <<<"$demo_before_def"
+print("yes" if "data-economy-break=\"%missed-fill\"" in document else "no")' \
+      <<<"$demo_before_def$demo_diesel_before_def"
   )"
   mapfile -t demo_parts <<<"$demo_summary"
   [ "$(tr '|' '\n' <<<"${demo_parts[0]:-}" | grep -c ' mpg$')" -ge 4 ] ||
