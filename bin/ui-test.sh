@@ -4248,6 +4248,16 @@ note "bootstrap idempotence counts - before $bootstrap_counts_before after $boot
 note "fixture 123 PASS - a populated view does not re-pour, re-seed, or change fill and starter counts"
 fi
 
+statistics_retained_before=""
+if [ "${ROVER_T11_ONLY:-}" = 1 ]; then
+  statistics_retained_before="$(
+    curl -s -b "$JAR" "$URL/apps/rover/view" \
+      | python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+print(len(set(re.findall(r"Statistics Cost Vehicle [0-9]+", document))))'
+  )"
+fi
+
 statistics_cost_stamp="$(date +%s%N)"
 statistics_cost_vehicle="Statistics Cost Vehicle $statistics_cost_stamp"
 eyre_post add-vehicle \
@@ -4439,6 +4449,15 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 138 ]; then
 fi
 
 if [ "${ROVER_T11_ONLY:-}" = 1 ]; then
+  statistics_retained_after="$(
+    curl -s -b "$JAR" "$URL/apps/rover/view" \
+      | python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+print(len(set(re.findall(r"Statistics Cost Vehicle [0-9]+", document))))'
+  )"
+  [ "$statistics_retained_after" -eq $((statistics_retained_before + 1)) ] \
+    || fail "T11 retained-data census changed from $statistics_retained_before to $statistics_retained_after; expected one new stamped vehicle"
+  note "T11 retained-data census - Statistics Cost Vehicle count $statistics_retained_before -> $statistics_retained_after"
   note "COVERAGE - all 5 T11 fixtures executed"
   exit 0
 fi
