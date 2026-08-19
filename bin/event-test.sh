@@ -284,6 +284,10 @@ count_rows() {
   grep -o "$marker" <<<"$report" | wc -l
 }
 
+event_id_from_report() {
+  grep -oE '%event-id [0-9]+ 0x[0-9a-f]+' <<<"$1" | head -1 | awk '{print $3}'
+}
+
 # Rows of one relation that belong to this run's event at this observed start.
 scoped_rows() {
   local relation="$1" alias="$2" column="$3" observed="$4"
@@ -376,21 +380,22 @@ note "fixture 4 PASS - the service endpoint accepted an entered total"
 # fixture 87 - correction updates the current service event in place. The
 # parent identity and the family row count stay fixed while the cost changes.
 # ---------------------------------------------------------------------------
-service_identity_before="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT E.event-id;")"
+service_identity_before="$(event_id_from_report "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT E.event-id;")")"
 service_count_before="$(count_rows "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' SELECT E.event-id;")" '%event-id')"
 eyre_post edit-event \
   "$(event_edit_payload service "$SERVICE_AT" "$SERVICE_AT" "$SERVICE_CORRECTED_TOTAL" "$SERVICE_ODO" "$STATION" "[\"$TAG\"]" '' "$PAYMENT" "$SERVICE_NOTE" '[]' '')" \
   "$(printf 'Corrected service event - %s\n200' "$SERVICE_CORRECTED_TOTAL")" 'fixture 87 service correction'
-service_identity_after="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT E.event-id;")"
+service_identity_after="$(event_id_from_report "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT E.event-id;")")"
 service_count_after="$(count_rows "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' SELECT E.event-id;")" '%event-id')"
 [ "$service_identity_after" = "$service_identity_before" ] \
   || fail "fixture 87 the service parent identity changed: before $service_identity_before after $service_identity_after"
 [ "$service_count_after" = "$service_count_before" ] \
   || fail "fixture 87 the service family count changed: $service_count_before -> $service_count_after"
 report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-cost-totals T ON E.event-id = T.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT T.total-mills;")"
-grep -q '%total-mills 25717 518250' <<<"$report" \
+grep -qE '%total-mills 25717 (518250|0x7e86a)' <<<"$report" \
   || fail "fixture 87 the corrected cost did not persist: $report"
 SERVICE_TOTAL="$SERVICE_CORRECTED_TOTAL"
+note "fixture 87 identity - $service_identity_before -> $service_identity_after"
 note "fixture 87 PASS - the service cost changed in place while the parent identity and family row count stayed fixed"
 
 # ---------------------------------------------------------------------------

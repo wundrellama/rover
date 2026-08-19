@@ -601,6 +601,54 @@
     " FROM disposal-kind-definitions K SELECT K.disposal-kind-id, K.label, K.archived;"
   ==
 ::
+++  edit-event-lookup
+  |=  [vehicle-label=@t observed-start=@da]
+  ^-  tape
+  =/  label  (sql-quote vehicle-label)
+  =/  observed  (scow %da observed-start)
+  ;:  weld
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '"
+    label
+    "' AND E.observed-start = "
+    observed
+    " SELECT E.event-id, V.vehicle-id; "
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '"
+    label
+    "' AND E.observed-start = "
+    observed
+    " SELECT S.event-id; "
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events X ON E.event-id = X.event-id WHERE V.label = '"
+    label
+    "' AND E.observed-start = "
+    observed
+    " SELECT X.event-id; "
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN note-events Z ON E.event-id = Z.event-id WHERE V.label = '"
+    label
+    "' AND E.observed-start = "
+    observed
+    " SELECT Z.event-id; "
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-acquisitions A ON E.event-id = A.event-id WHERE V.label = '"
+    label
+    "' AND E.observed-start = "
+    observed
+    " SELECT A.event-id; "
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-disposals D ON E.event-id = D.event-id WHERE V.label = '"
+    label
+    "' AND E.observed-start = "
+    observed
+    " SELECT D.event-id, D.disposal-kind-id; "
+    "FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.archived, P.label AS place; "
+    "FROM tag-definitions T SELECT T.tag-id, T.label, T.archived; "
+    "FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived; "
+    "FROM service-subtype-definitions S SELECT S.service-subtype-id, S.label, S.archived; "
+    "FROM disposal-kind-definitions K SELECT K.disposal-kind-id, K.label, K.archived; "
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-odometers L ON E.event-id = L.event-id WHERE V.label = '"
+    label
+    "' AND E.observed-start = "
+    observed
+    " SELECT L.odometer-id;"
+  ==
+::
 ::  One atomic script for one vehicle event, shaped after +insert-consumable.
 ::  Every optional member writes a row only when the owner supplied it: an
 ::  absent station, odometer, cost, tag, payment method, or note is an absent
@@ -806,6 +854,217 @@
     new-tag-rows
     (insert-event-tags event.ids tag-ids)
     (insert-event-subtypes event.ids subtype-ids)
+    payment-row
+    notes-row
+  ==
+::
+++  update-event
+  |=  $:  event-id=@ux
+          vehicle-id=@ux
+          station-id=(unit @ux)
+          tag-ids=(list @ux)
+          subtype-ids=(list @ux)
+          disposal-kind-id=(unit @ux)
+          payment-method-id=(unit @ux)
+          current-odometer-id=(unit @ux)
+          ids=event-ids
+          input=event-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  =/  event  (scow %ux event-id)
+  =/  vehicle  (scow %ux vehicle-id)
+  =/  observed-start  (scow %da observed-start.input)
+  =/  observed-end  (scow %da (add observed-start.input (bex 64)))
+  =/  recorded  (scow %da recorded-at)
+  =/  zone  (sql-quote source-zone.input)
+  =/  new-station-rows=tape
+    ?~  new-station.input
+      ~
+    ;:  weld
+      "INSERT INTO places VALUES ("
+      (scow %ux place.ids)
+      ", '"
+      (sql-quote place-label.u.new-station.input)
+      "', N, "
+      recorded
+      "); INSERT INTO stations VALUES ("
+      (scow %ux station.ids)
+      ", "
+      (scow %ux place.ids)
+      ", '"
+      (sql-quote station-label.u.new-station.input)
+      "', "
+      (sql-term station-kind.u.new-station.input)
+      ", N, "
+      recorded
+      "); "
+    ==
+  =/  effective-station=(unit @ux)
+    ?^  station-id
+      station-id
+    ?^  new-station.input
+      `station.ids
+    ~
+  =/  station-row=tape
+    ?~  effective-station
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-stations VALUES ("
+      event
+      ", "
+      (scow %ux u.effective-station)
+      ");"
+    ==
+  =/  new-tag-rows=tape
+    ?~  new-tag-label.input
+      ~
+    ;:  weld
+      " INSERT INTO tag-definitions VALUES ("
+      (scow %ux tag.ids)
+      ", '"
+      (sql-quote u.new-tag-label.input)
+      "', N, "
+      recorded
+      "); INSERT INTO vehicle-event-tags VALUES ("
+      event
+      ", "
+      (scow %ux tag.ids)
+      ");"
+    ==
+  =/  cost-rows=tape
+    ?~  total-mills.input
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-costs VALUES ("
+      event
+      ", %receipt-total-only, "
+      (sql-term currency.input)
+      ", "
+      (sql-ud minor-unit-decimals.input)
+      ", "
+      recorded
+      "); INSERT INTO vehicle-event-cost-totals VALUES ("
+      event
+      ", "
+      (sql-ud u.total-mills.input)
+      ");"
+    ==
+  =/  mileage-rows=tape
+    ?>  ?=(^ mileage.input)
+    ?^  current-odometer-id
+      ;:  weld
+        " UPDATE odometer-observations SET value-digits = "
+        (sql-ud digits.u.mileage.input)
+        ", decimal-places = "
+        (sql-ud places.u.mileage.input)
+        ", unit = "
+        (sql-term odo-unit.u.mileage.input)
+        ", observed-start = "
+        observed-start
+        ", observed-end = "
+        observed-end
+        ", source-zone = '"
+        zone
+        "' WHERE odometer-id = "
+        (scow %ux u.current-odometer-id)
+        "; INSERT INTO vehicle-event-odometers VALUES ("
+        event
+        ", "
+        (scow %ux u.current-odometer-id)
+        ");"
+      ==
+    ;:  weld
+      " INSERT INTO odometer-observations VALUES ("
+      (scow %ux odometer.ids)
+      ", "
+      vehicle
+      ", "
+      (sql-ud digits.u.mileage.input)
+      ", "
+      (sql-ud places.u.mileage.input)
+      ", "
+      (sql-term odo-unit.u.mileage.input)
+      ", "
+      observed-start
+      ", "
+      observed-end
+      ", %second, '"
+      zone
+      "', "
+      recorded
+      "); INSERT INTO vehicle-event-odometers VALUES ("
+      event
+      ", "
+      (scow %ux odometer.ids)
+      ");"
+    ==
+  =/  payment-row=tape
+    ?~  payment-method-id
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-payment-method VALUES ("
+      event
+      ", "
+      (scow %ux u.payment-method-id)
+      ");"
+    ==
+  =/  notes-row=tape
+    ?~  notes.input
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-notes VALUES ("
+      event
+      ", '"
+      (sql-quote u.notes.input)
+      "');"
+    ==
+  =/  child-update=tape
+    ?.  ?=(%disposal kind.input)
+      ~
+    ?>  ?=(^ disposal-kind-id)
+    ;:  weld
+      " UPDATE vehicle-disposals SET disposal-kind-id = "
+      (scow %ux u.disposal-kind-id)
+      " WHERE event-id = "
+      event
+      ";"
+    ==
+  ;:  weld
+    new-station-rows
+    "UPDATE vehicle-events SET observed-start = "
+    observed-start
+    ", observed-end = "
+    observed-end
+    ", source-zone = '"
+    zone
+    "' WHERE event-id = "
+    event
+    ";"
+    child-update
+    " DELETE FROM vehicle-event-cost-totals WHERE event-id = "
+    event
+    "; DELETE FROM vehicle-event-costs WHERE event-id = "
+    event
+    "; DELETE FROM vehicle-event-odometers WHERE event-id = "
+    event
+    "; DELETE FROM vehicle-event-stations WHERE event-id = "
+    event
+    "; DELETE FROM vehicle-event-tags WHERE event-id = "
+    event
+    "; DELETE FROM vehicle-event-payment-method WHERE event-id = "
+    event
+    "; DELETE FROM vehicle-event-notes WHERE event-id = "
+    event
+    "; DELETE FROM vehicle-event-service-subtypes WHERE event-id = "
+    event
+    ";"
+    cost-rows
+    mileage-rows
+    station-row
+    new-tag-rows
+    (insert-event-tags event-id tag-ids)
+    (insert-event-subtypes event-id subtype-ids)
     payment-row
     notes-row
   ==

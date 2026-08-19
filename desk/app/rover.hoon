@@ -799,6 +799,45 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ?:  =('/apps/rover/edit-event' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  object  (json-object:entry body-text)
+      ?~  object
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event')) sat]
+      =/  kind-text  (json-string:entry 'kind' u.object)
+      ?~  kind-text
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%missing-key: event.kind')) sat]
+      =/  kind-term  (slaw %tas u.kind-text)
+      ?.  ?&  ?=(^ kind-term)
+              ?=(event-kind:rover u.kind-term)
+          ==
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: event.kind')) sat]
+      =/  kind=event-kind:rover  ;;(event-kind:rover u.kind-term)
+      =/  decoded  (decode-event:entry kind body-text)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      ?:  ?=(~ mileage.p.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%incomplete: event.mileage - an event correction requires an odometer reading')) sat]
+      =/  original-text  (json-string:entry 'originalObserved' u.object)
+      ?~  original-text
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%missing-key: edit-event.original-date')) sat]
+      =/  original-observed  (local-da:entry u.original-text)
+      ?~  original-observed
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event.original-date')) sat]
+      =/  wir=wire  /rover-edit-event-lookup/[kind]/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>([%script %rover %vector (edit-event-lookup:act vehicle-label.p.decoded u.original-observed)])
+      =/  next
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          fill-body-pending  (~(put by fill-body-pending.sat) wir body-text)
+        ==
+      :_  next
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ::  M7 T6. One reminder. The write is two phases like an event write: the
     ::  vehicle and the service subtype are resolved by label first, and an
     ::  unknown one is refused rather than invented.
@@ -1805,6 +1844,198 @@
         (cat 3 head (cat 3 ' - ' total-display.p.decoded))
       :_  cleared
       (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs saved))
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-edit-event-lookup ?(%service %expense %note %acquisition %disposal) *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event'))
+      =/  decoded  (decode-event:entry i.t.wire u.body)
+      ?:  ?=(%| -.decoded)
+        :_  cleared
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event'))
+      ?:  ?=(~ mileage.p.decoded)
+        :_  cleared
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event'))
+      ?.  (gte (lent p.res) 12)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event'))
+      =/  events  (rows-at:view p.res 0)
+      ?~  events
+        :_  cleared
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event'))
+      ?.  =(1 (lent events))
+        :_  cleared
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%ambiguous: edit-event - more than one event has that observed time'))
+      =/  service-rows  (rows-at:view p.res 1)
+      =/  expense-rows  (rows-at:view p.res 2)
+      =/  note-rows  (rows-at:view p.res 3)
+      =/  acquisition-rows  (rows-at:view p.res 4)
+      =/  disposal-rows  (rows-at:view p.res 5)
+      =/  typed-count
+        (add (lent service-rows) (add (lent expense-rows) (add (lent note-rows) (add (lent acquisition-rows) (lent disposal-rows)))))
+      ?.  =(1 typed-count)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%incomplete: edit-event.kind - the stored event has no single kind'))
+      =/  actual-kind=event-kind:rover
+        ?^  service-rows  %service
+        ?^  expense-rows  %expense
+        ?^  note-rows  %note
+        ?^  acquisition-rows  %acquisition
+        %disposal
+      ?.  =(actual-kind i.t.wire)
+        :_  cleared
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%kind-fixed: event.kind - an event kind cannot be changed'))
+      =/  station-rows  (rows-at:view p.res 6)
+      =/  tag-rows  (rows-at:view p.res 7)
+      =/  payment-rows  (rows-at:view p.res 8)
+      =/  subtype-rows  (rows-at:view p.res 9)
+      =/  disposal-kind-rows  (rows-at:view p.res 10)
+      =/  odometer-rows  (rows-at:view p.res 11)
+      ?.  (lte (lent odometer-rows) 1)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event.odometer'))
+      =/  station-id=(unit @ux)
+        ?~  station-label.p.decoded
+          ~
+        =/  found  (row-by-text:view %label u.station-label.p.decoded station-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %station-id u.found)
+      ?:  ?&  ?=(^ station-label.p.decoded)
+              ?=(~ station-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.station'))
+      =/  tag-proof
+        (ids-for-labels:view tag-labels.p.decoded tag-rows %label %tag-id)
+      ?:  ?=(%| -.tag-proof)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.tags'))
+      =/  subtype-proof
+        (ids-for-labels:view subtype-labels.p.decoded subtype-rows %label %service-subtype-id)
+      ?:  ?=(%| -.subtype-proof)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.subtypes'))
+      =/  disposal-kind-id=(unit @ux)
+        ?~  disposal-kind-label.p.decoded
+          ~
+        =/  found
+          (row-by-text:view %label u.disposal-kind-label.p.decoded disposal-kind-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %disposal-kind-id u.found)
+      ?:  ?&  ?=(^ disposal-kind-label.p.decoded)
+              ?=(~ disposal-kind-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.disposal-kind'))
+      =/  payment-method-id=(unit @ux)
+        ?~  payment-method-label.p.decoded
+          ~
+        =/  found
+          (row-by-text:view %label u.payment-method-label.p.decoded payment-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %method-id u.found)
+      ?:  ?&  ?=(^ payment-method-label.p.decoded)
+              ?=(~ payment-method-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.payment-method'))
+      ?:  ?&  ?=(^ new-tag-label.p.decoded)
+              ?=(^ (row-by-text:view %label u.new-tag-label.p.decoded tag-rows))
+          ==
+        :_  cleared
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%already-exists: edit-event.new-tag'))
+      =/  current-odometer-id=(unit @ux)
+        ?~  odometer-rows
+          ~
+        ``@ux`(cell-atom:view %odometer-id i.odometer-rows)
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  ids=event-ids:act
+        :*  (fixture-id:act base 9.311)
+            (fixture-id:act base 9.312)
+            (fixture-id:act base 9.313)
+            (fixture-id:act base 9.314)
+            (fixture-id:act base 9.315)
+        ==
+      =/  write-wire=path  /rover-edit-event-write/[actual-kind]/(scot %da now.bowl)/[u.eyre-id]
+      =/  script=tape
+        %:  update-event:act
+            `@ux`(cell-atom:view %event-id i.events)
+            `@ux`(cell-atom:view %vehicle-id i.events)
+            station-id
+            p.tag-proof
+            p.subtype-proof
+            disposal-kind-id
+            payment-method-id
+            current-odometer-id
+            ids
+            p.decoded
+            now.bowl
+        ==
+      =/  jon  !>([%script %rover %vector script])
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+      =/  next-body
+        (~(put by (~(del by fill-body-pending) wire)) write-wire u.body)
+      :_  this(http-pending next-http, fill-body-pending next-body)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-edit-event-write ?(%service %expense %note %acquisition %disposal) *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      =/  decoded  (decode-event:entry i.t.wire u.body)
+      ?:  ?|  ?=(%.n -.res)
+              ?=(%| -.decoded)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event'))
+      =/  saved=@t
+        =/  head  (cat 3 'Corrected ' (cat 3 (scot %tas kind.p.decoded) ' event'))
+        ?~  total-mills.p.decoded
+          head
+        (cat 3 head (cat 3 ' - ' total-display.p.decoded))
+      :_  cleared
+      (http-give u.eyre-id 200 ['content-type' 'text/plain']~ `(text-octs saved))
     ::
         %kick
       `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
