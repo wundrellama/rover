@@ -2869,7 +2869,7 @@ fi
 grep -q 'id="fill-price-completed"' <<<"$view" || fail "completed-price preview is missing"
 grep -q '<output id="fill-derived-total"' <<<"$view" \
   || fail "derived total is not a non-input output"
-if grep -Eq '<input[^>]+name="(total|unitPriceMills|quantityMilli)"' <<<"$view"; then
+if grep -Eq '<input[^>]+name="(total|unitPriceMills|quantityMilli)"' <<<"$fill_html"; then
   fail "add-fill form asks for a derived total or machine representation"
 fi
 grep -q 'Energy delivered' <<<"$view" || fail "add-charge surface lacks Energy delivered wording"
