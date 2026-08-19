@@ -26,7 +26,7 @@ No new relation, no new column. The shipping `$action` union is still five arms.
 - Ship: `~bel`
 - tmux session: `m7t12opus`
 - Ames port: `32810`
-- Eyre port: `8120`
+- Eyre port: `8120` at first boot, `8083` after the restart fixture reboots the ship
 - Pill: `/var/home/michael/workspace/urbit/pills/brass-408k-1.pill`
 - Obelisk source: `/tmp/obelisk-fresh/desk`
 - Obelisk install: `/home/michael/piers/rover-m7t12-opus-bel/obelisk`
