@@ -4361,12 +4361,25 @@ document = sys.stdin.read()
 match = re.search(r"<section class=\"stat-table\" data-statistic=\"service-history-summary\"[^>]*>.*?</section>", document, re.S)
 print(match.group(0) if match else "")' <<<"$statistics_empty_view"
 )"
+statistics_spend_empty="$(
+  python3 -c 'import re, sys
+document = sys.stdin.read()
+match = re.search(r"<section class=\"stat-table\" data-statistic=\"spend-by-family\"[^>]*>.*?</section>", document, re.S)
+print(match.group(0) if match else "")' <<<"$statistics_empty_view"
+)"
 grep -q 'No service events recorded for this vehicle.' <<<"$statistics_service_empty" \
   || fail "fixture 137 no-service vehicle lacks an honest empty state"
 if grep -q 'data-cost-family="service"\|\$0\.00' <<<"$statistics_service_empty"; then
   fail "fixture 137 no-service vehicle fabricates a zero service total"
 fi
-note "fixture 137 PASS - a vehicle with no service events says so and renders no zero-dollar claim"
+grep -q 'data-cost-family="service"' <<<"$statistics_spend_empty" \
+  || fail "fixture 137 spend table omits the required Service family row"
+grep -q 'No costs recorded' <<<"$statistics_spend_empty" \
+  || fail "fixture 137 absent Service spend does not speak human"
+if grep -q 'data-family-total-mills="0"\|\$0\.00' <<<"$statistics_spend_empty"; then
+  fail "fixture 137 absent Service spend fabricates a zero total"
+fi
+note "fixture 137 PASS - a vehicle with no service events keeps the Service family row, says so, and renders no zero-dollar claim"
 if [ "${ROVER_FIXTURE_STOP:-}" = 137 ]; then
   exit 0
 fi
