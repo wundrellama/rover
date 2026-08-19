@@ -222,4 +222,3 @@ the two-second budget without storing a derived cache.
 - Event odometer facts use two urQL reads because the pinned engine rejects the
   equivalent empty-side wide join. Gall joins the two selected-vehicle result
   sets by their retained keys.
-
