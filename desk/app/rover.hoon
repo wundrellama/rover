@@ -799,6 +799,56 @@
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
+    ::  M7 T12. Correcting an event. ONE endpoint for every kind, because the
+    ::  route cannot select the typed child here: the event already has one,
+    ::  and the correction has to hold to it. The requested kind therefore
+    ::  arrives in the body, and the database decides whether it agrees.
+    ::
+    ::  The record is named the way the person sees it - the vehicle they
+    ::  picked and the moment they recorded - exactly as `edit-fill` does.
+    ?:  =('/apps/rover/edit-event' url.request.req)
+      ?~  body.request.req
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event')) sat]
+      =/  body-text=@t  `@t`q.u.body.request.req
+      =/  object  (json-object:entry body-text)
+      ?~  object
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event')) sat]
+      =/  kind-text  (json-string:entry 'kind' u.object)
+      ?~  kind-text
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%missing-key: edit-event.kind')) sat]
+      =/  kind-term  (slaw %tas u.kind-text)
+      ?.  ?&  ?=(^ kind-term)
+              ?=(event-kind:rover u.kind-term)
+          ==
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event.kind')) sat]
+      =/  kind=event-kind:rover  ;;(event-kind:rover u.kind-term)
+      =/  decoded  (decode-event:entry kind body-text)
+      ?:  ?=(%| -.decoded)
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
+      ::  A correction may move the moment, so the record is found by the
+      ::  moment it currently holds. An absent key means the moment did not
+      ::  change, which is what a form that never touched the date sends.
+      =/  original-text  (json-string:entry 'originalObserved' u.object)
+      =/  original-observed
+        ?~  original-text
+          `observed-start.p.decoded
+        (local-da:entry u.original-text)
+      ?~  original-observed
+        [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event.original-date')) sat]
+      =/  wir=wire  /rover-edit-event-lookup/[kind]/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>  :*  %script  %rover  %vector
+                (edit-event-lookup:act vehicle-label.p.decoded (need original-observed))
+            ==
+      =/  next
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          fill-body-pending  (~(put by fill-body-pending.sat) wir body-text)
+        ==
+      :_  next
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
     ::  M7 T6. One reminder. The write is two phases like an event write: the
     ::  vehicle and the service subtype are resolved by label first, and an
     ::  unknown one is refused rather than invented.
@@ -1805,6 +1855,260 @@
         (cat 3 head (cat 3 ' - ' total-display.p.decoded))
       :_  cleared
       (http-give u.eyre-id 201 ['content-type' 'text/plain']~ `(text-octs saved))
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+  ::  M7 T12. Correcting an event, in three phases.
+  ::
+  ::  One: the vehicle label and the recorded moment become an event id. Two:
+  ::  the event's own state - which typed child it has, which odometer
+  ::  observation it links to - and every catalog the corrected form may name.
+  ::  Three: one atomic mutation-only script, because the pinned engine refuses
+  ::  a mutation that follows a result-returning query in one script.
+      [%rover-edit-event-lookup ?(%service %expense %note %acquisition %disposal) *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event'))
+      ?~  p.res
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event.evidence'))
+      =/  rows  (rows-at:view p.res 0)
+      ?~  rows
+        :_  cleared
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event'))
+      ::  Two events on one vehicle at one moment cannot be told apart by the
+      ::  only handle a person has, so Rover corrects neither.
+      ?.  =(1 (lent rows))
+        :_  cleared
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%ambiguous: edit-event'))
+      =/  event-id=@ux  `@ux`(cell-atom:view %event-id i.rows)
+      =/  vehicle-id=@ux  `@ux`(cell-atom:view %vehicle-id i.rows)
+      =/  state-wire=path
+        :*  %rover-edit-event-state
+            i.t.wire
+            (scot %ux event-id)
+            (scot %ux vehicle-id)
+            (scot %da now.bowl)
+            u.eyre-id
+            ~
+        ==
+      =/  jon  !>([%script %rover %vector (edit-event-state:act event-id)])
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) state-wire u.eyre-id)
+      =/  next-body
+        (~(put by (~(del by fill-body-pending) wire)) state-wire u.body)
+      :_  this(http-pending next-http, fill-body-pending next-body)
+      :~  [%pass state-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass state-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-edit-event-state ?(%service %expense %note %acquisition %disposal) @ @ *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event'))
+      =/  decoded  (decode-event:entry i.t.wire u.body)
+      ?:  ?=(%| -.decoded)
+        :_  cleared
+        (http-give u.eyre-id 400 ['content-type' 'text/plain']~ `(text-octs '%bad-shape: edit-event'))
+      ?.  (gte (lent p.res) 11)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event.evidence'))
+      =/  event-id=@ux  (slav %ux i.t.t.wire)
+      =/  vehicle-id=@ux  (slav %ux i.t.t.t.wire)
+      ::  The kind is which typed child exists. Rover reads it rather than
+      ::  trusting the request, because this is the one fact a correction may
+      ::  not change.
+      =/  stored=(unit event-kind:rover)
+        ?^  (rows-at:view p.res 0)  `%service
+        ?^  (rows-at:view p.res 1)  `%expense
+        ?^  (rows-at:view p.res 2)  `%note
+        ?^  (rows-at:view p.res 3)  `%acquisition
+        ?^  (rows-at:view p.res 4)  `%disposal
+        ~
+      ?~  stored
+        :_  cleared
+        (http-give u.eyre-id 404 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.kind'))
+      ::  A service visit that should have been an expense is a different
+      ::  family with a different typed child. Correcting the kind would move
+      ::  the row between relations and break every link into it, so Rover says
+      ::  so instead of doing it.
+      ?.  =(u.stored kind.p.decoded)
+        =/  reason=@t
+          %^  cat  3
+            '%wrong-kind: edit-event.kind - an event keeps the kind it was '
+          'recorded under. Record the event again under the kind you want.'
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs reason))
+      =/  current-odometer-id=(unit @ux)
+        =/  odometer-rows  (rows-at:view p.res 5)
+        ?~  odometer-rows
+          ~
+        ``@ux`(cell-atom:view %odometer-id i.odometer-rows)
+      =/  station-rows  (rows-at:view p.res 6)
+      =/  tag-rows  (rows-at:view p.res 7)
+      =/  payment-rows  (rows-at:view p.res 8)
+      =/  subtype-rows  (rows-at:view p.res 9)
+      =/  disposal-kind-rows  (rows-at:view p.res 10)
+      =/  station-id=(unit @ux)
+        ?~  station-label.p.decoded
+          ~
+        =/  found  (row-by-text:view %label u.station-label.p.decoded station-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %station-id u.found)
+      ?:  ?&  ?=(^ station-label.p.decoded)
+              ?=(~ station-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.station'))
+      =/  tag-proof
+        (ids-for-labels:view tag-labels.p.decoded tag-rows %label %tag-id)
+      ?:  ?=(%| -.tag-proof)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.tags'))
+      =/  subtype-proof
+        (ids-for-labels:view subtype-labels.p.decoded subtype-rows %label %service-subtype-id)
+      ?:  ?=(%| -.subtype-proof)
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.subtypes'))
+      =/  disposal-kind-id=(unit @ux)
+        ?~  disposal-kind-label.p.decoded
+          ~
+        =/  found
+          (row-by-text:view %label u.disposal-kind-label.p.decoded disposal-kind-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %disposal-kind-id u.found)
+      ?:  ?&  ?=(^ disposal-kind-label.p.decoded)
+              ?=(~ disposal-kind-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.disposal-kind'))
+      =/  payment-method-id=(unit @ux)
+        ?~  payment-method-label.p.decoded
+          ~
+        =/  found
+          (row-by-text:view %label u.payment-method-label.p.decoded payment-rows)
+        ?~  found
+          ~
+        ``@ux`(cell-atom:view %method-id u.found)
+      ?:  ?&  ?=(^ payment-method-label.p.decoded)
+              ?=(~ payment-method-id)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%not-found: edit-event.payment-method'))
+      ?:  ?&  ?=(^ new-tag-label.p.decoded)
+              ?=(^ (row-by-text:view %label u.new-tag-label.p.decoded tag-rows))
+          ==
+        :_  cleared
+        (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs '%already-exists: edit-event.new-tag'))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      ::  Only the ids for rows a correction may CREATE are fresh. The event id
+      ::  is the one already stored, and the odometer id is used only when the
+      ::  event had no reading before.
+      =/  ids=event-ids:act
+        :*  event-id
+            (fixture-id:act base 9.401)
+            (fixture-id:act base 9.402)
+            (fixture-id:act base 9.403)
+            (fixture-id:act base 9.404)
+        ==
+      =/  write-wire=path
+        /rover-edit-event-write/[i.t.wire]/(scot %da now.bowl)/[u.eyre-id]
+      =/  script=tape
+        %:  update-event:act
+            ids
+            vehicle-id
+            station-id
+            p.tag-proof
+            p.subtype-proof
+            disposal-kind-id
+            payment-method-id
+            current-odometer-id
+            p.decoded
+            now.bowl
+        ==
+      =/  jon  !>([%script %rover %vector script])
+      =/  next-http
+        (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+      =/  next-body
+        (~(put by (~(del by fill-body-pending) wire)) write-wire u.body)
+      :_  this(http-pending next-http, fill-body-pending next-body)
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::
+        %kick
+      `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      [%rover-edit-event-write ?(%service %expense %note %acquisition %disposal) *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  body  (~(get by fill-body-pending) wire)
+      =/  cleared
+        this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?~  body
+        :_  cleared
+        (restart-http u.eyre-id)
+      =/  decoded  (decode-event:entry i.t.wire u.body)
+      ?:  ?|  ?=(%.n -.res)
+              ?=(%| -.decoded)
+          ==
+        :_  cleared
+        (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: edit-event'))
+      ::  200, not 201. A correction mints nothing: the record a person is
+      ::  looking at is the record they already had.
+      =/  saved=@t
+        =/  head  (cat 3 'Corrected ' (cat 3 (scot %tas kind.p.decoded) ' event'))
+        ?~  total-mills.p.decoded
+          head
+        (cat 3 head (cat 3 ' - ' total-display.p.decoded))
+      :_  cleared
+      (http-give u.eyre-id 200 ['content-type' 'text/plain']~ `(text-octs saved))
     ::
         %kick
       `this(http-pending (~(del by http-pending) wire), fill-body-pending (~(del by fill-body-pending) wire))

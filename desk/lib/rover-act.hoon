@@ -592,6 +592,16 @@
     "FROM vehicles V WHERE V.label = '"
     (sql-quote vehicle-label)
     "' SELECT V.vehicle-id;"
+    event-catalogs
+  ==
+::
+::  Every catalog an event may select from. M7 T12 corrects an event through
+::  the same form that created it, so the create path and the correct path read
+::  ONE list. Two copies would drift, and a selector missing from the edit form
+::  would silently drop the association it offers.
+++  event-catalogs
+  ^-  tape
+  ;:  weld
     " FROM stations S JOIN places P ON S.place-id = P.place-id SELECT S.station-id, S.label, S.archived, P.label AS place;"
     " FROM tag-definitions T SELECT T.tag-id, T.label, T.archived;"
     " FROM payment-method-definitions P SELECT P.method-id, P.label, P.archived;"
@@ -1990,6 +2000,309 @@
     note-row
     payment-row
     odometer-row
+  ==
+::
+::  M7 T12. A correction names the record the way the person sees it: the
+::  vehicle they picked and the moment they recorded. No id crosses the HTTP
+::  boundary in either direction; this read is where the label becomes an id.
+++  edit-event-lookup
+  |=  [vehicle-label=@t observed-start=@da]
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '"
+    (sql-quote vehicle-label)
+    "' AND E.observed-start = "
+    (scow %da observed-start)
+    " SELECT E.event-id, V.vehicle-id;"
+  ==
+::
+::  What the event already IS, plus every catalog the corrected form may name.
+::  The kind lives in which typed child row exists and nowhere else, so these
+::  five probes are how Rover learns the kind it must hold the correction to.
+::
+::  Each probe names one relation and keys on the resolved event id. A join
+::  would have to reach through a child relation that is legitimately empty - a
+::  database with no note event holds an empty `note-events` - and T11 measured
+::  the pinned engine failing exactly that shape.
+++  edit-event-state
+  |=  event-id=@ux
+  ^-  tape
+  =/  event  (scow %ux event-id)
+  ;:  weld
+    "FROM service-events C WHERE C.event-id = "
+    event
+    " SELECT C.event-id;"
+    " FROM expense-events C WHERE C.event-id = "
+    event
+    " SELECT C.event-id;"
+    " FROM note-events C WHERE C.event-id = "
+    event
+    " SELECT C.event-id;"
+    " FROM vehicle-acquisitions C WHERE C.event-id = "
+    event
+    " SELECT C.event-id;"
+    " FROM vehicle-disposals C WHERE C.event-id = "
+    event
+    " SELECT C.event-id;"
+    " FROM vehicle-event-odometers L WHERE L.event-id = "
+    event
+    " SELECT L.odometer-id;"
+    event-catalogs
+  ==
+::
+::  M7 T12. One correction, one atomic mutation-only script, shaped after
+::  +update-fill.
+::
+::  The event KEEPS ITS IDENTITY. The parent row is UPDATEd in place at NOW, so
+::  every association that pointed at this event still points at it and no link
+::  is re-keyed. Obelisk retains the prior content state and a read AS OF
+::  recovers it, so Rover writes no revision row, no reversing entry, and no
+::  second ledger. Rover never issues a mutation AS OF.
+::
+::  The optional associations are DELETEd and reinserted from the corrected
+::  form. That is the only way an association goes from present to absent:
+::  Obelisk has no nullable column, so the missing row IS the absence.
+::
+::  The kind is not here. A service event that should have been an expense is a
+::  different family with a different typed child, and moving the row between
+::  relations would break every link into it. The request path refuses a kind
+::  change before this script is built.
+++  update-event
+  |=  $:  ids=event-ids
+          vehicle-id=@ux
+          station-id=(unit @ux)
+          tag-ids=(list @ux)
+          subtype-ids=(list @ux)
+          disposal-kind-id=(unit @ux)
+          payment-method-id=(unit @ux)
+          current-odometer-id=(unit @ux)
+          input=event-entry:rover
+          recorded-at=@da
+      ==
+  ^-  tape
+  ::  The event id is the one the lookup resolved. It is the identity the
+  ::  correction preserves, so it is never regenerated.
+  =/  event  (scow %ux event.ids)
+  =/  observed-start  (scow %da observed-start.input)
+  =/  observed-end  (scow %da (add observed-start.input (bex 64)))
+  =/  recorded  (scow %da recorded-at)
+  =/  zone  (sql-quote source-zone.input)
+  ::  A disposal kind is intrinsic to being a disposal, not an association, so
+  ::  it is corrected by an UPDATE on the typed child rather than by a delete
+  ::  and a reinsert. Deleting the child row would take the event's kind away
+  ::  for the length of the script.
+  =/  child-update=tape
+    ?.  ?=(%disposal kind.input)
+      ~
+    ?~  disposal-kind-id
+      ~
+    ;:  weld
+      " UPDATE vehicle-disposals SET disposal-kind-id = "
+      (scow %ux u.disposal-kind-id)
+      " WHERE event-id = "
+      event
+      ";"
+    ==
+  ::  The cost total keys to the cost row, so the total goes first on the way
+  ::  out and second on the way back in.
+  =/  clear-rows=tape
+    ;:  weld
+      " DELETE FROM vehicle-event-cost-totals WHERE event-id = "
+      event
+      "; DELETE FROM vehicle-event-costs WHERE event-id = "
+      event
+      "; DELETE FROM vehicle-event-stations WHERE event-id = "
+      event
+      "; DELETE FROM vehicle-event-tags WHERE event-id = "
+      event
+      "; DELETE FROM vehicle-event-service-subtypes WHERE event-id = "
+      event
+      "; DELETE FROM vehicle-event-payment-method WHERE event-id = "
+      event
+      "; DELETE FROM vehicle-event-notes WHERE event-id = "
+      event
+      ";"
+    ==
+  =/  new-station-rows=tape
+    ?~  new-station.input
+      ~
+    ;:  weld
+      " INSERT INTO places VALUES ("
+      (scow %ux place.ids)
+      ", '"
+      (sql-quote place-label.u.new-station.input)
+      "', N, "
+      recorded
+      "); INSERT INTO stations VALUES ("
+      (scow %ux station.ids)
+      ", "
+      (scow %ux place.ids)
+      ", '"
+      (sql-quote station-label.u.new-station.input)
+      "', "
+      (sql-term station-kind.u.new-station.input)
+      ", N, "
+      recorded
+      ");"
+    ==
+  =/  cost-rows=tape
+    ?~  total-mills.input
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-costs VALUES ("
+      event
+      ", %receipt-total-only, "
+      (sql-term currency.input)
+      ", "
+      (sql-ud minor-unit-decimals.input)
+      ", "
+      recorded
+      "); INSERT INTO vehicle-event-cost-totals VALUES ("
+      event
+      ", "
+      (sql-ud u.total-mills.input)
+      ");"
+    ==
+  =/  effective-station=(unit @ux)
+    ?^  station-id
+      station-id
+    ?^  new-station.input
+      `station.ids
+    ~
+  =/  station-row=tape
+    ?~  effective-station
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-stations VALUES ("
+      event
+      ", "
+      (scow %ux u.effective-station)
+      ");"
+    ==
+  =/  new-tag-rows=tape
+    ?~  new-tag-label.input
+      ~
+    ;:  weld
+      " INSERT INTO tag-definitions VALUES ("
+      (scow %ux tag.ids)
+      ", '"
+      (sql-quote u.new-tag-label.input)
+      "', N, "
+      recorded
+      "); INSERT INTO vehicle-event-tags VALUES ("
+      event
+      ", "
+      (scow %ux tag.ids)
+      ");"
+    ==
+  =/  payment-row=tape
+    ?~  payment-method-id
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-payment-method VALUES ("
+      event
+      ", "
+      (scow %ux u.payment-method-id)
+      ");"
+    ==
+  =/  notes-row=tape
+    ?~  notes.input
+      ~
+    ;:  weld
+      " INSERT INTO vehicle-event-notes VALUES ("
+      event
+      ", '"
+      (sql-quote u.notes.input)
+      "');"
+    ==
+  ::  The reading is never copied onto the event. One odometer-observations
+  ::  list per vehicle holds every reading, and the event links to that list.
+  ::
+  ::  A corrected reading UPDATEs the observation the event already links to,
+  ::  so the reading keeps its identity too and the link never moves. A
+  ::  correction that clears the reading drops the link AND the observation it
+  ::  named: leaving the observation would put a reading in the vehicle's
+  ::  odometer stream that no event claims, and every derived distance would
+  ::  count it.
+  =/  odometer-rows=tape
+    ?~  mileage.input
+      ?~  current-odometer-id
+        ~
+      ;:  weld
+        " DELETE FROM vehicle-event-odometers WHERE event-id = "
+        event
+        "; DELETE FROM odometer-observations WHERE odometer-id = "
+        (scow %ux u.current-odometer-id)
+        ";"
+      ==
+    ?^  current-odometer-id
+      ;:  weld
+        " UPDATE odometer-observations SET value-digits = "
+        (sql-ud digits.u.mileage.input)
+        ", decimal-places = "
+        (sql-ud places.u.mileage.input)
+        ", unit = "
+        (sql-term odo-unit.u.mileage.input)
+        ", observed-start = "
+        observed-start
+        ", observed-end = "
+        observed-end
+        ", source-zone = '"
+        zone
+        "', recorded-at = "
+        recorded
+        " WHERE odometer-id = "
+        (scow %ux u.current-odometer-id)
+        ";"
+      ==
+    ;:  weld
+      " INSERT INTO odometer-observations VALUES ("
+      (scow %ux odometer.ids)
+      ", "
+      (scow %ux vehicle-id)
+      ", "
+      (sql-ud digits.u.mileage.input)
+      ", "
+      (sql-ud places.u.mileage.input)
+      ", "
+      (sql-term odo-unit.u.mileage.input)
+      ", "
+      observed-start
+      ", "
+      observed-end
+      ", %second, '"
+      zone
+      "', "
+      recorded
+      "); INSERT INTO vehicle-event-odometers VALUES ("
+      event
+      ", "
+      (scow %ux odometer.ids)
+      ");"
+    ==
+  ;:  weld
+    "UPDATE vehicle-events SET observed-start = "
+    observed-start
+    ", observed-end = "
+    observed-end
+    ", source-zone = '"
+    zone
+    "', recorded-at = "
+    recorded
+    " WHERE event-id = "
+    event
+    ";"
+    child-update
+    clear-rows
+    new-station-rows
+    cost-rows
+    station-row
+    new-tag-rows
+    (insert-event-tags event.ids tag-ids)
+    (insert-event-subtypes event.ids subtype-ids)
+    payment-row
+    notes-row
+    odometer-rows
   ==
 ::
 ++  vehicle-lookup
