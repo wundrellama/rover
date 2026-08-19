@@ -93,6 +93,7 @@ SERVICE_NOTE="Front brakes and rotors $STAMP"
 EXPENSE_NOTE="Airport parking $STAMP"
 NOTE_NOTE="Rattle over rough pavement $STAMP"
 SERVICE_TOTAL='$412.75'
+SERVICE_CORRECTED_TOTAL='$518.25'
 EXPENSE_TOTAL='$24.00'
 # M7 T2. Three more service events, one per subtype count the corpus holds:
 # ten at once, exactly one, and none at all.
@@ -254,6 +255,14 @@ event_subtype_payload() {
     "$VEHICLE" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
 }
 
+# A correction uses the same human fields as creation. The requested kind and
+# original observed time are human context, not database identities.
+event_edit_payload() {
+  # kind originalObserved observed total mileage station tags newTag payment notes subtypes disposalKind
+  printf '{"kind":"%s","originalObserved":"%s","vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"%s","paymentMethod":"%s","notes":"%s","subtypes":%s,"disposalKind":"%s"}' \
+    "$1" "$2" "$VEHICLE" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}"
+}
+
 # The one served event card of this kind that carries this run's unique note.
 # An empty result means the card this run wrote is not in the document.
 event_card() {
@@ -362,6 +371,27 @@ eyre_post add-service-event \
   "$(event_payload service "$SERVICE_AT" "$SERVICE_TOTAL" "$SERVICE_ODO" "$STATION" "[\"$TAG\"]" '' "$PAYMENT" "$SERVICE_NOTE")" \
   "$(printf 'Saved service event - %s\n201' "$SERVICE_TOTAL")" 'fixture 4 service event'
 note "fixture 4 PASS - the service endpoint accepted an entered total"
+
+# ---------------------------------------------------------------------------
+# fixture 87 - correction updates the current service event in place. The
+# parent identity and the family row count stay fixed while the cost changes.
+# ---------------------------------------------------------------------------
+service_identity_before="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT E.event-id;")"
+service_count_before="$(count_rows "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' SELECT E.event-id;")" '%event-id')"
+eyre_post edit-event \
+  "$(event_edit_payload service "$SERVICE_AT" "$SERVICE_AT" "$SERVICE_CORRECTED_TOTAL" "$SERVICE_ODO" "$STATION" "[\"$TAG\"]" '' "$PAYMENT" "$SERVICE_NOTE" '[]' '')" \
+  "$(printf 'Corrected service event - %s\n200' "$SERVICE_CORRECTED_TOTAL")" 'fixture 87 service correction'
+service_identity_after="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT E.event-id;")"
+service_count_after="$(count_rows "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' SELECT E.event-id;")" '%event-id')"
+[ "$service_identity_after" = "$service_identity_before" ] \
+  || fail "fixture 87 the service parent identity changed: before $service_identity_before after $service_identity_after"
+[ "$service_count_after" = "$service_count_before" ] \
+  || fail "fixture 87 the service family count changed: $service_count_before -> $service_count_after"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-cost-totals T ON E.event-id = T.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT T.total-mills;")"
+grep -q '%total-mills 25717 518250' <<<"$report" \
+  || fail "fixture 87 the corrected cost did not persist: $report"
+SERVICE_TOTAL="$SERVICE_CORRECTED_TOTAL"
+note "fixture 87 PASS - the service cost changed in place while the parent identity and family row count stayed fixed"
 
 # ---------------------------------------------------------------------------
 # fixture 5 - the service event reads back through Eyre, with the total, the
