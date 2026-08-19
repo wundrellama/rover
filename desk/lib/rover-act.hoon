@@ -1020,15 +1020,26 @@
       "');"
     ==
   =/  child-update=tape
-    ?.  ?=(%disposal kind.input)
-      ~
-    ?>  ?=(^ disposal-kind-id)
-    ;:  weld
-      " UPDATE vehicle-disposals SET disposal-kind-id = "
-      (scow %ux u.disposal-kind-id)
-      " WHERE event-id = "
-      event
-      ";"
+    ?-  kind.input
+      %service
+        ;:(weld " UPDATE service-events SET event-id = " event " WHERE event-id = " event ";")
+      %expense
+        ;:(weld " UPDATE expense-events SET event-id = " event " WHERE event-id = " event ";")
+      %note
+        ;:(weld " UPDATE note-events SET event-id = " event " WHERE event-id = " event ";")
+      %acquisition
+        ;:(weld " UPDATE vehicle-acquisitions SET event-id = " event " WHERE event-id = " event ";")
+      %disposal
+        ?>  ?=(^ disposal-kind-id)
+        ;:  weld
+          " UPDATE vehicle-disposals SET event-id = "
+          event
+          ", disposal-kind-id = "
+          (scow %ux u.disposal-kind-id)
+          " WHERE event-id = "
+          event
+          ";"
+        ==
     ==
   ;:  weld
     new-station-rows
