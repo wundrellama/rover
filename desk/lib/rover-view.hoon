@@ -4353,13 +4353,13 @@
 ++  spend-family-row
   |=  [family=@tas label=@t tally=cost-tally]
   ^-  tape
-  ?:  =(0 entries.tally)
-    ~
   ;:  weld
     "<tr data-cost-family=\""
     (escape (scot %tas family))
     "\""
-    ?:  compatible.tally
+    ?:  ?&  (gth entries.tally 0)
+            compatible.tally
+        ==
       ;:  weld
         " data-family-total-mills=\""
         (cost-tally-attribute tally)
@@ -4371,7 +4371,7 @@
     "</td><td>"
     (scow %ud entries.tally)
     "</td><td>"
-    (escape (cost-tally-money tally))
+    ?:(=(0 entries.tally) "No costs recorded" (escape (cost-tally-money tally)))
     "</td></tr>"
   ==
 ::
