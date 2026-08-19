@@ -1510,6 +1510,24 @@
     ::  so no earlier reader has to move.
     " "
     spec-queries
+    ::  M7 T11. What every consumable purchase cost. The DEF query above names
+    ::  DEF alone and selects no pricing, because it answers DEF economy. This
+    ::  one carries the pricing operands and the acquisition key, so Obelisk
+    ::  cannot collapse two purchases that cost the same.
+    " "
+    consumable-cost-query
+  ==
+::
+++  consumable-cost-query
+  ^-  tape
+  ;:  weld
+    "FROM vehicles V JOIN consumable-acquisitions A ON V.vehicle-id = A.vehicle-id "
+    "JOIN consumable-definitions C ON A.consumable-id = C.consumable-id "
+    "JOIN consumable-purchases P ON A.consumable-acquisition-id = P.consumable-acquisition-id "
+    "SELECT V.vehicle-id, A.consumable-acquisition-id, C.label AS consumable, "
+    "P.quantity-milli, P.quantity-unit, P.unit-price-mills, P.currency, "
+    "P.settlement-mode, P.minor-unit-decimals, P.cash-increment-mills, "
+    "A.observed-start;"
   ==
 ::
 ::  T10 reads every stored fact with a wide projection. Each query names the

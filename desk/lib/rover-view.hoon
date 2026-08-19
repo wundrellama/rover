@@ -4676,6 +4676,14 @@
           ownership=(map @ (list ownership-interval))
           selected-vehicle=(unit vector:ast)
           history-page=@ud
+          ::  M7 T11. The cost read path. Every list below was already read for
+          ::  History, so the six event families cost this screen no new query
+          ::  except the consumable pricing one.
+          charges=(list vector:ast)
+          charging=charging-cost-rows
+          consumable-costs=(list vector:ast)
+          odometers=(list vector:ast)
+          events=event-rows
       ==
   ^-  tape
   =/  history-window-size=@ud  25
@@ -4691,6 +4699,41 @@
     ?~  selected-vehicle
       ~
     (rows-for (cell-atom %vehicle-id u.selected-vehicle) def-purchases)
+  =/  scoped-charges=(list vector:ast)
+    ?~  selected-vehicle
+      ~
+    (rows-for (cell-atom %vehicle-id u.selected-vehicle) charges)
+  =/  scoped-consumables=(list vector:ast)
+    ?~  selected-vehicle
+      ~
+    (rows-for (cell-atom %vehicle-id u.selected-vehicle) consumable-costs)
+  =/  scoped-events=(list vector:ast)
+    ?~  selected-vehicle
+      ~
+    (rows-for (cell-atom %vehicle-id u.selected-vehicle) events.events)
+  =/  scoped-odometers=(list vector:ast)
+    ?~  selected-vehicle
+      ~
+    (rows-for (cell-atom %vehicle-id u.selected-vehicle) odometers)
+  =/  vehicle-label=@t
+    ?~(selected-vehicle '' (cell-text %label u.selected-vehicle))
+  ::  Ruling 12. One scope list bounds all four cost tables.
+  =/  scopes=(list cost-scope)
+    ?~  selected-vehicle
+      ~
+    %-  cost-scopes
+    (~(gut by ownership) (cell-atom %vehicle-id u.selected-vehicle) ~)
+  ::  Built once and read by all four tables, so seven families cost one walk.
+  =/  ledger=(list cost-entry)
+    %:  cost-ledger
+        scoped-fills
+        scoped-charges
+        charging
+        scoped-consumables
+        scoped-events
+        events
+    ==
+  =/  visits=(list service-visit)  (service-visits scoped-events events)
   =/  all-recent  (order-vectors:act %observed-start %.y scoped-fills)
   =/  recent
     (scag history-window-size (slag (mul history-page history-window-size) all-recent))
@@ -4717,6 +4760,9 @@
     ==
   ?:  ?&  ?=(~ scoped-fills)
           ?=(~ scoped-def-purchases)
+          ?=(~ scoped-charges)
+          ?=(~ scoped-consumables)
+          ?=(~ scoped-events)
       ==
     ;:  weld
       "<section id=\"statistics-screen\" class=\"app-screen\" hidden data-view-vehicle=\""
@@ -4755,6 +4801,20 @@
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"def-economy\"><h2>DEF economy</h2><table><thead><tr><th>Distance per DEF unit</th><th>Eligibility</th></tr></thead><tbody>"
     (def-economy-stat-rows scoped-vehicles scoped-def-purchases def-odometers ownership)
+    "</tbody></table></section>"
+    ::  M7 T11. The four cost tables. Every figure is derived on this read from
+    ::  the rows above, in exact mills, and bounded by ownership.
+    "<section class=\"stat-table\" data-statistic=\"total-cost-of-ownership\"><h2>Total cost of ownership</h2><p class=\"field-note\">Fuel, charging, service, expense, consumables, and the purchase, less what a sale returned.</p><table><thead><tr><th>Period</th><th>Records</th><th>Cost</th><th>Basis</th></tr></thead><tbody>"
+    (total-cost-rows vehicle-label scopes ledger)
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"cost-per-distance\"><h2>Cost per distance</h2><p class=\"field-note\">Every priced record over the distance the odometer shows for the period. The economy tables above divide fuel alone.</p><table><thead><tr><th>Period</th><th>Distance</th><th>Cost per distance</th><th>Basis</th></tr></thead><tbody>"
+    (cost-per-distance-rows vehicle-label scopes ledger scoped-odometers)
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"spend-by-family\"><h2>Spend by family</h2><table><thead><tr><th>Period</th><th>Family</th><th>Records</th><th>Total</th></tr></thead><tbody>"
+    (spend-by-family-rows vehicle-label scopes ledger)
+    "</tbody></table></section>"
+    "<section class=\"stat-table\" data-statistic=\"service-summary\"><h2>Service history summary</h2><p class=\"field-note\">A visit counts under every subtype it names, and its whole cost counts with it. The last row of each period counts each visit once.</p><table><thead><tr><th>Period</th><th>Service subtype</th><th>Visits</th><th>Cost of those visits</th></tr></thead><tbody>"
+    (service-summary-rows vehicle-label scopes visits)
     "</tbody></table></section>"
     (pagination-controls history-page (lent all-recent) 'statistics-screen')
     "</section>"
@@ -4866,6 +4926,10 @@
     %+  ~(put by $(order t.order, index +(index)))
       relation.i.order
     (rows-at commands index)
+  ::  M7 T11. Consumable spend. It is the last query in the script, so no
+  ::  earlier index moves. The DEF query at 35 names DEF alone and carries no
+  ::  pricing, so it cannot answer what every consumable cost.
+  =/  consumable-costs  (rows-at commands (add 61 (lent spec-view-order:act)))
   =/  definition-html  (definition-options definition-rows vehicles)
   =/  starter-html  (starter-definition-options starter-definitions)
   =/  starter-subtype-html  (subtype-options subtypes)
@@ -4976,7 +5040,7 @@
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
       (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
-      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations ownership selected-vehicle history-page)
+      (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations ownership selected-vehicle history-page charges costs consumable-costs odometers events)
       (settings-screen custom-definitions definition-panel-rows)
       import-screen
     ==

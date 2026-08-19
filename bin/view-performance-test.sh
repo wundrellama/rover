@@ -152,6 +152,16 @@ import_report="$(curl -sS -b "$JAR" -H 'content-type: application/json' \
 grep -q "Fills: imported $FILL_COUNT, already-imported 0, conflicts 0, failures 0" \
   <<<"$import_report" || fail "synthetic import did not land $FILL_COUNT fills"
 
+# History and Statistics serve the selected vehicle, and a fresh database has no
+# default, so the measured page has to name one. Without this the guard timed a
+# view that rendered no history at all.
+perf_default="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw '{"vehicle":"Synthetic Performance Vehicle"}' \
+  "$URL/apps/rover/set-default-vehicle")"
+[ "$perf_default" = $'Saved default vehicle\n201' ] \
+  || fail "could not select the synthetic vehicle: $perf_default"
+
 for run in 1 2; do
   timing="$(curl -sS -b "$JAR" -o "$BODY" -w '%{http_code} %{time_total} %{size_download}' \
     "$URL/apps/rover/view")"
