@@ -287,6 +287,24 @@
       overflow-wrap: anywhere;
     }
 
+    /* M7 T12. The correction control on an event card. It sits under the
+       facts, right-aligned, and stays inside 390px because it is one short
+       word that never grows with the content beside it. */
+    .card-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 0.75rem;
+      padding-top: 0.55rem;
+      border-top: 1px solid var(--rv-olive);
+    }
+
+    .card-edit {
+      padding: 0.35rem 0.9rem;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
     .derived {
       padding-top: 0.55rem;
       border-top: 1px solid var(--rv-olive);
@@ -1226,8 +1244,13 @@
       const screens = [...app.querySelectorAll('.app-screen')];
       const defaultVehicle =
         app.querySelector('#app-default-data')?.dataset.vehicle || '';
+      // M7 T12. Opening the Add Event screen from anywhere but a card's edit
+      // control puts the form back in add mode. One form serves both jobs, so
+      // it must never keep a correction's target after the person left it.
+      let resetEventForm = () => {};
       app.querySelectorAll('[data-open-screen]').forEach((button) => {
         button.addEventListener('click', () => {
+          if (button.dataset.openScreen === 'add-event') resetEventForm();
           screens.forEach((screen) => {
             screen.hidden = screen.id !== button.dataset.openScreen;
           });
@@ -1241,6 +1264,7 @@
       });
       app.querySelectorAll('[data-close-screen]').forEach((button) => {
         button.addEventListener('click', () => {
+          resetEventForm();
           screens.forEach((screen) => {
             screen.hidden = screen.id !== 'main-hub';
           });
@@ -2172,9 +2196,82 @@
           eventForm.elements.kind.addEventListener('change', showDisposalKind);
           showDisposalKind();
         }
+        // M7 T12. The same form adds and corrects. Correction mode differs in
+        // three things: it carries the moment the record currently holds, it
+        // posts to the correction endpoint, and it says so on the button.
+        const eventHeading = app.querySelector('#add-event h2');
+        const eventSubmit = eventForm.querySelector('button[type="submit"]');
+        const setEventMode = (correcting) => {
+          eventForm.dataset.correcting = correcting ? 'yes' : '';
+          if (!correcting) eventForm.elements.originalObserved.value = '';
+          if (eventSubmit) {
+            eventSubmit.textContent = correcting ? 'Save correction' : 'Save event';
+          }
+          if (eventHeading) {
+            eventHeading.textContent = correcting ? 'Correct event' : 'Add event';
+          }
+        };
+        resetEventForm = () => {
+          eventForm.reset();
+          if (defaultVehicle) eventForm.elements.vehicle.value = defaultVehicle;
+          eventForm.elements.observed.value = local.toISOString().slice(0, 16);
+          eventForm.elements.zone.value =
+            Intl.DateTimeFormat().resolvedOptions().timeZone;
+          setEventMode(false);
+          eventForm.elements.kind.dispatchEvent(new Event('change', {bubbles: true}));
+          const verdict = app.querySelector('#event-verdict');
+          if (verdict) verdict.value = '';
+        };
+        // The card carries every value in the text its form field takes, so
+        // filling the form is a copy and never a re-derivation. Nothing is
+        // read back out of the rendered display, which is converted for
+        // reading and would round-trip wrong.
+        app.querySelectorAll('[data-edit-event]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const card = button.closest('article.history-card.event');
+            const data = button.dataset;
+            eventForm.elements.vehicle.value = data.editVehicle;
+            eventForm.elements.kind.value = data.editKind;
+            // The kind controls which fields show, and hiding one clears it,
+            // so the kind settles before anything else is filled in.
+            eventForm.elements.kind.dispatchEvent(new Event('change', {bubbles: true}));
+            eventForm.elements.observed.value = data.editObserved;
+            eventForm.elements.originalObserved.value = data.editObserved;
+            eventForm.elements.zone.value = data.editZone;
+            eventForm.elements.total.value = data.editTotal || '';
+            eventForm.elements.mileage.value = data.editMileage || '';
+            eventForm.elements.mileageUnit.value = data.editMileageUnit || 'mi';
+            eventForm.elements.station.value = data.editStation || 'none';
+            eventForm.elements.paymentMethod.value = data.editPayment || '';
+            eventForm.elements.notes.value = data.editNotes || '';
+            eventForm.elements.newTag.value = '';
+            if (eventForm.elements.disposalKind) {
+              eventForm.elements.disposalKind.value = data.editDisposalKind || '';
+            }
+            const chosenTags = [...(card?.querySelectorAll('[data-event-tag]') || [])]
+              .map((item) => item.dataset.eventTag);
+            eventForm.querySelectorAll('input[name="tags"]').forEach((box) => {
+              box.checked = chosenTags.includes(box.value);
+            });
+            const chosenSubtypes =
+              [...(card?.querySelectorAll('[data-event-subtype]') || [])]
+                .map((item) => item.dataset.eventSubtype);
+            eventForm.querySelectorAll('input[name="subtypes"]').forEach((box) => {
+              box.checked = chosenSubtypes.includes(box.value);
+            });
+            setEventMode(true);
+            const verdict = app.querySelector('#event-verdict');
+            if (verdict) verdict.value = '';
+            screens.forEach((screen) => {
+              screen.hidden = screen.id !== 'add-event';
+            });
+            document.getElementById('add-event')?.scrollIntoView();
+          });
+        });
         eventForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = app.querySelector('#event-verdict');
+          const correcting = eventForm.dataset.correcting === 'yes';
           verdict.value = 'Saving…';
           try {
             const formData = new FormData(eventForm);
@@ -2182,11 +2279,17 @@
             // Checkboxes repeat one name, and fromEntries keeps only the last.
             payload.tags = formData.getAll('tags');
             payload.subtypes = formData.getAll('subtypes');
-            // The kind selects the route. The server reads the kind from the
-            // route, never from this body, so the two can never disagree.
+            // On the add path the kind selects the route, and the server reads
+            // it from the route so the two cannot disagree. A correction has
+            // one route for every kind, so the kind rides in the body and the
+            // server refuses it when it disagrees with what is stored.
             const eventKind = payload.kind;
-            delete payload.kind;
-            const response = await fetch(`/apps/rover/add-${eventKind}-event`, {
+            if (!correcting) {
+              delete payload.kind;
+              delete payload.originalObserved;
+            }
+            const path = correcting ? 'edit-event' : `add-${eventKind}-event`;
+            const response = await fetch(`/apps/rover/${path}`, {
               method: 'POST',
               credentials: 'same-origin',
               headers: {'content-type': 'application/json'},

@@ -2380,7 +2380,11 @@
     tag-html
     "</div><label>New tag<input name=\"newTag\" autocomplete=\"off\"></label></fieldset><label>Payment method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
     payment-html
-    "</select></label><label>Note <span class=\"optional\">optional</span><input name=\"notes\" autocomplete=\"off\"></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><div class=\"form-actions\"><button type=\"submit\">Save event</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"event-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+    ::  M7 T12. The moment the record currently holds. It is empty while the
+    ::  form is adding, and it names the record while the form is correcting -
+    ::  a correction may move the date, so the record cannot be found by the
+    ::  date the person just typed.
+    "</select></label><label>Note <span class=\"optional\">optional</span><input name=\"notes\" autocomplete=\"off\"></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><input name=\"originalObserved\" type=\"hidden\" value=\"\"><div class=\"form-actions\"><button type=\"submit\">Save event</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"event-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
     ::  M7 T6. A reminder names one kind of service work and carries an
     ::  interval in time, an interval in distance, or both. A blank interval
     ::  writes NO row, so the form asks for nothing it will not store.
@@ -2838,7 +2842,11 @@
 ::  An absent member renders NO line. The absence of the row is the value, so
 ::  a parking fee shows no station and a note shows no cost.
 ++  event-card
-  |=  [row=vector:ast events=event-rows preference=(unit @tas)]
+  |=  $:  row=vector:ast
+          events=event-rows
+          preference=(unit @tas)
+          vehicle=@t
+      ==
   ^-  tape
   =/  event-id  (cell-atom %event-id row)
   =/  kind  (event-kind-of event-id events)
@@ -2924,8 +2932,12 @@
       ?~  remaining
         ~
       %+  weld
+        ::  M7 T12. The attribute is what the edit control reads back to
+        ::  re-check the boxes. The text beside it is what a person reads.
         ;:  weld
-          "<li>"
+          "<li data-event-tag=\""
+          (escape (cell-text %tag i.remaining))
+          "\">"
           (escape (cell-text %tag i.remaining))
           "</li>"
         ==
@@ -3003,6 +3015,85 @@
       (escape (cell-text %note i.note-rows))
       "</dd></div>"
     ==
+  ::  M7 T12. The edit control. It carries every value the Add Event form
+  ::  needs, in the exact text that form's field takes, so pressing it
+  ::  re-opens the form a person already knows with their own entry in it.
+  ::
+  ::  The odometer here is the SOURCE reading, not the converted one on the
+  ::  card above. A person correcting a note must not have their mileage
+  ::  silently rewritten into whatever unit the display preference names.
+  =/  edit-total=tape
+    =/  cost-rows  (rows-by %event-id event-id costs.events)
+    =/  total-rows  (rows-by %event-id event-id cost-totals.events)
+    ?:  ?|  ?=(~ cost-rows)
+            ?=(~ total-rows)
+        ==
+      ~
+    %-  escape
+    %:  format-total:render
+        (cell-atom %total-mills i.total-rows)
+        (cell-term %currency i.cost-rows)
+        (cell-atom %minor-unit-decimals i.cost-rows)
+    ==
+  =/  odometer-rows  (rows-by %event-id event-id odometers.events)
+  =/  edit-mileage=tape
+    ?~  odometer-rows
+      ~
+    %-  trip
+    %^  format-scaled:render
+      (cell-atom %value-digits i.odometer-rows)
+      (cell-atom %decimal-places i.odometer-rows)
+    %.n
+  =/  edit-mileage-unit=@tas
+    ?~  odometer-rows
+      %mi
+    (cell-term %unit i.odometer-rows)
+  =/  edit-station=tape
+    =/  station-rows  (rows-by %event-id event-id stations.events)
+    ?~  station-rows
+      "none"
+    (escape (cell-text %station i.station-rows))
+  =/  edit-payment=tape
+    =/  payment-rows  (rows-by %event-id event-id payments.events)
+    ?~  payment-rows
+      ~
+    (escape (cell-text %payment-method i.payment-rows))
+  =/  edit-disposal-kind=tape
+    =/  disposal-rows  (rows-by %event-id event-id disposals.events)
+    ?~  disposal-rows
+      ~
+    (escape (cell-text %disposal-kind i.disposal-rows))
+  =/  edit-notes=tape
+    =/  note-rows  (rows-by %event-id event-id note-texts.events)
+    ?~  note-rows
+      ~
+    (escape (cell-text %note i.note-rows))
+  =/  edit-control=tape
+    ;:  weld
+      "<div class=\"card-actions\"><button type=\"button\" class=\"card-edit\" data-edit-event data-edit-vehicle=\""
+      (escape vehicle)
+      "\" data-edit-kind=\""
+      (escape (scot %tas kind))
+      "\" data-edit-observed=\""
+      (input-da `@da`(cell-atom %observed-start row))
+      "\" data-edit-zone=\""
+      (escape (cell-text %source-zone row))
+      "\" data-edit-total=\""
+      edit-total
+      "\" data-edit-mileage=\""
+      edit-mileage
+      "\" data-edit-mileage-unit=\""
+      (escape (scot %tas edit-mileage-unit))
+      "\" data-edit-station=\""
+      edit-station
+      "\" data-edit-payment=\""
+      edit-payment
+      "\" data-edit-disposal-kind=\""
+      edit-disposal-kind
+      "\" data-edit-notes=\""
+      edit-notes
+      "\">Edit</button></div>"
+    ==
   ;:  weld
     "<article class=\"history-card event\" data-event-kind=\""
     (escape (scot %tas kind))
@@ -3019,7 +3110,9 @@
     tag-line
     payment-line
     note-line
-    "</dl></article>"
+    "</dl>"
+    edit-control
+    "</article>"
   ==
 ::
 ++  history-cards
@@ -3034,6 +3127,7 @@
           economy-breaks=(list vector:ast)
           events=event-rows
           preference=(unit @tas)
+          vehicle=@t
       ==
   ^-  tape
   ?~  rows
@@ -3042,7 +3136,7 @@
   =/  is-fill  (vector-key:act %quantity-milli i.rows)
   =/  card=tape
     ?^  is-event
-      (event-card i.rows events preference)
+      (event-card i.rows events preference vehicle)
     ?^  is-fill
       (fill-card i.rows station-links additive-links subtype-links economy-breaks)
     (charge-card i.rows measurements batteries costs odometers preference)
@@ -3101,6 +3195,7 @@
           events=event-rows
           preference=(unit @tas)
           history-page=@ud
+          vehicle=@t
       ==
   ^-  tape
   =/  history-window-size=@ud  25
@@ -3124,6 +3219,7 @@
         economy-breaks
         events
         preference
+        vehicle
     ==
     (pagination-controls history-page (lent all-ordered) 'vehicle-settings-screen')
   ==
@@ -3390,6 +3486,7 @@
         events(events (rows-for id events.events))
         preference
         history-page
+        (cell-text %label row)
     ==
   ;:  weld
     "<article class=\"vehicle-card\" data-vehicle-settings-panel data-vehicle=\""
