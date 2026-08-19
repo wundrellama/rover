@@ -150,6 +150,33 @@ TRADE_OUT_ODO="$((61000 + STAMP % 1000))"
 # The vehicle fixture 32 archives. Archiving is a display state, so it must
 # leave no disposal behind, and it needs a vehicle of its own to hide.
 ARCHIVE_VEHICLE="Archive Vehicle $STAMP"
+# M7 T12. Correcting an event. Each correction works on an event this block
+# records for the purpose, so a correction can never satisfy an assertion an
+# earlier fixture made, and no earlier fixture reads a value a correction moves.
+FIX_AT='2026-08-11T09:30'
+FIX_DA='~2026.08.11..09.30.00'
+FIX_NOTE="Transmission service $STAMP"
+FIX_TOTAL='$300.00'
+FIX_TOTAL_FIXED='$355.25'
+FIX_ODO="$((57000 + STAMP % 1000))"
+# The sibling. It shares the vehicle and nothing else, and fixture 92 proves
+# a correction beside it leaves every one of its facts alone.
+SIB_AT='2026-08-12T09:30'
+SIB_DA='~2026.08.12..09.30.00'
+SIB_NOTE="Wiper blades $STAMP"
+SIB_TOTAL='$41.00'
+SIB_ODO="$((58000 + STAMP % 1000))"
+# The bare event. No total, no odometer, no station, no tag, no payment
+# method - so fixture 90 can add each one by correction.
+BARE_EDIT_AT='2026-08-13T09:30'
+BARE_EDIT_DA='~2026.08.13..09.30.00'
+BARE_EDIT_NOTE="Roadside inspection $STAMP"
+BARE_EDIT_TOTAL='$62.50'
+BARE_EDIT_ODO="$((59000 + STAMP % 1000))"
+# The correction vehicle for the derived figures. Statistics reads one
+# vehicle, and this one holds a purchase, a service, and nothing else, so the
+# total of ownership is arithmetic a reader can check by hand.
+STAT_FIX_VEHICLE="Correction Statistics Vehicle $STAMP"
 
 click_file() {
   local body="$1" file out
@@ -279,6 +306,59 @@ count_rows() {
 scoped_rows() {
   local relation="$1" alias="$2" column="$3" observed="$4"
   rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN $relation $alias ON E.event-id = $alias.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $observed SELECT $alias.$column;"
+}
+
+# M7 T12 helpers.
+#
+# The report printer writes a small atom in decimal and a large one in hex, so
+# no numeric assertion may compare the printed token. Every number below goes
+# through this, which reads either form and returns one integer.
+cell_number() {
+  local report="$1" key="$2" token
+  token="$(grep -oE "%$key [0-9]+ [0-9a-fx.]+" <<<"$report" | head -1 | awk '{print $3}')"
+  python3 -c '
+import sys
+raw = sys.argv[1].replace(".", "")
+print("" if not raw else int(raw, 16) if raw.startswith("0x") else int(raw))
+' "$token"
+}
+
+# The event a person named, by the vehicle they picked and the moment they
+# recorded. This is the identity the correction must preserve, and it is read
+# as the printed token because only equality matters.
+event_id_at() {
+  local observed="$1" vehicle="${2:-$VEHICLE}"
+  rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$vehicle' AND E.observed-start = $observed SELECT E.event-id;" \
+    | grep -oE '%event-id [0-9]+ [0-9a-fx.]+' | head -1
+}
+
+# One correction body. It carries the moment the record currently holds, so a
+# correction that moves the date still finds the record it means.
+edit_payload() {
+  # kind observed originalObserved total mileage station tags payment notes subtypes
+  printf '{"vehicle":"%s","kind":"%s","observed":"%s","originalObserved":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"%s","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":%s,"newTag":"","paymentMethod":"%s","disposalKind":"","notes":"%s","subtypes":%s}' \
+    "${11:-$VEHICLE}" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}"
+}
+
+# The served view scoped to one vehicle, the way the Statistics selector asks
+# for it.
+scoped_event_view() {
+  curl -s -b "$JAR" -H 'content-type: application/json' \
+    --data-raw "$(printf '{"page":"0","vehicle":"%s"}' "$1")" "$URL/apps/rover/view"
+}
+
+# How many event cards of this kind carry this run's note. A plain text count
+# over the whole document would count the same note twice, because the edit
+# control carries it as well as the card body.
+event_card_count() {
+  local kind="$1" needle="$2"
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+kind, needle = sys.argv[1], sys.argv[2]
+pattern = r"<article class=\"history-card event\" data-event-kind=\"%s\".*?</article>" % re.escape(kind)
+print(sum(1 for m in re.finditer(pattern, document, re.S) if needle in m.group(0)))
+' "$kind" "$needle" <<<"$view"
 }
 
 eyre_login
@@ -2573,6 +2653,280 @@ t8_refusal archive-definition '{"label":"anything"}' \
 note "fixture 75 PASS - an unknown family, an absent definition, and a missing or empty new label are each refused, and none of them writes"
 
 
+# ===========================================================================
+# M7 T12 - correcting an event
+# ===========================================================================
+# A correction is an UPDATE in place at NOW and the event keeps its identity.
+# No fixture below reads a revision row or a reversing entry, because Rover
+# writes neither: Obelisk retains the prior content state and fixture 87 reads
+# it back AS OF.
+
+# ---------------------------------------------------------------------------
+# fixture 87 - a service cost is corrected and the event keeps its identity.
+# Modelled on fixture 60: the parent id before and after are one id, every
+# association row still names that id, and the pre-correction content is still
+# readable AS OF. A read AS OF is allowed; Rover never mutates AS OF.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event \
+  "$(event_subtype_payload "$FIX_AT" "$FIX_TOTAL" "$FIX_ODO" "$STATION" "[\"$TAG\"]" "$PAYMENT" "$FIX_NOTE" '["Engine Oil"]')" \
+  $'Saved service event - $300.00\n201' 'fixture 87 the event to correct'
+fix_id_before="$(event_id_at "$FIX_DA")"
+[ -n "$fix_id_before" ] || fail "fixture 87 the event to correct was not stored"
+# The AS OF stamp has to fall strictly between the two writes, and the host
+# clock has one-second resolution, so it is fenced by a second on each side.
+sleep 2
+FIX_AS_OF="$(date -u +'~%Y.%m.%d..%H.%M.%S')"
+sleep 2
+eyre_post edit-event \
+  "$(edit_payload service "$FIX_AT" "$FIX_AT" "$FIX_TOTAL_FIXED" "$FIX_ODO" \
+    "$STATION" "[\"$TAG\"]" "$PAYMENT" "$FIX_NOTE" '["Engine Oil"]')" \
+  $'Corrected service event - $355.25\n200' 'fixture 87 the correction'
+fix_id_after="$(event_id_at "$FIX_DA")"
+[ "$fix_id_after" = "$fix_id_before" ] \
+  || fail "fixture 87 the correction re-keyed the event: $fix_id_before became $fix_id_after"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$FIX_DA")"
+[ "$(cell_number "$report" total-mills)" = 355250 ] \
+  || fail "fixture 87 the corrected total is not 355,250 mills: $report"
+# Every association still targets the same parent, including the typed child.
+for pair in \
+  'service-events C' \
+  'vehicle-event-costs C' \
+  'vehicle-event-cost-totals T' \
+  'vehicle-event-odometers L' \
+  'vehicle-event-stations S' \
+  'vehicle-event-tags G' \
+  'vehicle-event-service-subtypes B' \
+  'vehicle-event-payment-method P' \
+  'vehicle-event-notes N'
+do
+  set -- $pair
+  report="$(scoped_rows "$1" "$2" event-id "$FIX_DA")"
+  linked="$(grep -oE '%event-id [0-9]+ [0-9a-fx.]+' <<<"$report" | head -1)"
+  [ "$linked" = "$fix_id_before" ] \
+    || fail "fixture 87 the $1 row no longer targets the corrected event: $linked"
+done
+# The audit trail the correction posture relies on. The prior content state is
+# still there, and only a read reaches it.
+report="$(rover_report "FROM vehicles AS OF $FIX_AS_OF V JOIN vehicle-events AS OF $FIX_AS_OF E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-cost-totals AS OF $FIX_AS_OF T ON E.event-id = T.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $FIX_DA SELECT T.total-mills;")"
+[ "$(cell_number "$report" total-mills)" = 300000 ] \
+  || fail "fixture 87 the pre-correction total is not readable AS OF: $report"
+note "fixture 87 PASS - a corrected cost keeps the event id, every association still targets it, and the prior total reads back AS OF"
+
+# ---------------------------------------------------------------------------
+# fixture 88 - the correction produced no second event. The family row count
+# for the vehicle is what it was, and History renders one card, not two.
+# ---------------------------------------------------------------------------
+event_count_for_vehicle() {
+  count_rows \
+    "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '$VEHICLE' SELECT E.event-id;")" \
+    '%event-id'
+}
+count_before="$(event_count_for_vehicle)"
+eyre_post edit-event \
+  "$(edit_payload service "$FIX_AT" "$FIX_AT" "$FIX_TOTAL_FIXED" "$FIX_ODO" \
+    "$STATION" "[\"$TAG\"]" "$PAYMENT" "$FIX_NOTE" '["Engine Oil"]')" \
+  $'Corrected service event - $355.25\n200' 'fixture 88 a second correction'
+count_after="$(event_count_for_vehicle)"
+[ "$count_after" = "$count_before" ] \
+  || fail "fixture 88 the correction changed the event count from $count_before to $count_after"
+report="$(scoped_rows service-events C event-id "$FIX_DA")"
+[ "$(count_rows "$report" '%event-id')" = 1 ] \
+  || fail "fixture 88 the correction left two typed child rows: $report"
+view="$(eyre_view)"
+cards="$(event_card_count service "$FIX_NOTE")"
+[ "$cards" = 1 ] \
+  || fail "fixture 88 History renders $cards cards for one corrected event"
+card="$(event_card service "$FIX_NOTE")"
+grep -qF 'data-event-total="$355.25"' <<<"$card" \
+  || fail "fixture 88 the rendered card does not carry the corrected total: $card"
+note "fixture 88 PASS - correcting twice made no second event, no second typed child, and one card"
+
+# ---------------------------------------------------------------------------
+# fixture 89 - an association is removed by correction. The tag and the
+# payment method were present, the corrected form carries neither, and no row
+# survives keyed to the event.
+# ---------------------------------------------------------------------------
+report="$(scoped_rows vehicle-event-tags G tag-id "$FIX_DA")"
+[ "$(count_rows "$report" '%tag-id')" = 1 ] \
+  || fail "fixture 89 the event did not carry a tag before the correction: $report"
+report="$(scoped_rows vehicle-event-payment-method P method-id "$FIX_DA")"
+[ "$(count_rows "$report" '%method-id')" = 1 ] \
+  || fail "fixture 89 the event did not carry a payment method before: $report"
+eyre_post edit-event \
+  "$(edit_payload service "$FIX_AT" "$FIX_AT" "$FIX_TOTAL_FIXED" "$FIX_ODO" \
+    "$STATION" '[]' '' "$FIX_NOTE" '["Engine Oil"]')" \
+  $'Corrected service event - $355.25\n200' 'fixture 89 the removing correction'
+report="$(scoped_rows vehicle-event-tags G tag-id "$FIX_DA")"
+grep -q '%tag-id' <<<"$report" \
+  && fail "fixture 89 a tag link survived its removal: $report"
+report="$(scoped_rows vehicle-event-payment-method P method-id "$FIX_DA")"
+grep -q '%method-id' <<<"$report" \
+  && fail "fixture 89 a payment-method link survived its removal: $report"
+# The definitions themselves are untouched. Removing an association removes a
+# link, never the thing it named.
+report="$(rover_report "FROM tag-definitions T WHERE T.label = '$TAG' SELECT T.tag-id;")"
+[ "$(count_rows "$report" '%tag-id')" = 1 ] \
+  || fail "fixture 89 removing the link removed the tag definition: $report"
+report="$(rover_report "FROM payment-method-definitions P WHERE P.label = '$PAYMENT' SELECT P.method-id;")"
+[ "$(count_rows "$report" '%method-id')" = 1 ] \
+  || fail "fixture 89 removing the link removed the payment method: $report"
+card="$(event_card service "$FIX_NOTE")"
+grep -q 'data-event-tag=' <<<"$card" \
+  && fail "fixture 89 the card still renders a tag: $card"
+grep -q 'PAYMENT METHOD' <<<"$card" \
+  && fail "fixture 89 the card still renders a payment method: $card"
+note "fixture 89 PASS - a tag and a payment method go from present to absent by correction, with no orphan row and no lost definition"
+
+# ---------------------------------------------------------------------------
+# fixture 90 - an association is added by correction to an event that had
+# none. The bare event gains a total, an odometer, a station, a tag, and a
+# payment method, and each one keys to the same parent.
+# ---------------------------------------------------------------------------
+eyre_post add-note-event \
+  "$(event_payload note "$BARE_EDIT_AT" '' '' none '[]' '' '' "$BARE_EDIT_NOTE")" \
+  $'Saved note event\n201' 'fixture 90 the bare event'
+bare_id_before="$(event_id_at "$BARE_EDIT_DA")"
+[ -n "$bare_id_before" ] || fail "fixture 90 the bare event was not stored"
+for pair in 'vehicle-event-costs C cost-state' 'vehicle-event-odometers L odometer-id' \
+  'vehicle-event-stations S station-id' 'vehicle-event-tags G tag-id' \
+  'vehicle-event-payment-method P method-id'
+do
+  set -- $pair
+  report="$(scoped_rows "$1" "$2" "$3" "$BARE_EDIT_DA")"
+  grep -q "%$3" <<<"$report" \
+    && fail "fixture 90 the bare event already carried a $1 row: $report"
+done
+eyre_post edit-event \
+  "$(edit_payload note "$BARE_EDIT_AT" "$BARE_EDIT_AT" "$BARE_EDIT_TOTAL" \
+    "$BARE_EDIT_ODO" "$STATION" "[\"$TAG\"]" "$PAYMENT" "$BARE_EDIT_NOTE" '[]')" \
+  $'Corrected note event - $62.50\n200' 'fixture 90 the adding correction'
+[ "$(event_id_at "$BARE_EDIT_DA")" = "$bare_id_before" ] \
+  || fail "fixture 90 adding associations re-keyed the event"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$BARE_EDIT_DA")"
+[ "$(cell_number "$report" total-mills)" = 62500 ] \
+  || fail "fixture 90 the added total is not 62,500 mills: $report"
+for pair in 'vehicle-event-costs C' 'vehicle-event-cost-totals T' \
+  'vehicle-event-odometers L' 'vehicle-event-stations S' \
+  'vehicle-event-tags G' 'vehicle-event-payment-method P'
+do
+  set -- $pair
+  report="$(scoped_rows "$1" "$2" event-id "$BARE_EDIT_DA")"
+  linked="$(grep -oE '%event-id [0-9]+ [0-9a-fx.]+' <<<"$report" | head -1)"
+  [ "$linked" = "$bare_id_before" ] \
+    || fail "fixture 90 the added $1 row does not target the event: $linked"
+done
+# The added reading joins the vehicle's one odometer list, the way a created
+# one does. It is not a second stream.
+report="$(rover_report "FROM vehicles V JOIN odometer-observations O ON V.vehicle-id = O.vehicle-id WHERE V.label = '$VEHICLE' SELECT O.value-digits;")"
+grep -qE "%value-digits [0-9]+ ($BARE_EDIT_ODO|0x$(printf '%x' "$BARE_EDIT_ODO"))" <<<"$report" \
+  || fail "fixture 90 the added reading is not in the vehicle odometer stream: $report"
+card="$(event_card note "$BARE_EDIT_NOTE")"
+grep -qF 'data-event-total="$62.50"' <<<"$card" \
+  || fail "fixture 90 the card does not render the added total: $card"
+grep -qF "data-event-station=\"$STATION\"" <<<"$card" \
+  || fail "fixture 90 the card does not render the added station: $card"
+grep -qF "data-event-tag=\"$TAG\"" <<<"$card" \
+  || fail "fixture 90 the card does not render the added tag: $card"
+note "fixture 90 PASS - a total, an odometer, a station, a tag, and a payment method are added by correction, all keyed to the same parent"
+
+# ---------------------------------------------------------------------------
+# fixture 91 - a corrected cost flows through to the derived figures. T11
+# statistics has merged on this branch, so the assertion is on the exact
+# ownership total, which is arithmetic a reader can check by hand.
+# ---------------------------------------------------------------------------
+eyre_post add-vehicle \
+  "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$STAT_FIX_VEHICLE")" \
+  "$(printf 'Added vehicle - %s\n201' "$STAT_FIX_VEHICLE")" 'fixture 91 the statistics vehicle'
+eyre_post add-acquisition-event \
+  "$(ownership_payload "$STAT_FIX_VEHICLE" '2026-03-01T09:00' '$10,000.00' '1000' '' "Correction purchase $STAMP")" \
+  $'Saved acquisition event - $10,000.00\n201' 'fixture 91 the purchase'
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-03-10T09:00","zone":"America/Chicago","total":"$200.00","currency":"usd","mileage":"1500","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"Correction service %s","subtypes":[]}' \
+    "$STAT_FIX_VEHICLE" "$STAMP")" \
+  $'Saved service event - $200.00\n201' 'fixture 91 the service to correct'
+stat_view="$(scoped_event_view "$STAT_FIX_VEHICLE")"
+grep -q 'data-total-cost-mills="10200000"' <<<"$stat_view" \
+  || fail "fixture 91 the pre-correction ownership total is not 10,200,000 mills"
+grep -q 'data-cost-family="service" data-family-total-mills="200000"' <<<"$stat_view" \
+  || fail "fixture 91 the pre-correction service spend is not 200,000 mills"
+eyre_post edit-event \
+  "$(edit_payload service '2026-03-10T09:00' '2026-03-10T09:00' '$450.00' 1500 \
+    none '[]' '' "Correction service $STAMP" '[]' "$STAT_FIX_VEHICLE")" \
+  $'Corrected service event - $450.00\n200' 'fixture 91 the cost correction'
+stat_view="$(scoped_event_view "$STAT_FIX_VEHICLE")"
+grep -q 'data-total-cost-mills="10450000"' <<<"$stat_view" \
+  || fail "fixture 91 the corrected cost did not reach the ownership total"
+grep -q 'data-cost-family="service" data-family-total-mills="450000"' <<<"$stat_view" \
+  || fail "fixture 91 the corrected cost did not reach the spend-by-family row"
+grep -q 'data-family-total-mills="200000"' <<<"$stat_view" \
+  && fail "fixture 91 the pre-correction figure is still reported"
+note "fixture 91 PASS - a corrected cost moves the exact ownership total and the spend-by-family row, and the old figure is gone"
+
+# ---------------------------------------------------------------------------
+# fixture 92 - correcting an event does not disturb a sibling event on the
+# same vehicle.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event \
+  "$(event_subtype_payload "$SIB_AT" "$SIB_TOTAL" "$SIB_ODO" none '[]' '' "$SIB_NOTE" '["Windshield Wipers"]')" \
+  $'Saved service event - $41.00\n201' 'fixture 92 the sibling'
+sib_id_before="$(event_id_at "$SIB_DA")"
+[ -n "$sib_id_before" ] || fail "fixture 92 the sibling was not stored"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$SIB_DA")"
+sib_total_before="$(cell_number "$report" total-mills)"
+[ "$sib_total_before" = 41000 ] \
+  || fail "fixture 92 the sibling total is not 41,000 mills: $report"
+eyre_post edit-event \
+  "$(edit_payload service "$FIX_AT" "$FIX_AT" '$399.99' "$FIX_ODO" \
+    "$STATION" '[]' '' "$FIX_NOTE" '["Engine Oil"]')" \
+  $'Corrected service event - $399.99\n200' 'fixture 92 the neighbouring correction'
+[ "$(event_id_at "$SIB_DA")" = "$sib_id_before" ] \
+  || fail "fixture 92 correcting the neighbour re-keyed the sibling"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$SIB_DA")"
+[ "$(cell_number "$report" total-mills)" = 41000 ] \
+  || fail "fixture 92 correcting the neighbour changed the sibling total: $report"
+report="$(scoped_rows vehicle-event-service-subtypes B service-subtype-id "$SIB_DA")"
+[ "$(count_rows "$report" '%service-subtype-id')" = 1 ] \
+  || fail "fixture 92 correcting the neighbour changed the sibling subtypes: $report"
+report="$(scoped_rows vehicle-event-odometers L odometer-id "$SIB_DA")"
+[ "$(count_rows "$report" '%odometer-id')" = 1 ] \
+  || fail "fixture 92 correcting the neighbour changed the sibling odometer link: $report"
+card="$(event_card service "$SIB_NOTE")"
+grep -qF 'data-event-total="$41.00"' <<<"$card" \
+  || fail "fixture 92 the sibling card no longer renders its own total: $card"
+note "fixture 92 PASS - a correction on one event leaves a sibling event on the same vehicle untouched"
+
+# ---------------------------------------------------------------------------
+# fixture 93 - a kind change is refused with a human reason. The kind is which
+# typed child exists, so changing it would move the row between relations and
+# break every link into it.
+# ---------------------------------------------------------------------------
+kind_change="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' \
+  --data-raw "$(edit_payload expense "$FIX_AT" "$FIX_AT" '$399.99' "$FIX_ODO" \
+    "$STATION" '[]' '' "$FIX_NOTE" '[]')" \
+  "$URL/apps/rover/edit-event")"
+grep -q '422$' <<<"$kind_change" \
+  || fail "fixture 93 a kind change was not refused: $kind_change"
+grep -q 'wrong-kind' <<<"$kind_change" \
+  || fail "fixture 93 the refusal does not name the failure class: $kind_change"
+grep -q 'an event keeps the kind it was recorded under' <<<"$kind_change" \
+  || fail "fixture 93 the refusal carries no human reason: $kind_change"
+# The refusal wrote nothing. The event is still a service event, it has no
+# expense child, and its subtype links are the ones it had.
+report="$(scoped_rows service-events C event-id "$FIX_DA")"
+[ "$(count_rows "$report" '%event-id')" = 1 ] \
+  || fail "fixture 93 the refused request removed the service child: $report"
+report="$(scoped_rows expense-events C event-id "$FIX_DA")"
+grep -q '%event-id' <<<"$report" \
+  && fail "fixture 93 the refused request created an expense child: $report"
+report="$(scoped_rows vehicle-event-service-subtypes B service-subtype-id "$FIX_DA")"
+[ "$(count_rows "$report" '%service-subtype-id')" = 1 ] \
+  || fail "fixture 93 the refused request changed the subtype links: $report"
+[ "$(event_id_at "$FIX_DA")" = "$fix_id_before" ] \
+  || fail "fixture 93 the refused request re-keyed the event"
+note "fixture 93 PASS - a kind change is refused with a human reason and writes nothing"
+
+
 # ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
@@ -2889,6 +3243,57 @@ disposal_card="$(event_card disposal "$T8_DISPOSAL_NOTE")"
 grep -qF "$T8_DISPOSAL" <<<"$disposal_card" \
   || fail "fixture 76 the disposal card lost its kind across the restart"
 note "fixture 76 PASS - every rename, archive flag and restore survived a ship restart, and archive and restore still work after it"
+
+# ---------------------------------------------------------------------------
+# fixture 94 - every correction survived the same real ship restart: the
+# corrected total, the identity behind it, the association that was removed,
+# the associations that were added, and the derived ownership figure.
+# ---------------------------------------------------------------------------
+[ "$(event_id_at "$FIX_DA")" = "$fix_id_before" ] \
+  || fail "fixture 94 the corrected event was re-keyed by the restart"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$FIX_DA")"
+[ "$(cell_number "$report" total-mills)" = 399990 ] \
+  || fail "fixture 94 the corrected total did not survive the restart: $report"
+report="$(scoped_rows vehicle-event-tags G tag-id "$FIX_DA")"
+grep -q '%tag-id' <<<"$report" \
+  && fail "fixture 94 a removed tag link came back over the restart: $report"
+report="$(scoped_rows vehicle-event-payment-method P method-id "$FIX_DA")"
+grep -q '%method-id' <<<"$report" \
+  && fail "fixture 94 a removed payment link came back over the restart: $report"
+[ "$(event_id_at "$BARE_EDIT_DA")" = "$bare_id_before" ] \
+  || fail "fixture 94 the event that gained associations was re-keyed by the restart"
+for pair in 'vehicle-event-cost-totals T' 'vehicle-event-odometers L' \
+  'vehicle-event-stations S' 'vehicle-event-tags G' \
+  'vehicle-event-payment-method P'
+do
+  set -- $pair
+  report="$(scoped_rows "$1" "$2" event-id "$BARE_EDIT_DA")"
+  linked="$(grep -oE '%event-id [0-9]+ [0-9a-fx.]+' <<<"$report" | head -1)"
+  [ "$linked" = "$bare_id_before" ] \
+    || fail "fixture 94 the added $1 row did not survive the restart: $linked"
+done
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$SIB_DA")"
+[ "$(cell_number "$report" total-mills)" = 41000 ] \
+  || fail "fixture 94 the untouched sibling changed over the restart: $report"
+stat_view="$(scoped_event_view "$STAT_FIX_VEHICLE")"
+grep -q 'data-total-cost-mills="10450000"' <<<"$stat_view" \
+  || fail "fixture 94 the corrected ownership total did not survive the restart"
+card="$(event_card service "$FIX_NOTE")"
+grep -qF 'data-event-total="$399.99"' <<<"$card" \
+  || fail "fixture 94 the corrected card did not survive the restart: $card"
+[ "$(event_card_count service "$FIX_NOTE")" = 1 ] \
+  || fail "fixture 94 the restart produced a second card for the corrected event"
+# A correction still works after the restart, and it still keeps the identity.
+eyre_post edit-event \
+  "$(edit_payload service "$FIX_AT" "$FIX_AT" '$401.00' "$FIX_ODO" \
+    "$STATION" '[]' '' "$FIX_NOTE" '["Engine Oil"]')" \
+  $'Corrected service event - $401.00\n200' 'fixture 94 a correction after the restart'
+[ "$(event_id_at "$FIX_DA")" = "$fix_id_before" ] \
+  || fail "fixture 94 a correction after the restart re-keyed the event"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$FIX_DA")"
+[ "$(cell_number "$report" total-mills)" = 401000 ] \
+  || fail "fixture 94 a correction after the restart did not store: $report"
+note "fixture 94 PASS - every correction, removal, addition and derived figure survived a ship restart, and correcting still works after it"
 
 # ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut
