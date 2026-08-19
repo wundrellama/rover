@@ -1802,7 +1802,7 @@
     ::  M7 T1. The event family reads as a parent plus its typed children plus
     ::  its parent-keyed links. The three child queries are what tell the view
     ::  which kind an event is; there is no kind column to read.
-    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id SELECT V.vehicle-id, E.event-id, E.observed-start, E.observed-end, E.source-zone, E.recorded-at;"
+    " FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id SELECT V.vehicle-id, V.label AS vehicle, E.event-id, E.observed-start, E.observed-end, E.source-zone, E.recorded-at;"
     " FROM service-events S SELECT S.event-id;"
     " FROM expense-events X SELECT X.event-id;"
     ::  The alias is Z, not N. `N` is the boolean false literal, and the parser

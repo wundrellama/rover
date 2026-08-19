@@ -2842,6 +2842,7 @@
   ^-  tape
   =/  event-id  (cell-atom %event-id row)
   =/  kind  (event-kind-of event-id events)
+  =/  observed-input  (input-da `@da`(cell-atom %observed-start row))
   =/  observed=tape
     ;:  weld
       (trip (format-da:render `@da`(cell-atom %observed-start row)))
@@ -2897,6 +2898,12 @@
     ;:  weld
       "<div><dt>ODOMETER</dt><dd data-event-odometer=\""
       (escape reading)
+      "\" data-event-odometer-digits=\""
+      (trip (format-scaled:render (cell-atom %value-digits i.odometer-rows) 0 %.n))
+      "\" data-event-odometer-places=\""
+      (trip (scot %ud (cell-atom %decimal-places i.odometer-rows)))
+      "\" data-event-odometer-unit=\""
+      (escape (scot %tas source-unit))
       "\">"
       (escape reading)
       "</dd></div>"
@@ -2925,7 +2932,9 @@
         ~
       %+  weld
         ;:  weld
-          "<li>"
+          "<li data-event-tag=\""
+          (escape (cell-text %tag i.remaining))
+          "\">"
           (escape (cell-text %tag i.remaining))
           "</li>"
         ==
@@ -2990,7 +2999,9 @@
     ?~  payment-rows
       ~
     ;:  weld
-      "<div><dt>PAYMENT METHOD</dt><dd>"
+      "<div><dt>PAYMENT METHOD</dt><dd data-event-payment-method=\""
+      (escape (cell-text %payment-method i.payment-rows))
+      "\">"
       (escape (cell-text %payment-method i.payment-rows))
       "</dd></div>"
     ==
@@ -2999,13 +3010,21 @@
     ?~  note-rows
       ~
     ;:  weld
-      "<div><dt>NOTE</dt><dd>"
+      "<div><dt>NOTE</dt><dd data-event-note=\""
+      (escape (cell-text %note i.note-rows))
+      "\">"
       (escape (cell-text %note i.note-rows))
       "</dd></div>"
     ==
   ;:  weld
     "<article class=\"history-card event\" data-event-kind=\""
     (escape (scot %tas kind))
+    "\" data-event-vehicle=\""
+    (escape (cell-text %vehicle row))
+    "\" data-event-observed=\""
+    observed-input
+    "\" data-event-zone=\""
+    (escape (cell-text %source-zone row))
     "\"><header><span>"
     (cuss (trip (scot %tas kind)))
     "</span><time>"
@@ -3019,7 +3038,9 @@
     tag-line
     payment-line
     note-line
-    "</dl></article>"
+    "</dl><div class=\"history-card-actions\"><button type=\"button\" class=\"event-edit-control\" data-edit-event aria-label=\"Edit "
+    (escape (scot %tas kind))
+    " event\">Edit event</button></div></article>"
   ==
 ::
 ++  history-cards

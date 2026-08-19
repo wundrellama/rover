@@ -281,6 +281,18 @@
       min-width: 0;
     }
 
+    .history-card-actions {
+      display: grid;
+      margin-top: 0.8rem;
+      padding-top: 0.8rem;
+      border-top: 1px solid var(--rv-olive);
+    }
+
+    .event-edit-control {
+      width: 100%;
+      min-height: 44px;
+    }
+
     dd {
       color: var(--rv-amber-bright);
       text-align: right;
@@ -2117,16 +2129,21 @@
 
       const eventForm = app.querySelector('#event-form');
       if (eventForm) {
-        if (defaultVehicle) eventForm.elements.vehicle.value = defaultVehicle;
-        eventForm.elements.observed.value = local.toISOString().slice(0, 16);
-        eventForm.elements.zone.value =
-          Intl.DateTimeFormat().resolvedOptions().timeZone;
         const eventStation = app.querySelector('#event-station');
         const eventNewStation = app.querySelector('#event-new-station');
-        if (eventStation && eventNewStation) {
-          eventStation.addEventListener('change', () => {
+        const eventHeading = app.querySelector('#add-event header h2');
+        const eventEyebrow = app.querySelector('#add-event header .eyebrow');
+        const eventSubmit = eventForm.querySelector('button[type="submit"]');
+        const eventVerdict = app.querySelector('#event-verdict');
+        const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        let syncEventKind = () => {};
+        const syncEventStation = () => {
+          if (eventStation && eventNewStation) {
             eventNewStation.hidden = eventStation.value !== 'new';
-          });
+          }
+        };
+        if (eventStation && eventNewStation) {
+          eventStation.addEventListener('change', syncEventStation);
         }
         const eventSubtypes = app.querySelector('#event-subtypes');
         const subtypeToggle = app.querySelector('#event-subtypes-toggle');
@@ -2156,6 +2173,7 @@
           };
           eventForm.elements.kind.addEventListener('change', showSubtypes);
           showSubtypes();
+          syncEventKind = showSubtypes;
         }
         // A disposal kind belongs on a disposal and nowhere else. Hiding the
         // control also clears it, so a kind picked before the kind changed
@@ -2171,7 +2189,138 @@
           };
           eventForm.elements.kind.addEventListener('change', showDisposalKind);
           showDisposalKind();
+          const priorSync = syncEventKind;
+          syncEventKind = () => {
+            priorSync();
+            showDisposalKind();
+          };
         }
+
+        const ensureSelectValue = (select, value) => {
+          if (!select || !value) return;
+          if (![...select.options].some((option) => option.value === value)) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = `${value} (current)`;
+            option.dataset.editCurrent = '';
+            select.append(option);
+          }
+          select.value = value;
+        };
+        const ensureCheckedValues = (fieldset, name, values) => {
+          if (!fieldset) return;
+          fieldset.querySelectorAll(`input[name="${name}"]`).forEach((input) => {
+            input.checked = false;
+          });
+          values.forEach((value) => {
+            let input = [...fieldset.querySelectorAll(`input[name="${name}"]`)]
+              .find((candidate) => candidate.value === value);
+            if (!input) {
+              const label = document.createElement('label');
+              label.className = 'check-option';
+              label.dataset.editCurrent = '';
+              input = document.createElement('input');
+              input.type = 'checkbox';
+              input.name = name;
+              input.value = value;
+              const caption = document.createElement('span');
+              caption.textContent = `${value} (current)`;
+              label.append(input, caption);
+              fieldset.querySelector('.check-grid')?.append(label);
+            }
+            input.checked = true;
+          });
+        };
+        const sourceNumber = (digits, places) => {
+          const width = Number(places || '0');
+          const padded = String(digits || '').padStart(width + 1, '0');
+          if (width === 0) return padded;
+          return `${padded.slice(0, -width)}.${padded.slice(-width)}`;
+        };
+        const prepareNewEvent = () => {
+          eventForm.querySelectorAll('[data-edit-current]').forEach((node) => node.remove());
+          eventForm.reset();
+          delete eventForm.dataset.editing;
+          delete eventForm.dataset.originalObserved;
+          eventForm.elements.kind.disabled = false;
+          eventForm.elements.mileage.required = false;
+          if (defaultVehicle) eventForm.elements.vehicle.value = defaultVehicle;
+          eventForm.elements.observed.value = local.toISOString().slice(0, 16);
+          eventForm.elements.zone.value = localZone;
+          if (eventHeading) eventHeading.textContent = 'Add event';
+          if (eventEyebrow) eventEyebrow.textContent = 'NEW EVENT';
+          if (eventSubmit) eventSubmit.textContent = 'Save event';
+          if (eventVerdict) eventVerdict.value = '';
+          syncEventStation();
+          syncEventKind();
+        };
+        prepareNewEvent();
+        app.querySelectorAll('[data-open-screen="add-event"]').forEach((button) => {
+          button.addEventListener('click', prepareNewEvent);
+        });
+        app.querySelectorAll('[data-edit-event]').forEach((button) => {
+          button.addEventListener('click', () => {
+            prepareNewEvent();
+            const card = button.closest('[data-event-kind]');
+            if (!card) return;
+            const odometer = card.querySelector('[data-event-odometer-digits]');
+            const total = card.querySelector('[data-event-total]');
+            const station = card.querySelector('[data-event-station]');
+            const payment = card.querySelector('[data-event-payment-method]');
+            const note = card.querySelector('[data-event-note]');
+            ensureSelectValue(eventForm.elements.vehicle, card.dataset.eventVehicle);
+            eventForm.elements.kind.value = card.dataset.eventKind;
+            eventForm.elements.kind.disabled = true;
+            eventForm.elements.mileage.required = true;
+            eventForm.elements.total.value = total?.dataset.eventTotal || '';
+            eventForm.elements.mileage.value = odometer
+              ? sourceNumber(
+                  odometer.dataset.eventOdometerDigits,
+                  odometer.dataset.eventOdometerPlaces
+                )
+              : '';
+            if (odometer) {
+              eventForm.elements.mileageUnit.value =
+                odometer.dataset.eventOdometerUnit;
+            }
+            ensureSelectValue(eventStation, station?.dataset.eventStation || 'none');
+            ensureSelectValue(
+              eventForm.elements.paymentMethod,
+              payment?.dataset.eventPaymentMethod || ''
+            );
+            ensureSelectValue(
+              eventForm.elements.disposalKind,
+              card.querySelector('[data-event-disposal-kind]')
+                ?.dataset.eventDisposalKind || ''
+            );
+            eventForm.elements.notes.value = note?.dataset.eventNote || '';
+            eventForm.elements.observed.value = card.dataset.eventObserved;
+            eventForm.elements.zone.value = card.dataset.eventZone;
+            ensureCheckedValues(
+              app.querySelector('#event-tags'),
+              'tags',
+              [...card.querySelectorAll('[data-event-tag]')]
+                .map((node) => node.dataset.eventTag)
+            );
+            ensureCheckedValues(
+              eventSubtypes,
+              'subtypes',
+              [...card.querySelectorAll('[data-event-subtype]')]
+                .map((node) => node.dataset.eventSubtype)
+            );
+            eventForm.dataset.editing = 'true';
+            eventForm.dataset.originalObserved = card.dataset.eventObserved;
+            if (eventHeading) eventHeading.textContent = 'Edit event';
+            if (eventEyebrow) eventEyebrow.textContent = 'CORRECT EVENT';
+            if (eventSubmit) eventSubmit.textContent = 'Save correction';
+            syncEventStation();
+            syncEventKind();
+            screens.forEach((screen) => {
+              screen.hidden = screen.id !== 'add-event';
+            });
+            document.getElementById('add-event')?.scrollIntoView();
+          });
+        });
         eventForm.addEventListener('submit', async (event) => {
           event.preventDefault();
           const verdict = app.querySelector('#event-verdict');
@@ -2182,11 +2331,20 @@
             // Checkboxes repeat one name, and fromEntries keeps only the last.
             payload.tags = formData.getAll('tags');
             payload.subtypes = formData.getAll('subtypes');
-            // The kind selects the route. The server reads the kind from the
-            // route, never from this body, so the two can never disagree.
-            const eventKind = payload.kind;
-            delete payload.kind;
-            const response = await fetch(`/apps/rover/add-${eventKind}-event`, {
+            const eventKind = eventForm.elements.kind.value;
+            const editing = eventForm.dataset.editing === 'true';
+            if (editing) {
+              payload.kind = eventKind;
+              payload.originalObserved = eventForm.dataset.originalObserved;
+            } else {
+              // On creation the kind selects the route. The server reads it
+              // from that route, so a body cannot disagree with it.
+              delete payload.kind;
+            }
+            const path = editing
+              ? '/apps/rover/edit-event'
+              : `/apps/rover/add-${eventKind}-event`;
+            const response = await fetch(path, {
               method: 'POST',
               credentials: 'same-origin',
               headers: {'content-type': 'application/json'},

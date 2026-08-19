@@ -102,6 +102,10 @@ function fail(message) {
     // Reuse that same Add Event form for a correction. The card carries only
     // the human values needed to prefill it; no database identity crosses the
     // browser boundary.
+    await page.locator('[data-open-screen="vehicles-screen"]').first().click();
+    await page.locator(`[data-open-vehicle-settings][data-vehicle="${vehicle}"]`)
+      .first()
+      .click();
     const savedCard = page
       .locator('[data-event-kind="service"]')
       .filter({hasText: notes})
