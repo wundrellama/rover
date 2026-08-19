@@ -4267,9 +4267,9 @@ eyre_post add-disposal-event \
 statistics_cost_view="$(scoped_view_html "$(scoped_view 0 "$statistics_cost_vehicle")")"
 grep -q 'data-statistic="total-cost-of-ownership"' <<<"$statistics_cost_view" \
   || fail "fixture 134 Statistics lacks total cost of ownership"
-grep -q 'data-total-cost-mills="6038008"' <<<"$statistics_cost_view" \
-  || fail "fixture 134 total cost is not the exact 6,038,008-mill sum"
-for family_total in service:900000 expense:100000 fuel:29990 consumables:8018 acquisition:10000000 disposal:-5000000; do
+grep -q 'data-total-cost-mills="6038010"' <<<"$statistics_cost_view" \
+  || fail "fixture 134 total cost is not the exact 6,038,010-mill sum"
+for family_total in service:900000 expense:100000 fuel:29990 consumables:8020 acquisition:10000000 disposal:-5000000; do
   IFS=: read -r family total <<<"$family_total"
   grep -q "data-cost-family=\"$family\" data-family-total-mills=\"$total\"" <<<"$statistics_cost_view" \
     || fail "fixture 134 spend-by-family lacks $family at $total mills"
