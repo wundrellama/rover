@@ -92,6 +92,7 @@ SERVICE_ODO="$((52000 + STAMP % 1000))"
 SERVICE_NOTE="Front brakes and rotors $STAMP"
 EXPENSE_NOTE="Airport parking $STAMP"
 NOTE_NOTE="Rattle over rough pavement $STAMP"
+EXPENSE_ODO="$((SERVICE_ODO + 25))"
 SERVICE_TOTAL='$412.75'
 SERVICE_CORRECTED_TOTAL='$518.25'
 EXPENSE_TOTAL='$24.00'
@@ -276,6 +277,17 @@ for match in re.finditer(pattern, document, re.S):
     if needle in match.group(0):
         sys.stdout.write(match.group(0))
         break
+' "$kind" "$needle" <<<"$view"
+}
+
+event_card_count() {
+  local kind="$1" needle="$2"
+  python3 -c '
+import re, sys
+document = sys.stdin.read()
+kind, needle = sys.argv[1], sys.argv[2]
+pattern = r"<article class=\"history-card event\" data-event-kind=\"%s\".*?</article>" % re.escape(kind)
+print(sum(needle in match.group(0) for match in re.finditer(pattern, document, re.S)))
 ' "$kind" "$needle" <<<"$view"
 }
 
@@ -533,6 +545,96 @@ report="$(rover_report 'FROM vehicle-events E SELECT E.event-id, E.vehicle-id, E
 grep -q '%kind' <<<"$report" \
   && fail "fixture 11 vehicle-events carries a kind column"
 note "fixture 11 PASS - the common header carries no kind column"
+
+# ---------------------------------------------------------------------------
+# fixture 88 - correction leaves one row and one History card. T11 is present
+# on this branch, so its service-family total must read the corrected cost too.
+# ---------------------------------------------------------------------------
+view="$(eyre_view)"
+[ "$(event_card_count service "$SERVICE_NOTE")" = 1 ] \
+  || fail "fixture 88 History does not render exactly one corrected service card"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT E.event-id;")"
+[ "$(count_rows "$report" '%event-id')" = 1 ] \
+  || fail "fixture 88 the service correction left more than one family row: $report"
+statistics_view="$(curl -s -b "$JAR" -H 'content-type: application/json' \
+  --data-raw "$(printf '{\"page\":\"0\",\"vehicle\":\"%s\"}' "$VEHICLE")" \
+  "$URL/apps/rover/view")"
+grep -q 'data-cost-family="service" data-family-total-mills="518250"' <<<"$statistics_view" \
+  || fail "fixture 88 T11 Statistics did not derive the corrected 518250-mill service spend"
+note "fixture 88 PASS - correction leaves one family row and one History card, and T11 Statistics derives the corrected service spend"
+
+# ---------------------------------------------------------------------------
+# fixture 89 - optional parent associations disappear as absent rows. The
+# parent itself, its odometer link, and its cost retain the same stable target.
+# ---------------------------------------------------------------------------
+expense_identity_before_service_edit="$(event_id_from_report "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events X ON E.event-id = X.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $EXPENSE_DA SELECT E.event-id;")")"
+eyre_post edit-event \
+  "$(event_edit_payload service "$SERVICE_AT" "$SERVICE_AT" "$SERVICE_CORRECTED_TOTAL" "$SERVICE_ODO" "$STATION" '[]' '' '' "$SERVICE_NOTE" '[]' '')" \
+  "$(printf 'Corrected service event - %s\n200' "$SERVICE_CORRECTED_TOTAL")" 'fixture 89 remove associations'
+for relation_spec in 'vehicle-event-tags L tag-id' 'vehicle-event-payment-method P method-id'; do
+  read -r relation alias column <<<"$relation_spec"
+  report="$(scoped_rows "$relation" "$alias" "$column" "$SERVICE_DA")"
+  grep -q "%$column" <<<"$report" \
+    && fail "fixture 89 a removed $relation association survived: $report"
+done
+report="$(scoped_rows vehicle-event-odometers O odometer-id "$SERVICE_DA")"
+[ "$(count_rows "$report" '%odometer-id')" = 1 ] \
+  || fail "fixture 89 correction disturbed the service odometer link: $report"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$SERVICE_DA")"
+grep -qE '%total-mills 25717 (518250|0x7e86a)' <<<"$report" \
+  || fail "fixture 89 correction disturbed the service cost: $report"
+note "fixture 89 PASS - correction removes optional tag and payment associations without orphaning or disturbing the parent links"
+
+# ---------------------------------------------------------------------------
+# fixture 90 - the service correction above cannot disturb its expense sibling
+# on the same vehicle.
+# ---------------------------------------------------------------------------
+expense_identity_after_service_edit="$(event_id_from_report "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events X ON E.event-id = X.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $EXPENSE_DA SELECT E.event-id;")")"
+[ "$expense_identity_after_service_edit" = "$expense_identity_before_service_edit" ] \
+  || fail "fixture 90 the expense sibling identity changed: $expense_identity_before_service_edit -> $expense_identity_after_service_edit"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$EXPENSE_DA")"
+grep -qE '%total-mills 25717 (24000|0x5dc0)' <<<"$report" \
+  || fail "fixture 90 the expense sibling cost changed: $report"
+report="$(scoped_rows vehicle-event-notes Z note "$EXPENSE_DA")"
+grep -qF "$EXPENSE_NOTE" <<<"$report" \
+  || fail "fixture 90 the expense sibling note changed: $report"
+note "fixture 90 PASS - correcting the service leaves its expense sibling identity, cost, and note unchanged"
+
+# ---------------------------------------------------------------------------
+# fixture 91 - an event created without optional associations gains them by
+# correction while keeping its parent identity. Mileage is required because a
+# corrected common-header event must be complete.
+# ---------------------------------------------------------------------------
+expense_identity_before="$(event_id_from_report "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events X ON E.event-id = X.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $EXPENSE_DA SELECT E.event-id;")")"
+eyre_post edit-event \
+  "$(event_edit_payload expense "$EXPENSE_AT" "$EXPENSE_AT" "$EXPENSE_TOTAL" "$EXPENSE_ODO" none "[\"$TAG\"]" '' "$PAYMENT" "$EXPENSE_NOTE" '[]' '')" \
+  "$(printf 'Corrected expense event - %s\n200' "$EXPENSE_TOTAL")" 'fixture 91 add associations'
+expense_identity_after="$(event_id_from_report "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events X ON E.event-id = X.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $EXPENSE_DA SELECT E.event-id;")")"
+[ "$expense_identity_after" = "$expense_identity_before" ] \
+  || fail "fixture 91 the expense parent identity changed: $expense_identity_before -> $expense_identity_after"
+for relation_spec in 'vehicle-event-tags L tag-id' 'vehicle-event-payment-method P method-id' 'vehicle-event-odometers O odometer-id'; do
+  read -r relation alias column <<<"$relation_spec"
+  report="$(scoped_rows "$relation" "$alias" "$column" "$EXPENSE_DA")"
+  [ "$(count_rows "$report" "%$column")" = 1 ] \
+    || fail "fixture 91 the added $relation association does not target the one expense parent: $report"
+done
+note "fixture 91 identity - $expense_identity_before -> $expense_identity_after"
+note "fixture 91 PASS - correction adds tag, payment, and odometer associations to the same expense parent"
+
+# ---------------------------------------------------------------------------
+# fixture 92 - kind is fixed. The refusal is human text and exposes no machine
+# identity; the service remains a service and no expense child is added.
+# ---------------------------------------------------------------------------
+response="$(curl -s -b "$JAR" -w $'\n%{http_code}' -H 'content-type: application/json' \
+  --data-raw "$(event_edit_payload expense "$SERVICE_AT" "$SERVICE_AT" "$SERVICE_CORRECTED_TOTAL" "$SERVICE_ODO" "$STATION" '[]' '' '' "$SERVICE_NOTE" '[]' '')" \
+  "$URL/apps/rover/edit-event")"
+[ "$response" = $'%kind-fixed: event.kind - an event kind cannot be changed\n409' ] \
+  || fail "fixture 92 a kind change lacked the human refusal: $response"
+grep -q '0x[0-9a-f]' <<<"$response" \
+  && fail "fixture 92 the kind refusal exposed a machine identity: $response"
+check_child service-events S "$SERVICE_DA" present 'the refused kind-change event'
+check_child expense-events X "$SERVICE_DA" absent 'the refused kind-change event'
+note "fixture 92 PASS - a kind change is refused with a human reason and writes no second typed child"
 
 # ---------------------------------------------------------------------------
 # fixture 16 - the two T2 relations exist, and the subtype link keys to
@@ -2684,6 +2786,34 @@ report="$(scoped_rows vehicle-event-costs C cost-state "$NOTE_DA")"
 grep -q '%cost-state' <<<"$report" \
   && fail "fixture 12 a cost row appeared for the note event after restart"
 note "fixture 12 PASS - every event, total, odometer link, station link, and reading survived a ship restart"
+
+# ---------------------------------------------------------------------------
+# fixture 93 - the correction state, not merely the original event state,
+# survives the restart: identities stay fixed, removals stay absent, additions
+# stay linked, and History still renders one corrected card.
+# ---------------------------------------------------------------------------
+service_identity_restart="$(event_id_from_report "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN service-events S ON E.event-id = S.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $SERVICE_DA SELECT E.event-id;")")"
+expense_identity_restart="$(event_id_from_report "$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN expense-events X ON E.event-id = X.event-id WHERE V.label = '$VEHICLE' AND E.observed-start = $EXPENSE_DA SELECT E.event-id;")")"
+[ "$service_identity_restart" = "$service_identity_before" ] \
+  || fail "fixture 93 the service identity changed over restart: $service_identity_before -> $service_identity_restart"
+[ "$expense_identity_restart" = "$expense_identity_before" ] \
+  || fail "fixture 93 the expense identity changed over restart: $expense_identity_before -> $expense_identity_restart"
+for relation_spec in 'vehicle-event-tags L tag-id' 'vehicle-event-payment-method P method-id'; do
+  read -r relation alias column <<<"$relation_spec"
+  report="$(scoped_rows "$relation" "$alias" "$column" "$SERVICE_DA")"
+  grep -q "%$column" <<<"$report" \
+    && fail "fixture 93 the removed service $relation association returned after restart: $report"
+done
+for relation_spec in 'vehicle-event-tags L tag-id' 'vehicle-event-payment-method P method-id' 'vehicle-event-odometers O odometer-id'; do
+  read -r relation alias column <<<"$relation_spec"
+  report="$(scoped_rows "$relation" "$alias" "$column" "$EXPENSE_DA")"
+  [ "$(count_rows "$report" "%$column")" = 1 ] \
+    || fail "fixture 93 the added expense $relation association did not survive restart: $report"
+done
+[ "$(event_card_count service "$SERVICE_NOTE")" = 1 ] \
+  || fail "fixture 93 History does not render one corrected service card after restart"
+note "fixture 93 identity - service $service_identity_restart; expense $expense_identity_restart"
+note "fixture 93 PASS - corrected identities and association additions and removals survive a ship restart with one History card"
 
 # ---------------------------------------------------------------------------
 # fixture 21 - the subtype catalog and every subtype link survive the restart
