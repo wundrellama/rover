@@ -4207,10 +4207,110 @@
     (crip amount)
   (crip ['-' amount])
 ::
+++  total-cost-tally
+  |=  $:  cost-rows=statistics-cost-rows
+          cost-index=(map @ (list vector:ast))
+          total-index=(map @ (list vector:ast))
+          spans=(list ownership-interval)
+      ==
+  ^-  cost-tally
+  =/  total
+    (purchase-cost-tally fuels.cost-rows spans empty-cost-tally)
+  =.  total
+    %+  merge-cost-tallies  total
+    (purchase-cost-tally consumables.cost-rows spans empty-cost-tally)
+  =.  total
+    %+  merge-cost-tallies  total
+    (event-cost-tally services.cost-rows cost-index total-index spans %.n empty-cost-tally)
+  =.  total
+    %+  merge-cost-tallies  total
+    (event-cost-tally expenses.cost-rows cost-index total-index spans %.n empty-cost-tally)
+  =.  total
+    %+  merge-cost-tallies  total
+    (event-cost-tally notes.cost-rows cost-index total-index spans %.n empty-cost-tally)
+  =.  total
+    %+  merge-cost-tallies  total
+    (event-cost-tally acquisitions.cost-rows cost-index total-index spans %.n empty-cost-tally)
+  %+  merge-cost-tallies  total
+  (event-cost-tally disposals.cost-rows cost-index total-index spans %.y empty-cost-tally)
+::
+++  ownership-interval-label
+  |=  [span=ownership-interval index=@ud]
+  ^-  tape
+  ;:  weld
+    "Ownership interval "
+    (scow %ud +(index))
+    " ("
+    ?~(start.span "first record" (trip (format-da:render u.start.span)))
+    " to "
+    ?~(end.span "present" (trip (format-da:render u.end.span)))
+    ")"
+  ==
+::
+++  ownership-interval-cost-rows
+  |=  $:  spans=(list ownership-interval)
+          index=@ud
+          cost-rows=statistics-cost-rows
+          cost-index=(map @ (list vector:ast))
+          total-index=(map @ (list vector:ast))
+      ==
+  ^-  tape
+  ?~  spans
+    ~
+  =/  tally
+    (total-cost-tally cost-rows cost-index total-index [i.spans ~])
+  =/  distance
+    (ownership-distance-proof vehicle-odometers.cost-rows `i.spans)
+  =/  row=tape
+    ?:  ?|  =(0 entries.tally)
+            =(%.n compatible.tally)
+        ==
+      ;:  weld
+        "<tr data-ownership-interval=\""
+        (scow %ud +(index))
+        "\" data-interval-unavailable><td>"
+        (ownership-interval-label i.spans index)
+        "</td><td>Unavailable</td><td>Compatible costs and two increasing odometer readings are required inside this ownership interval.</td></tr>"
+      ==
+    ?~  currency.tally
+      ;:  weld
+        "<tr data-ownership-interval=\""
+        (scow %ud +(index))
+        "\" data-interval-unavailable><td>"
+        (ownership-interval-label i.spans index)
+        "</td><td>Unavailable</td><td>Compatible costs and two increasing odometer readings are required inside this ownership interval.</td></tr>"
+      ==
+    ?~  distance
+      ;:  weld
+        "<tr data-ownership-interval=\""
+        (scow %ud +(index))
+        "\" data-interval-unavailable><td>"
+        (ownership-interval-label i.spans index)
+        "</td><td>Unavailable</td><td>Compatible costs and two increasing odometer readings are required inside this ownership interval.</td></tr>"
+      ==
+    =/  value  (cost-per-distance-value tally u.distance)
+    ;:  weld
+      "<tr data-ownership-interval=\""
+      (scow %ud +(index))
+      "\" data-interval-total-mills=\""
+      (cost-tally-attribute tally)
+      "\" data-interval-cost-per-distance-mills=\""
+      (trip (format-sscaled:render value 0 %.n))
+      "\"><td>"
+      (ownership-interval-label i.spans index)
+      "</td><td>"
+      (escape (cost-tally-money tally))
+      "</td><td>"
+      (escape (cost-per-distance-money value u.currency.tally unit.u.distance))
+      "</td></tr>"
+    ==
+  (weld row $(spans t.spans, index +(index)))
+::
 ++  cost-per-distance-statistic
   |=  $:  tally=cost-tally
           odometers=(list vector:ast)
           spans=(list ownership-interval)
+          interval-rows=tape
       ==
   ^-  tape
   =/  row=tape
@@ -4243,6 +4343,7 @@
   ;:  weld
     "<section class=\"stat-table\" data-statistic=\"cost-per-distance\"><h2>Cost per distance, all-in</h2><table><thead><tr><th>Period</th><th>Cost per distance</th><th>Basis</th></tr></thead><tbody>"
     row
+    interval-rows
     "</tbody></table></section>"
   ==
 ::
@@ -4332,6 +4433,80 @@
     rendered
   "<tr class=\"empty-state\" data-service-subtype-empty><td colspan=\"3\">Service events have no subtype recorded.</td></tr>"
 ::
+++  rows-in-statistic-span
+  |=  [rows=(list vector:ast) span=ownership-interval]
+  ^-  (list vector:ast)
+  %+  skim  rows
+  |=  row=vector:ast
+  (statistic-row-in-interval row span)
+::
+++  ownership-interval-spend-rows
+  |=  $:  spans=(list ownership-interval)
+          index=@ud
+          cost-rows=statistics-cost-rows
+          cost-index=(map @ (list vector:ast))
+          total-index=(map @ (list vector:ast))
+      ==
+  ^-  tape
+  ?~  spans
+    ~
+  =/  one-span  [i.spans ~]
+  =/  fuel
+    (purchase-cost-tally fuels.cost-rows one-span empty-cost-tally)
+  =/  consumables
+    (purchase-cost-tally consumables.cost-rows one-span empty-cost-tally)
+  =/  service
+    (event-cost-tally services.cost-rows cost-index total-index one-span %.n empty-cost-tally)
+  =/  expense
+    (event-cost-tally expenses.cost-rows cost-index total-index one-span %.n empty-cost-tally)
+  =/  note
+    (event-cost-tally notes.cost-rows cost-index total-index one-span %.n empty-cost-tally)
+  =/  acquisition
+    (event-cost-tally acquisitions.cost-rows cost-index total-index one-span %.n empty-cost-tally)
+  =/  disposal
+    (event-cost-tally disposals.cost-rows cost-index total-index one-span %.y empty-cost-tally)
+  ;:  weld
+    "<tr class=\"ownership-interval-heading\" data-ownership-interval=\""
+    (scow %ud +(index))
+    "\"><th colspan=\"3\">"
+    (ownership-interval-label i.spans index)
+    "</th></tr>"
+    (spend-family-row %service 'Service' service)
+    (spend-family-row %expense 'Expense' expense)
+    (spend-family-row %fuel 'Fuel' fuel)
+    (spend-family-row %consumables 'Consumables' consumables)
+    (spend-family-row %acquisition 'Acquisition' acquisition)
+    (spend-family-row %disposal 'Disposal proceeds' disposal)
+    (spend-family-row %note 'Notes' note)
+    $(spans t.spans, index +(index))
+  ==
+::
+++  ownership-interval-service-rows
+  |=  $:  spans=(list ownership-interval)
+          index=@ud
+          cost-rows=statistics-cost-rows
+          cost-index=(map @ (list vector:ast))
+          total-index=(map @ (list vector:ast))
+      ==
+  ^-  tape
+  ?~  spans
+    ~
+  ;:  weld
+    "<tr class=\"ownership-interval-heading\" data-service-ownership-interval=\""
+    (scow %ud +(index))
+    "\"><th colspan=\"3\">"
+    (ownership-interval-label i.spans index)
+    "</th></tr>"
+    %:  service-summary-rows
+        (rows-in-statistic-span service-subtypes.cost-rows i.spans)
+        (rows-in-statistic-span services.cost-rows i.spans)
+        cost-index
+        total-index
+        [i.spans ~]
+    ==
+    $(spans t.spans, index +(index))
+  ==
+::
 ++  ownership-cost-statistics
   |=  $:  cost-rows=statistics-cost-rows
           spans=(list ownership-interval)
@@ -4362,7 +4537,14 @@
   =.  total  (merge-cost-tallies total note)
   =.  total  (merge-cost-tallies total acquisition)
   =.  total  (merge-cost-tallies total disposal)
+  =/  crosses-gap=?  (gth (lent spans) 1)
+  =/  interval-rows=tape
+    ?.  crosses-gap
+      ~
+    (ownership-interval-cost-rows spans 0 cost-rows cost-index total-index)
   =/  total-row=tape
+    ?:  crosses-gap
+      "<tr data-total-cost-unavailable=\"ownership-gap\"><td>Lifetime</td><td>Unavailable: The vehicle was not owned for part of this interval, so the derived value is unavailable.</td></tr>"
     ?:  =(0 entries.total)
       "<tr class=\"empty-state\"><td colspan=\"2\">No costs recorded for this vehicle.</td></tr>"
     ?.  compatible.total
@@ -4378,17 +4560,23 @@
     "<section class=\"stat-table\" data-statistic=\"total-cost-of-ownership\"><h2>Total cost of ownership</h2><table><thead><tr><th>Period</th><th>Total</th></tr></thead><tbody>"
     total-row
     "</tbody></table></section>"
-    (cost-per-distance-statistic total vehicle-odometers.cost-rows spans)
+    (cost-per-distance-statistic total vehicle-odometers.cost-rows spans interval-rows)
     "<section class=\"stat-table\" data-statistic=\"spend-by-family\"><h2>Spend by family</h2><table><thead><tr><th>Family</th><th>Records</th><th>Total</th></tr></thead><tbody>"
-    (spend-family-row %service 'Service' service)
-    (spend-family-row %expense 'Expense' expense)
-    (spend-family-row %fuel 'Fuel' fuel)
-    (spend-family-row %consumables 'Consumables' consumables)
-    (spend-family-row %acquisition 'Acquisition' acquisition)
-    (spend-family-row %disposal 'Disposal proceeds' disposal)
-    (spend-family-row %note 'Notes' note)
+    ?:  crosses-gap
+      (ownership-interval-spend-rows spans 0 cost-rows cost-index total-index)
+    ;:  weld
+      (spend-family-row %service 'Service' service)
+      (spend-family-row %expense 'Expense' expense)
+      (spend-family-row %fuel 'Fuel' fuel)
+      (spend-family-row %consumables 'Consumables' consumables)
+      (spend-family-row %acquisition 'Acquisition' acquisition)
+      (spend-family-row %disposal 'Disposal proceeds' disposal)
+      (spend-family-row %note 'Notes' note)
+    ==
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"service-history-summary\"><h2>Service history summary</h2><table><thead><tr><th>Service subtype</th><th>Events</th><th>Total</th></tr></thead><tbody>"
+    ?:  crosses-gap
+      (ownership-interval-service-rows spans 0 cost-rows cost-index total-index)
     %:  service-summary-rows
         service-subtypes.cost-rows
         services.cost-rows
