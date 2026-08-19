@@ -2720,9 +2720,16 @@ do
 done
 # The audit trail the correction posture relies on. The prior content state is
 # still there, and only a read reaches it.
-report="$(rover_report "FROM vehicles AS OF $FIX_AS_OF V JOIN vehicle-events AS OF $FIX_AS_OF E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-cost-totals AS OF $FIX_AS_OF T ON E.event-id = T.event-id WHERE V.label = '$FIX_VEHICLE' AND E.observed-start = $FIX_DA SELECT T.total-mills;")"
+report="$(rover_report "FROM vehicles AS OF $FIX_AS_OF V JOIN vehicle-events AS OF $FIX_AS_OF E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-cost-totals AS OF $FIX_AS_OF T ON E.event-id = T.event-id WHERE V.label = '$FIX_VEHICLE' AND E.observed-start = $FIX_DA SELECT E.event-id, T.total-mills;")"
 [ "$(cell_number "$report" total-mills)" = 300000 ] \
   || fail "fixture 87 the pre-correction total is not readable AS OF: $report"
+# The identity the whole task turns on, printed so the run itself carries it.
+as_of_id="$(grep -oE '%event-id [0-9]+ [0-9a-fx.]+' <<<"$report" | head -1)"
+[ "$as_of_id" = "$fix_id_before" ] \
+  || fail "fixture 87 the event AS OF the earlier time is a different row: $as_of_id"
+note "fixture 87 identity - before: $fix_id_before"
+note "fixture 87 identity - after:  $fix_id_after"
+note "fixture 87 identity - AS OF $FIX_AS_OF: $as_of_id at 300,000 mills"
 note "fixture 87 PASS - a corrected cost keeps the event id, every association still targets it, and the prior total reads back AS OF"
 
 # ---------------------------------------------------------------------------
