@@ -4304,6 +4304,42 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 135 ]; then
   exit 0
 fi
 
+statistics_gap_stamp="$(date +%s%N)"
+statistics_gap_vehicle="Statistics Gap Vehicle $statistics_gap_stamp"
+eyre_post add-vehicle \
+  "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$statistics_gap_vehicle")" \
+  "$(printf 'Added vehicle - %s\n201' "$statistics_gap_vehicle")" \
+  'fixture 136 gap vehicle'
+eyre_post add-acquisition-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-03-01T09:00","zone":"America/Chicago","total":"$10,000.00","currency":"usd","mileage":"1000","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":[],"disposalKind":"","notes":"First purchase %s"}' "$statistics_gap_vehicle" "$statistics_gap_stamp")" \
+  $'Saved acquisition event - $10,000.00\n201' 'fixture 136 first acquisition'
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-03-10T09:00","zone":"America/Chicago","total":"$100.00","currency":"usd","mileage":"1100","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"First interval service %s","subtypes":["Brakes, Front"]}' "$statistics_gap_vehicle" "$statistics_gap_stamp")" \
+  $'Saved service event - $100.00\n201' 'fixture 136 first interval service'
+eyre_post add-disposal-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-03-20T09:00","zone":"America/Chicago","total":"$5,000.00","currency":"usd","mileage":"1200","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":[],"disposalKind":"Sold","notes":"First sale %s"}' "$statistics_gap_vehicle" "$statistics_gap_stamp")" \
+  $'Saved disposal event - $5,000.00\n201' 'fixture 136 first disposal'
+eyre_post add-acquisition-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-05-01T09:00","zone":"America/Chicago","total":"$8,000.00","currency":"usd","mileage":"1300","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":[],"disposalKind":"","notes":"Second purchase %s"}' "$statistics_gap_vehicle" "$statistics_gap_stamp")" \
+  $'Saved acquisition event - $8,000.00\n201' 'fixture 136 second acquisition'
+eyre_post add-expense-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-05-10T09:00","zone":"America/Chicago","total":"$200.00","currency":"usd","mileage":"1400","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"Second interval expense %s","subtypes":[]}' "$statistics_gap_vehicle" "$statistics_gap_stamp")" \
+  $'Saved expense event - $200.00\n201' 'fixture 136 second interval expense'
+statistics_gap_view="$(scoped_view_html "$(scoped_view 0 "$statistics_gap_vehicle")")"
+grep -q 'data-total-cost-unavailable="ownership-gap"' <<<"$statistics_gap_view" \
+  || fail "fixture 136 lifetime total crosses the ownership gap"
+grep -q 'The vehicle was not owned for part of this interval, so the derived value is unavailable.' <<<"$statistics_gap_view" \
+  || fail "fixture 136 ownership-gap refusal lacks the ratified human reason"
+for interval_values in '1:5100000:25500' '2:8200000:82000'; do
+  IFS=: read -r interval interval_total interval_rate <<<"$interval_values"
+  grep -q "data-ownership-interval=\"$interval\" data-interval-total-mills=\"$interval_total\" data-interval-cost-per-distance-mills=\"$interval_rate\"" <<<"$statistics_gap_view" \
+    || fail "fixture 136 interval $interval does not retain exact total $interval_total and rate $interval_rate"
+done
+note "fixture 136 PASS - lifetime aggregates refuse the buy-sell-rebuy gap and the two intervals retain exact totals and all-in rates"
+if [ "${ROVER_FIXTURE_STOP:-}" = 136 ]; then
+  exit 0
+fi
+
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 python3 -c 'import sys
