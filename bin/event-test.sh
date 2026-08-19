@@ -174,6 +174,14 @@ BARE_EDIT_DA='~2026.08.13..09.30.00'
 BARE_EDIT_NOTE="Roadside inspection $STAMP"
 BARE_EDIT_TOTAL='$62.50'
 BARE_EDIT_ODO="$((59000 + STAMP % 1000))"
+# The event a real browser corrects in fixture 95. It is its own event so the
+# pointer-driven correction cannot move a figure another fixture reads.
+BROWSER_FIX_AT='2026-08-14T09:30'
+BROWSER_FIX_DA='~2026.08.14..09.30.00'
+BROWSER_FIX_NOTE="Browser correction $STAMP"
+BROWSER_FIX_TOTAL='$120.00'
+BROWSER_FIX_FIXED='$137.45'
+BROWSER_FIX_ODO="$((60000 + STAMP % 1000))"
 # The correction vehicle for the derived figures. Statistics reads one
 # vehicle, and this one holds a purchase, a service, and nothing else, so the
 # total of ownership is arithmetic a reader can check by hand.
@@ -2949,6 +2957,83 @@ report="$(scoped_rows vehicle-event-service-subtypes B service-subtype-id "$FIX_
   || fail "fixture 93 the refused request re-keyed the event"
 note "fixture 93 PASS - a kind change is refused with a human reason and writes nothing"
 
+# ---------------------------------------------------------------------------
+# fixture 95 - a person corrects an event in a real browser at 390px. They
+# open the card, press Edit, find their own entry in the form, change a value,
+# save, and see one corrected card. An endpoint with no browser control is the
+# same defect Gate 7 found wearing the other hat.
+# ---------------------------------------------------------------------------
+eyre_post add-service-event \
+  "$(fix_payload "$BROWSER_FIX_AT" "$BROWSER_FIX_TOTAL" "$BROWSER_FIX_ODO" \
+    "$STATION" "[\"$TAG\"]" "$PAYMENT" "$BROWSER_FIX_NOTE" '["Engine Oil"]')" \
+  $'Saved service event - $120.00\n201' 'fixture 95 the event the browser corrects'
+browser_fix_id="$(event_id_at "$BROWSER_FIX_DA" "$FIX_VEHICLE")"
+[ -n "$browser_fix_id" ] || fail "fixture 95 the browser event was not stored"
+playwright_module="${ROVER_PLAYWRIGHT_MODULE:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules/playwright}"
+chromium_binary="${ROVER_CHROMIUM:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
+[ -f "$playwright_module/package.json" ] \
+  || fail "fixture 95 Playwright is unavailable at $playwright_module"
+[ -x "$chromium_binary" ] \
+  || fail "fixture 95 Chromium is unavailable at $chromium_binary"
+auth_cookie_name="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $6; exit}' "$JAR")"
+auth_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
+[ -n "$auth_cookie" ] || fail "fixture 95 has no urbauth cookie to hand the browser"
+correction_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/correction-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$FIX_VEHICLE" \
+      "$BROWSER_FIX_NOTE" "$BROWSER_FIX_FIXED" "$TAG"
+} 2>&1)" || fail "fixture 95 the browser could not correct an event: $correction_out"
+# The form opened pre-filled with the person's own entry.
+for want in \
+  "FORM_VEHICLE=$FIX_VEHICLE" \
+  'FORM_KIND=service' \
+  "FORM_TOTAL=$BROWSER_FIX_TOTAL" \
+  "FORM_NOTES=$BROWSER_FIX_NOTE" \
+  "FORM_MILEAGE=$BROWSER_FIX_ODO" \
+  "FORM_ORIGINAL=$BROWSER_FIX_AT" \
+  "FORM_TAGS=$TAG" \
+  'FORM_SUBMIT=Save correction'
+do
+  grep -qF "$want" <<<"$correction_out" \
+    || fail "fixture 95 the pre-filled form lacks $want: $correction_out"
+done
+# The control and the form fit the phone they are used on.
+grep -q 'EDIT_VISIBLE=yes' <<<"$correction_out" \
+  || fail "fixture 95 the edit control is not visible at 390px: $correction_out"
+edit_right="$(sed -n 's/^EDIT_RIGHT_EDGE=//p' <<<"$correction_out")"
+[ -n "$edit_right" ] && [ "$edit_right" -le 390 ] \
+  || fail "fixture 95 the edit control ends at ${edit_right}px, past 390: $correction_out"
+form_overflow="$(sed -n 's/^FORM_OVERFLOW=//p' <<<"$correction_out")"
+[ -n "$form_overflow" ] && [ "$form_overflow" -le 0 ] \
+  || fail "fixture 95 the correction form overflows 390px by ${form_overflow}px"
+# The correction landed, and it made one card rather than two.
+grep -qF "EDIT_VERDICT=Corrected service event - $BROWSER_FIX_FIXED" <<<"$correction_out" \
+  || fail "fixture 95 the correction verdict is wrong: $correction_out"
+grep -q 'EDIT_CARDS=1' <<<"$correction_out" \
+  || fail "fixture 95 the correction rendered more than one card: $correction_out"
+grep -qF "EDIT_CARD_TOTAL=$BROWSER_FIX_FIXED" <<<"$correction_out" \
+  || fail "fixture 95 the card does not show the corrected total: $correction_out"
+grep -q 'EDIT_CARD_TAGS=$' <<<"$correction_out" \
+  || fail "fixture 95 the tag the person unchecked is still on the card: $correction_out"
+# Leaving the correction empties the form. A correction target must not
+# outlive the screen a person left.
+grep -q 'RESET_ORIGINAL=$' <<<"$correction_out" \
+  || fail "fixture 95 the reopened form still names a correction target: $correction_out"
+grep -q 'RESET_SUBMIT=Save event' <<<"$correction_out" \
+  || fail "fixture 95 the reopened form still reads as a correction: $correction_out"
+# The browser wrote what the endpoint battery writes, in the same rows.
+[ "$(event_id_at "$BROWSER_FIX_DA" "$FIX_VEHICLE")" = "$browser_fix_id" ] \
+  || fail "fixture 95 the browser correction re-keyed the event"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$BROWSER_FIX_DA" "$FIX_VEHICLE")"
+[ "$(cell_number "$report" total-mills)" = 137450 ] \
+  || fail "fixture 95 the browser correction did not store 137,450 mills: $report"
+report="$(scoped_rows vehicle-event-tags G tag-id "$BROWSER_FIX_DA" "$FIX_VEHICLE")"
+grep -q '%tag-id' <<<"$report" \
+  && fail "fixture 95 the unchecked tag left a row behind: $report"
+note "fixture 95 PASS - a person corrects an event from the card in a real browser at 390px, sees one corrected card, and the form empties behind them"
+
 
 # ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
@@ -3298,6 +3383,12 @@ done
 report="$(scoped_rows vehicle-event-cost-totals T total-mills "$SIB_DA" "$FIX_VEHICLE")"
 [ "$(cell_number "$report" total-mills)" = 41000 ] \
   || fail "fixture 94 the untouched sibling changed over the restart: $report"
+# The correction a person made with a pointer survives on the same terms.
+[ "$(event_id_at "$BROWSER_FIX_DA" "$FIX_VEHICLE")" = "$browser_fix_id" ] \
+  || fail "fixture 94 the browser-corrected event was re-keyed by the restart"
+report="$(scoped_rows vehicle-event-cost-totals T total-mills "$BROWSER_FIX_DA" "$FIX_VEHICLE")"
+[ "$(cell_number "$report" total-mills)" = 137450 ] \
+  || fail "fixture 94 the browser correction did not survive the restart: $report"
 stat_view="$(scoped_event_view "$STAT_FIX_VEHICLE")"
 grep -q 'data-total-cost-mills="10450000"' <<<"$stat_view" \
   || fail "fixture 94 the corrected ownership total did not survive the restart"
