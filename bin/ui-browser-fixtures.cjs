@@ -46,6 +46,67 @@ async function setDefaultVehicle(page, vehicle) {
   }
 }
 
+//  M7 T11. The four cost tables at 390px. The viewport this file opens is
+//  already 390 wide, so the measurement is the real one a phone makes. It runs
+//  twice: once for a vehicle with one ownership interval and once for a vehicle
+//  with a gap, because the gap adds a refusal row that carries a whole
+//  sentence.
+const COST_TABLES = [
+  'total-cost-of-ownership',
+  'cost-per-distance',
+  'spend-by-family',
+  'service-summary'
+];
+
+async function measureStatisticsLayout(page, vehicle) {
+  await setDefaultVehicle(page, vehicle);
+  await page.reload({waitUntil: 'domcontentloaded'});
+  await page.getByRole('button', {name: 'Statistics', exact: true}).click();
+  const screen = page.locator('#statistics-screen');
+  await screen.waitFor({state: 'visible'});
+  const measurement = await screen.evaluate((root, names) => {
+    const viewport = document.documentElement.clientWidth;
+    const tables = names.map((name) => {
+      const section = root.querySelector(`[data-statistic="${name}"]`);
+      if (!section) return {name, present: false};
+      const table = section.querySelector('table');
+      const cells = [...table.querySelectorAll('th, td')];
+      return {
+        name,
+        present: true,
+        rows: table.querySelectorAll('tbody tr').length,
+        overflow: table.scrollWidth - section.clientWidth,
+        right: Math.ceil(Math.max(...cells.map(
+          (cell) => cell.getBoundingClientRect().right
+        )))
+      };
+    });
+    return {
+      viewport,
+      documentOverflow:
+        document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      tables
+    };
+  }, COST_TABLES);
+  const broken = measurement.tables.filter(
+    (table) => !table.present || table.overflow > 0 || table.right > measurement.viewport
+  );
+  if (measurement.viewport !== 390 || measurement.documentOverflow > 0 || broken.length) {
+    throw new Error(
+      `statistics layout failed for ${vehicle}: ${JSON.stringify(measurement)}`
+    );
+  }
+  return measurement;
+}
+
+async function testStatisticsLayout(page, firstVehicle, secondVehicle) {
+  const single = await measureStatisticsLayout(page, firstVehicle);
+  const gapped = await measureStatisticsLayout(page, secondVehicle);
+  console.log(
+    `STATISTICS_LAYOUT=${JSON.stringify({single, gapped})}`
+  );
+}
+
 async function testVehicleSettingsLayout(page, vehicle) {
   await page.getByRole('button', {name: 'Vehicles', exact: true}).click();
   await page.locator(
@@ -563,6 +624,8 @@ async function testImportPrepare(page, documentPath, batchSize) {
       await testImportUpload(page, importPath, importBatchSize);
     } else if (mode === 'import-prepare') {
       await testImportPrepare(page, importPath, importBatchSize);
+    } else if (mode === 'statistics-layout') {
+      await testStatisticsLayout(page, firstVehicle, secondVehicle);
     } else if (mode === 'layout-current') {
       await testVehicleSettingsLayout(page, firstVehicle);
     } else if (mode === 'capture-current') {

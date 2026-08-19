@@ -1774,7 +1774,15 @@ const fs = require('fs');
       if (rows.some((row) => row.dataset.statisticsVehicle !== selected)) {
         throw new Error(`${table.dataset.statistic} leaks a row outside ${selected}`);
       }
-      return [table.dataset.statistic, rows.map((row) => row.textContent.trim()).join('|')];
+      //  M7 T11. The signature carries each row's vehicle as well as its text.
+      //  A table that is empty for both vehicles reads the same either way, and
+      //  the scope is still what changed.
+      return [
+        table.dataset.statistic,
+        rows.map(
+          (row) => `${row.dataset.statisticsVehicle}:${row.textContent.trim()}`
+        ).join('|')
+      ];
     });
     return {
       selected,
@@ -1828,10 +1836,10 @@ print("|".join([
     ",".join(data["changed"]),
 ]))' <<<"$statistics_switch"
   )"
-  expected_statistics_switch='Rover Demo Gasoline|Rover Demo Gasoline|Rover Demo Diesel|Rover Demo Diesel|economy-by-subtype,fuel-costs,distance-between-fills,time-between-fills,average-price-per-unit,distance-per-tank,def-economy'
+  expected_statistics_switch='Rover Demo Gasoline|Rover Demo Gasoline|Rover Demo Diesel|Rover Demo Diesel|economy-by-subtype,fuel-costs,distance-between-fills,time-between-fills,average-price-per-unit,distance-per-tank,def-economy,total-cost-of-ownership,cost-per-distance,spend-by-family,service-summary'
   [ "$statistics_switch_summary" = "$expected_statistics_switch" ] \
     || fail "fixture 65 switching scope did not change every table and header: $statistics_switch_summary"
-  note "fixture 65 PASS - selector changed the header and all seven statistics tables from gasoline to diesel"
+  note "fixture 65 PASS - selector changed the header and all eleven statistics tables from gasoline to diesel"
 
   click_file '=/  m  (strand ,vase)
 ;<  our=@p  bind:m  get-our
@@ -2817,7 +2825,8 @@ grep -q 'class="history-record-detail"' <<<"$view" \
 grep -q 'class="history-edit-form"' <<<"$view" \
   || fail "History record detail lacks edit"
 for statistic in economy-by-subtype fuel-costs distance-between-fills \
-  time-between-fills average-price-per-unit distance-per-tank; do
+  time-between-fills average-price-per-unit distance-per-tank \
+  total-cost-of-ownership cost-per-distance spend-by-family service-summary; do
   grep -q "data-statistic=\"$statistic\"" <<<"$view" ||
     fail "Statistics screen lacks table: $statistic"
 done
@@ -4213,7 +4222,7 @@ few_response="$(scoped_view 0 'Statscope Few Diesel')"
 [ "$(scoped_view_status "$few_response")" = 200 ] \
   || fail "fixture 118 few-fill scope returned $(scoped_view_status "$few_response"): $few_response"
 few_html="$(scoped_view_html "$few_response")"
-few_census="$(scope_census "$few_html" 'Statscope Few Diesel' 3 16 \
+few_census="$(scope_census "$few_html" 'Statscope Few Diesel' 3 25 \
   '2025-05-01' '2025-05-03' 'Synthetic ULSD 45' 'Showing 1-3 of 3')" \
   || fail "fixture 118 few-fill scope is not isolated: $few_census"
 grep -q 'Unavailable' <<<"$few_html" \
@@ -4227,7 +4236,7 @@ many_response="$(scoped_view 0 'Statscope Many Gasoline')"
 [ "$(scoped_view_status "$many_response")" = 200 ] \
   || fail "fixture 119 many-fill scope returned $(scoped_view_status "$many_response"): $many_response"
 many_html="$(scoped_view_html "$many_response")"
-many_census="$(scope_census "$many_html" 'Statscope Many Gasoline' 25 126 \
+many_census="$(scope_census "$many_html" 'Statscope Many Gasoline' 25 135 \
   '2026-04-06' '2026-04-30' 'Synthetic 87 AKI' 'Showing 1-25 of 30')" \
   || fail "fixture 119 many-fill page 1 is not isolated: $many_census"
 note "statscope many-fill page 1 census - $many_census"
@@ -4237,14 +4246,14 @@ many_page_2_response="$(scoped_view 1 'Statscope Many Gasoline')"
 [ "$(scoped_view_status "$many_page_2_response")" = 200 ] \
   || fail "fixture 120 many-fill page 2 returned $(scoped_view_status "$many_page_2_response"): $many_page_2_response"
 many_page_2_html="$(scoped_view_html "$many_page_2_response")"
-many_page_2_census="$(scope_census "$many_page_2_html" 'Statscope Many Gasoline' 5 26 \
+many_page_2_census="$(scope_census "$many_page_2_html" 'Statscope Many Gasoline' 5 35 \
   '2026-04-01' '2026-04-05' 'Synthetic 87 AKI' 'Showing 26-30 of 30')" \
   || fail "fixture 120 many-fill page 2 is not isolated: $many_page_2_census"
 note "statscope many-fill page 2 census - $many_page_2_census"
 note "fixture 120 PASS - page 2 stays inside the selected vehicle and serves its last 5 fills"
 
-for default_case in 'Statscope Many Gasoline:25:126:2026-04-06:2026-04-30:Synthetic 87 AKI:Showing 1-25 of 30' \
-                    'Statscope Few Diesel:3:16:2025-05-01:2025-05-03:Synthetic ULSD 45:Showing 1-3 of 3'; do
+for default_case in 'Statscope Many Gasoline:25:135:2026-04-06:2026-04-30:Synthetic 87 AKI:Showing 1-25 of 30' \
+                    'Statscope Few Diesel:3:25:2025-05-01:2025-05-03:Synthetic ULSD 45:Showing 1-3 of 3'; do
   IFS=: read -r default_vehicle default_history default_statistics default_first \
     default_last default_subtype default_page <<<"$default_case"
   default_write="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
@@ -4274,6 +4283,245 @@ for default_case in 'Statscope Many Gasoline:25:126:2026-04-06:2026-04-30:Synthe
   fi
 done
 note "fixture 121 PASS - GET serves both defaults and the old bare-page POST stays compatible"
+
+# --- M7 T11 - the cost read path --------------------------------------------
+# Statistics learns the six event families. Every figure below is derived on the
+# read from rows Rover already stores, in exact mills, and bounded by ownership.
+# Each vehicle carries this run's stamp, so a second run on the same database
+# reads its own rows and never an earlier run's.
+cost_stamp="$(date +%s%N)"
+cost_vehicle="T11 Cost Vehicle $cost_stamp"
+rate_vehicle="T11 Rate Vehicle $cost_stamp"
+gap_vehicle="T11 Gap Vehicle $cost_stamp"
+bare_vehicle="T11 No Service Vehicle $cost_stamp"
+
+cost_fill() {
+  # vehicle observed mileage quantity price saved
+  eyre_post add-fill "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"%s","price":"%s","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"%s","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"","paymentMethod":""}' \
+    "$1" "$4" "$5" "$2" "$3")" "$6"$'\n201' "fixture 134 fill ($1 $2)"
+}
+
+cost_event() {
+  # route vehicle observed total mileage subtypes disposalKind saved
+  eyre_post "$1" "$(printf '{"vehicle":"%s","observed":"%s","zone":"America/Chicago","total":"%s","currency":"usd","mileage":"%s","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":%s,"disposalKind":"%s","notes":"T11 %s"}' \
+    "$2" "$3" "$4" "$5" "$6" "$7" "$cost_stamp")" "$8"$'\n201' "fixture 134 event ($1 $2)"
+}
+
+# One statistics table of the served view, as rows of attribute values. The
+# slice is taken per table so a marker from another table cannot be counted.
+cost_table_rows() {
+  local document="$1" statistic="$2"
+  python3 -c 'import html, json, re, sys
+statistic = sys.argv[1]
+document = html.unescape(sys.stdin.read())
+screen = document.split("<section id=\"statistics-screen\"", 1)[1]
+screen = screen.split("<section id=\"settings-screen\"", 1)[0]
+start = screen.find("data-statistic=\"%s\"" % statistic)
+if start < 0:
+    raise SystemExit("table %s is absent" % statistic)
+end = screen.find("</section>", start)
+table = screen[start:end]
+for row in re.findall(r"<tr[^>]*>.*?</tr>", table, re.S):
+    attributes = dict(re.findall(r"data-([a-z-]+)=\"([^\"]*)\"", row))
+    cells = [re.sub(r"<[^>]+>", "", cell).strip()
+             for cell in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+    if not cells:
+        continue
+    print(json.dumps({"attributes": attributes, "cells": cells}))' "$statistic" <<<"$document"
+}
+
+eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline"}' "$cost_vehicle")" \
+  "$(printf 'Added vehicle - %s\n201' "$cost_vehicle")" 'fixture 134 cost vehicle'
+eyre_post add-odometer "$(printf '{"vehicle":"%s","reading":"10000","unit":"mi","observed":"2026-01-01T08:00","zone":"America/Chicago"}' "$cost_vehicle")" \
+  $'Saved odometer - 10,000 mi\n201' 'fixture 134 opening odometer'
+cost_fill "$cost_vehicle" 2026-01-02T12:00 10300 10.000 '$3.00' 'Saved fill - $3.009 - derived $30.09'
+cost_fill "$cost_vehicle" 2026-02-02T12:00 10600 10.000 '$3.00' 'Saved fill - $3.009 - derived $30.09'
+cost_event add-service-event "$cost_vehicle" 2026-03-01T09:00 '$900.00' 10800 '["Brakes, Front"]' '' 'Saved service event - $900.00'
+cost_event add-expense-event "$cost_vehicle" 2026-03-05T09:00 '$45.50' '' '[]' '' 'Saved expense event - $45.50'
+eyre_post add-consumable "$(printf '{"vehicle":"%s","consumable":"Motor Oil","quantity":"5.000","price":"$8.00","observed":"2026-03-10T14:00","zone":"America/Chicago","mileage":"11000","mileageUnit":"mi"}' "$cost_vehicle")" \
+  $'Saved consumable purchase - $40.05\n201' 'fixture 134 consumable purchase'
+
+cost_response="$(scoped_view 0 "$cost_vehicle")"
+[ "$(scoped_view_status "$cost_response")" = 200 ] \
+  || fail "fixture 134 cost view returned $(scoped_view_status "$cost_response")"
+cost_html="$(scoped_view_html "$cost_response")"
+cost_families="$(cost_table_rows "$cost_html" spend-by-family)"
+cost_totals="$(cost_table_rows "$cost_html" total-cost-of-ownership)"
+cost_report="$(printf '%s\n---\n%s\n' "$cost_families" "$cost_totals" | python3 -c '
+import json, sys
+families = {}
+absent = []
+total = ""
+section = 0
+for line in sys.stdin.read().splitlines():
+    if not line:
+        continue
+    if line == "---":
+        section = 1
+        continue
+    attributes = json.loads(line)["attributes"]
+    if section == 0:
+        if "spend-absent" in attributes:
+            absent.append(attributes["spend-absent"])
+        elif "spend-total" in attributes:
+            families[attributes["spend-family"]] = attributes["spend-total"]
+    elif "total-cost" in attributes:
+        total = attributes["total-cost"]
+
+def mills(text):
+    whole, _, fraction = text[1:].replace(",", "").partition(".")
+    return int(whole) * 1000 + int(fraction.ljust(3, "0"))
+
+print("PARTS=" + "|".join("%s:%s" % pair for pair in sorted(families.items())))
+print("ABSENT=" + "|".join(sorted(absent)))
+print("TOTAL=" + total)
+print("SUM=" + ("yes" if total and sum(
+    mills(value) for value in families.values()
+) == mills(total) else "no"))
+')"
+grep -q '^PARTS=consumable:\$40\.05|expense:\$45\.50|fuel:\$60\.18|service:\$900\.00$' <<<"$cost_report" \
+  || fail "fixture 134 spend by family is not the exact parts: $cost_report"
+grep -q '^ABSENT=acquisition|disposal$' <<<"$cost_report" \
+  || fail "fixture 134 the unrecorded families are wrong: $cost_report"
+grep -q '^TOTAL=\$1,045\.73$' <<<"$cost_report" \
+  || fail "fixture 134 total cost of ownership is wrong: $cost_report"
+grep -q '^SUM=yes$' <<<"$cost_report" \
+  || fail "fixture 134 total cost of ownership is not the sum of its parts: $cost_report"
+note "fixture 134 cost census - $(tr '\n' ' ' <<<"$cost_report")"
+note "fixture 134 PASS - fuel, service, expense, and consumable records add to an exact \$1,045.73 total cost of ownership"
+
+# Cost per distance divides TOTAL spend, not fuel spend. The proof is that a
+# service event with no odometer moves the figure while the fills stand still.
+eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline"}' "$rate_vehicle")" \
+  "$(printf 'Added vehicle - %s\n201' "$rate_vehicle")" 'fixture 135 rate vehicle'
+eyre_post add-odometer "$(printf '{"vehicle":"%s","reading":"20000","unit":"mi","observed":"2026-01-01T08:00","zone":"America/Chicago"}' "$rate_vehicle")" \
+  $'Saved odometer - 20,000 mi\n201' 'fixture 135 opening odometer'
+cost_fill "$rate_vehicle" 2026-01-05T12:00 21000 10.000 '$3.00' 'Saved fill - $3.009 - derived $30.09'
+rate_before_html="$(scoped_view_html "$(scoped_view 0 "$rate_vehicle")")"
+rate_before="$(cost_table_rows "$rate_before_html" cost-per-distance)"
+rate_fuel_before="$(cost_table_rows "$rate_before_html" spend-by-family)"
+cost_event add-service-event "$rate_vehicle" 2026-01-20T09:00 '$500.00' '' '["Engine Oil"]' '' 'Saved service event - $500.00'
+rate_after_html="$(scoped_view_html "$(scoped_view 0 "$rate_vehicle")")"
+rate_after="$(cost_table_rows "$rate_after_html" cost-per-distance)"
+rate_fuel_after="$(cost_table_rows "$rate_after_html" spend-by-family)"
+rate_before_value="$(grep -o '"cost-per-distance": "[^"]*"' <<<"$rate_before" | head -1)"
+rate_after_value="$(grep -o '"cost-per-distance": "[^"]*"' <<<"$rate_after" | head -1)"
+[ "$rate_before_value" = '"cost-per-distance": "$0.030 per mi"' ] \
+  || fail "fixture 135 fuel-only cost per distance is wrong: $rate_before"
+[ "$rate_after_value" = '"cost-per-distance": "$0.530 per mi"' ] \
+  || fail "fixture 135 cost per distance did not follow total spend: $rate_after"
+[ "$(grep -c '"spend-family": "fuel"' <<<"$rate_fuel_before")" = 1 ] \
+  || fail "fixture 135 the fuel family row is missing before the service event"
+[ "$(grep -o '"spend-family": "fuel", "spend-total": "[^"]*"' <<<"$rate_fuel_before")" \
+  = "$(grep -o '"spend-family": "fuel", "spend-total": "[^"]*"' <<<"$rate_fuel_after")" ] \
+  || fail "fixture 135 the fuel record moved: before=$rate_fuel_before after=$rate_fuel_after"
+grep -q '"spend-family": "fuel", "spend-total": "\$30.09"' <<<"$rate_fuel_after" \
+  || fail "fixture 135 fuel spend is not \$30.09 after the service event: $rate_fuel_after"
+grep -q '1,000 mi' <<<"$rate_after" \
+  || fail "fixture 135 the distance moved when only a service event was added: $rate_after"
+note "fixture 135 rate census - before=$rate_before_value after=$rate_after_value fuel unchanged at \$30.09 over 1,000 mi"
+note "fixture 135 PASS - cost per distance divides total spend: one \$500 service moved it from \$0.030 to \$0.530 per mi while the fill stood still"
+
+# Ruling 12. A vehicle bought, sold, and bought back reports each ownership
+# interval on its own and refuses the combined figure with a human reason.
+eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline"}' "$gap_vehicle")" \
+  "$(printf 'Added vehicle - %s\n201' "$gap_vehicle")" 'fixture 136 gap vehicle'
+cost_event add-acquisition-event "$gap_vehicle" 2024-01-10T09:00 '$20,000.00' 5000 '[]' '' 'Saved acquisition event - $20,000.00'
+cost_event add-service-event "$gap_vehicle" 2024-06-01T09:00 '$300.00' 9000 '["Engine Oil"]' '' 'Saved service event - $300.00'
+cost_event add-disposal-event "$gap_vehicle" 2024-12-01T09:00 '$15,000.00' 12000 '[]' Sold 'Saved disposal event - $15,000.00'
+cost_event add-acquisition-event "$gap_vehicle" 2026-02-01T09:00 '$9,000.00' 40000 '[]' '' 'Saved acquisition event - $9,000.00'
+cost_event add-service-event "$gap_vehicle" 2026-03-01T09:00 '$150.00' 41000 '["Brakes, Front"]' '' 'Saved service event - $150.00'
+gap_html="$(scoped_view_html "$(scoped_view 0 "$gap_vehicle")")"
+gap_reason='The vehicle was not owned for part of this interval, so it is unavailable.'
+for gap_table in total-cost-of-ownership cost-per-distance spend-by-family service-summary; do
+  gap_rows="$(cost_table_rows "$gap_html" "$gap_table")"
+  grep -q '"cost-scope": "Whole history"' <<<"$gap_rows" \
+    || fail "fixture 136 $gap_table has no whole-history row: $gap_rows"
+  grep -q "Unavailable" <<<"$gap_rows" \
+    || fail "fixture 136 $gap_table does not refuse the cross-gap figure: $gap_rows"
+  grep -q "$gap_reason" <<<"$gap_rows" \
+    || fail "fixture 136 $gap_table refuses without a human reason: $gap_rows"
+  python3 -c 'import json, sys
+table = sys.argv[1]
+for line in sys.stdin.read().splitlines():
+    row = json.loads(line)
+    if row["attributes"].get("cost-scope") != "Whole history":
+        continue
+    for claim in ("total-cost", "cost-per-distance", "spend-total", "service-cost",
+                  "service-total"):
+        if claim in row["attributes"]:
+            raise SystemExit(
+                "%s whole-history row still claims %s: %s" % (table, claim, line)
+            )
+    for cell in row["cells"]:
+        if cell.strip() in ("$0.00", "0"):
+            raise SystemExit("%s whole-history row renders a zero: %s" % (table, line))' \
+    "$gap_table" <<<"$gap_rows" \
+    || fail "fixture 136 $gap_table crossed the ownership gap"
+done
+gap_totals="$(cost_table_rows "$gap_html" total-cost-of-ownership)"
+grep -q '"cost-scope": "2024-01-10 to 2024-12-01", "total-cost": "\$5,300.00"' <<<"$gap_totals" \
+  || fail "fixture 136 the first ownership interval is wrong: $gap_totals"
+grep -q '"cost-scope": "2026-02-01 to now", "total-cost": "\$9,150.00"' <<<"$gap_totals" \
+  || fail "fixture 136 the second ownership interval is wrong: $gap_totals"
+gap_census="$(python3 -c 'import json, sys
+for line in sys.stdin.read().splitlines():
+    attributes = json.loads(line)["attributes"]
+    print("%s=%s" % (attributes.get("cost-scope"),
+                     attributes.get("total-cost", "Unavailable")))' <<<"$gap_totals" | tr '\n' ' ')"
+note "fixture 136 gap census - $gap_census"
+note "fixture 136 PASS - each ownership interval computes on its own and the combined figure is refused with the ownership sentence"
+
+# Honest absence. A vehicle with no service record says so. It does not say
+# $0.00, because a zero is a claim and an absence is not.
+eyre_post add-vehicle "$(printf '{"label":"%s","energy":"Gasoline"}' "$bare_vehicle")" \
+  "$(printf 'Added vehicle - %s\n201' "$bare_vehicle")" 'fixture 137 no-service vehicle'
+eyre_post add-odometer "$(printf '{"vehicle":"%s","reading":"30000","unit":"mi","observed":"2026-01-01T08:00","zone":"America/Chicago"}' "$bare_vehicle")" \
+  $'Saved odometer - 30,000 mi\n201' 'fixture 137 opening odometer'
+cost_fill "$bare_vehicle" 2026-01-05T12:00 30500 10.000 '$3.00' 'Saved fill - $3.009 - derived $30.09'
+bare_html="$(scoped_view_html "$(scoped_view 0 "$bare_vehicle")")"
+bare_service="$(cost_table_rows "$bare_html" service-summary)"
+bare_families="$(cost_table_rows "$bare_html" spend-by-family)"
+grep -q '"service-summary-empty"' <<<"$bare_service" \
+  || fail "fixture 137 the service summary has no honest empty state: $bare_service"
+grep -q 'No service record falls in this period.' <<<"$bare_service" \
+  || fail "fixture 137 the empty service summary states no reason: $bare_service"
+grep -q '"spend-family": "service", "spend-absent": "service"' <<<"$bare_families" \
+  || fail "fixture 137 the service family row is not an absence: $bare_families"
+grep -q 'Not recorded' <<<"$bare_families" \
+  || fail "fixture 137 the absent family does not say Not recorded: $bare_families"
+if grep -q '\$0\.00' <<<"$bare_service$bare_families"; then
+  fail "fixture 137 an absent family rendered \$0.00: $bare_service $bare_families"
+fi
+note "fixture 137 PASS - a vehicle with no service record states the absence and never renders \$0.00"
+
+statistics_layout_browser="$(
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/ui-browser-fixtures.cjs" \
+      statistics-layout "$URL" "$auth_cookie_name" "$auth_cookie" "$running_ship" \
+      "$cost_vehicle" "$gap_vehicle"
+)" || fail "fixture 138 the 390px statistics measurement failed: $statistics_layout_browser"
+grep -q '^STATISTICS_LAYOUT=' <<<"$statistics_layout_browser" \
+  || fail "fixture 138 the live browser reported no measurement: $statistics_layout_browser"
+note "fixture 138 statistics layout - ${statistics_layout_browser#*STATISTICS_LAYOUT=}"
+note "fixture 138 PASS - at 390px every new statistics table fits with no horizontal overflow, for one ownership interval and for a gap"
+
+restart_cost_before="$(cost_table_rows "$cost_html" total-cost-of-ownership)"
+restart_gap_before="$gap_totals"
+restart_service_before="$(cost_table_rows "$cost_html" service-summary)"
+restart_test_pier
+restart_cost_html="$(scoped_view_html "$(scoped_view 0 "$cost_vehicle")")"
+restart_gap_html="$(scoped_view_html "$(scoped_view 0 "$gap_vehicle")")"
+[ "$(cost_table_rows "$restart_cost_html" total-cost-of-ownership)" = "$restart_cost_before" ] \
+  || fail "fixture 139 total cost of ownership changed across the restart"
+[ "$(cost_table_rows "$restart_cost_html" service-summary)" = "$restart_service_before" ] \
+  || fail "fixture 139 the service summary changed across the restart"
+[ "$(cost_table_rows "$restart_gap_html" total-cost-of-ownership)" = "$restart_gap_before" ] \
+  || fail "fixture 139 the ownership-gap refusal changed across the restart"
+grep -q "$gap_reason" <<<"$(cost_table_rows "$restart_gap_html" cost-per-distance)" \
+  || fail "fixture 139 the ownership-gap reason did not survive the restart"
+note "fixture 139 PASS - the four cost tables, their exact figures, and the ownership-gap refusal survive a ship restart"
 
 bootstrap_counts_before="$(rover_row_counts)"
 bootstrap_idempotent_view="$(curl -s -b "$JAR" -w $'\nROVER_HTTP_STATUS=%{http_code}' \

@@ -4365,7 +4365,7 @@
     shown
     "</td><td>"
     display
-    "</td><td>Every priced record over distance travelled.</td></tr>"
+    "</td><td>Total spend over distance travelled; a sale is not deducted.</td></tr>"
     rest
   ==
 ::
@@ -4816,7 +4816,7 @@
     "<section class=\"stat-table\" data-statistic=\"total-cost-of-ownership\"><h2>Total cost of ownership</h2><p class=\"field-note\">Fuel, charging, service, expense, consumables, and the purchase, less what a sale returned.</p><table><thead><tr><th>Period</th><th>Records</th><th>Cost</th><th>Basis</th></tr></thead><tbody>"
     (total-cost-rows vehicle-label scopes ledger)
     "</tbody></table></section>"
-    "<section class=\"stat-table\" data-statistic=\"cost-per-distance\"><h2>Cost per distance</h2><p class=\"field-note\">Every priced record over the distance the odometer shows for the period. The economy tables above divide fuel alone.</p><table><thead><tr><th>Period</th><th>Distance</th><th>Cost per distance</th><th>Basis</th></tr></thead><tbody>"
+    "<section class=\"stat-table\" data-statistic=\"cost-per-distance\"><h2>Cost per distance</h2><p class=\"field-note\">Total spend over the distance the odometer shows for the period. The economy tables above divide fuel alone. A sale returns money and is not deducted here.</p><table><thead><tr><th>Period</th><th>Distance</th><th>Cost per distance</th><th>Basis</th></tr></thead><tbody>"
     (cost-per-distance-rows vehicle-label scopes ledger scoped-odometers)
     "</tbody></table></section>"
     "<section class=\"stat-table\" data-statistic=\"spend-by-family\"><h2>Spend by family</h2><table><thead><tr><th>Period</th><th>Family</th><th>Records</th><th>Total</th></tr></thead><tbody>"
