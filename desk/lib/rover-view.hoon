@@ -98,6 +98,9 @@
 ::  cost row is still a visit, so `priced` is separate from the amount.
 +$  service-visit
   [when=@da subtypes=(list @t) mills=@ud currency=@tas priced=?]
+::  One subtype's line in the service summary.
++$  subtype-tally
+  [visits=@ud mills=@ud currency=@tas mixed=? priced=?]
 ++  result-rows
   |=  command=cmd-result:ast
   ^-  (list vector:ast)
@@ -4162,7 +4165,9 @@
 ++  scope-totals
   |=  [scope=cost-scope ledger=(list cost-entry)]
   ^-  scope-total
-  =|  totals=scope-total
+  ::  The `?` bunt is %.y, so `mixed` is written out. A bunted accumulator here
+  ::  would report every scope as holding several currencies.
+  =/  totals=scope-total  [0 0 0 %$ %.n]
   =/  remaining  ledger
   |-
   ^-  scope-total
@@ -4520,24 +4525,25 @@
 ::  it renders as an absence, not as a subtype called nothing.
 ++  service-subtype-tally
   |=  [scope=cost-scope visits=(list service-visit)]
-  ^-  (list [label=@t visits=@ud mills=@ud currency=@tas mixed=? priced=?])
+  ^-  (list [label=@t tally=subtype-tally])
   =/  scoped=(list service-visit)
     (skim visits |=(visit=service-visit (within-scope scope when.visit)))
-  =/  tally=(map @t [visits=@ud mills=@ud currency=@tas mixed=? priced=?])
+  =/  tally=(map @t subtype-tally)
     =/  remaining  scoped
     |-
-    ^-  (map @t [visits=@ud mills=@ud currency=@tas mixed=? priced=?])
+    ^-  (map @t subtype-tally)
     ?~  remaining
       ~
     =/  outer  $(remaining t.remaining)
     =/  visit  i.remaining
     =/  labels  subtypes.visit
     |-
-    ^-  (map @t [visits=@ud mills=@ud currency=@tas mixed=? priced=?])
+    ^-  (map @t subtype-tally)
     ?~  labels
       outer
-    =/  seen  (~(gut by outer) i.labels [0 0 currency.visit %.n %.n])
-    =/  next
+    =/  seen=subtype-tally
+      (~(gut by outer) i.labels [0 0 currency.visit %.n %.n])
+    =/  next=subtype-tally
       :*  +(visits.seen)
           ?:(priced.visit (add mills.seen mills.visit) mills.seen)
           currency.seen
@@ -4545,10 +4551,13 @@
           ?|(priced.seen priced.visit)
       ==
     $(labels t.labels, outer (~(put by outer) i.labels next))
-  %+  sort  ~(tap by tally)
-  |=  $:  a=[label=@t visits=@ud mills=@ud currency=@tas mixed=? priced=?]
-          b=[label=@t visits=@ud mills=@ud currency=@tas mixed=? priced=?]
-      ==
+  =/  pairs=(list [label=@t tally=subtype-tally])
+    %+  turn  ~(tap by tally)
+    |=  [key=@t value=subtype-tally]
+    ^-  [label=@t tally=subtype-tally]
+    [key value]
+  %+  sort  pairs
+  |=  [a=[label=@t tally=subtype-tally] b=[label=@t tally=subtype-tally]]
   (aor label.a label.b)
 ::
 ++  service-summary-rows
@@ -4598,13 +4607,13 @@
     ^-  tape
     ?~  remaining
       ~
-    =/  group  i.remaining
+    =/  group=subtype-tally  tally.i.remaining
     =/  amount=@t
       ?.  priced.group
         'Not recorded'
       ?:(mixed.group 'Unavailable' (format-money-mills mills.group currency.group))
     =/  shown=@t
-      ?:(=(%$ label.group) 'No subtype recorded' label.group)
+      ?:(=(%$ label.i.remaining) 'No subtype recorded' label.i.remaining)
     %+  weld
       ;:  weld
         "<tr data-statistics-vehicle=\""
