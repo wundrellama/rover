@@ -2791,8 +2791,15 @@ grep -q 'data-settings-section="theme"' <<<"$view" \
   || fail "Settings lacks theme controls"
 grep -q 'data-settings-section="import"' <<<"$view" \
   || fail "Settings lacks the import entry point"
-grep -q 'EXPORT.*COMING LATER' <<<"$view" \
-  || fail "Settings lacks the export placeholder"
+grep -q 'data-settings-section="export"' <<<"$view" \
+  || fail "Settings lacks the export section"
+grep -q 'data-rover-export-download' <<<"$view" \
+  || fail "Settings export section lacks the download anchor"
+grep -q 'href="/apps/rover/export"' <<<"$view" \
+  || fail "Settings export download does not address /apps/rover/export"
+if grep -q 'EXPORT.*COMING LATER' <<<"$view"; then
+  fail "Settings still shows the export placeholder"
+fi
 grep -q 'GRANTS.*COMING LATER' <<<"$view" \
   || fail "Settings lacks grants placeholder"
 grep -q 'id="vehicle-add-form"' <<<"$view" \
