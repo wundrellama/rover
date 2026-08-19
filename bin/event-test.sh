@@ -3142,6 +3142,26 @@ done
 note "fixture 22 PASS - a person selects three subtypes in the browser and sees all three on the saved card"
 
 # ---------------------------------------------------------------------------
+# fixture 94 - the card's Edit control opens the one Add Event form prefilled,
+# locks kind, fits the 390px viewport, and saves a correction rather than a
+# second event.
+# ---------------------------------------------------------------------------
+grep -qF "EDIT_PREFILL=$VEHICLE|service|\$88.40|$BROWSER_ODO|$STATION|$PAYMENT|$BROWSER_NOTE|$TAG|Engine Oil,Oil Filter,Tire Rotation|fixed|Engine Oil,Oil Filter,Tire Rotation" <<<"$browser_out" \
+  || fail "fixture 94 the edit form was not prefilled or did not lock kind: $browser_out"
+grep -q 'EDIT_FITS_390=yes' <<<"$browser_out" \
+  || fail "fixture 94 the edit control or reused form does not fit 390px: $browser_out"
+grep -q 'EDIT_VERDICT=Corrected service event - \$99.40' <<<"$browser_out" \
+  || fail "fixture 94 the correction verdict is wrong: $browser_out"
+grep -q 'EDIT_CARDS=1' <<<"$browser_out" \
+  || fail "fixture 94 correction rendered more than one History card: $browser_out"
+report="$(rover_report "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-notes X ON E.event-id = X.event-id JOIN vehicle-event-cost-totals T ON E.event-id = T.event-id WHERE V.label = '$VEHICLE' AND X.note = '$BROWSER_NOTE' SELECT E.event-id, T.total-mills;")"
+[ "$(count_rows "$report" '%event-id')" = 1 ] \
+  || fail "fixture 94 browser correction wrote a second event: $report"
+grep -qE '%total-mills 25717 (99400|0x18448)' <<<"$report" \
+  || fail "fixture 94 browser correction did not persist the 99400-mill cost: $report"
+note "fixture 94 PASS - a 390px browser edits one History card through the prefilled Add Event form with kind fixed"
+
+# ---------------------------------------------------------------------------
 # fixture 35 - a person records a purchase and a sale from the Add Event form
 # and sees both come back. Gate 7 removed two real actions for shipping with
 # no way to invoke them, so an endpoint with no browser control is the same

@@ -98,6 +98,76 @@ function fail(message) {
       notes
     );
     console.log(`EVENT_SUBTYPES=${shown}`);
+
+    // Reuse that same Add Event form for a correction. The card carries only
+    // the human values needed to prefill it; no database identity crosses the
+    // browser boundary.
+    const savedCard = page
+      .locator('[data-event-kind="service"]')
+      .filter({hasText: notes})
+      .first();
+    const editControl = savedCard.locator('[data-edit-event]');
+    const editControlBox = await editControl.boundingBox();
+    await editControl.click();
+    await form.waitFor({state: 'visible'});
+    const formBox = await form.boundingBox();
+    const editPrefill = await form.evaluate(
+      (node, expected) => {
+        const chosen = (name) =>
+          Array.from(node.querySelectorAll(`input[name="${name}"]:checked`))
+            .map((input) => input.value)
+            .sort()
+            .join(',');
+        return [
+          node.elements.vehicle.value,
+          node.elements.kind.value,
+          node.elements.total.value,
+          node.elements.mileage.value,
+          node.elements.station.value,
+          node.elements.paymentMethod.value,
+          node.elements.notes.value,
+          chosen('tags'),
+          chosen('subtypes'),
+          node.elements.kind.disabled ? 'fixed' : 'changeable',
+          expected
+        ].join('|');
+      },
+      subtypes.slice().sort().join(',')
+    );
+    console.log(`EDIT_PREFILL=${editPrefill}`);
+    console.log(
+      `EDIT_FITS_390=${
+        formBox && formBox.x >= 0 && formBox.x + formBox.width <= 390 &&
+        editControlBox && editControlBox.height >= 44 &&
+        editControlBox.x + editControlBox.width <= 390 ? 'yes' : 'no'
+      }`
+    );
+
+    await form.locator('[name="total"]').fill('$99.40');
+    const responsePromise = page.waitForResponse(
+      (response) => response.url().endsWith('/apps/rover/edit-event')
+    );
+    await form.locator('button[type="submit"]').click();
+    const editResponse = await responsePromise;
+    console.log(`EDIT_VERDICT=${await editResponse.text()}`);
+    await page.waitForFunction(
+      (needle) => {
+        const card = Array.from(
+          document.querySelectorAll('[data-event-kind="service"]')
+        ).find((node) => node.textContent.includes(needle));
+        return card?.querySelector('[data-event-total]')
+          ?.getAttribute('data-event-total') === '$99.40';
+      },
+      notes,
+      {timeout: 30000}
+    );
+    const correctedCards = await page.evaluate(
+      (needle) =>
+        Array.from(document.querySelectorAll('[data-event-kind="service"]'))
+          .filter((card) => card.textContent.includes(needle)).length,
+      notes
+    );
+    console.log(`EDIT_CARDS=${correctedCards}`);
   } catch (error) {
     fail(error.stack || error.message);
   } finally {
