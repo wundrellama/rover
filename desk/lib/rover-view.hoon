@@ -78,6 +78,26 @@
 ::  than carried as thirteen positional arguments. `spec-view-order:act` is the
 ::  one list that decides which query answers which name.
 +$  spec-index  (map @tas (list vector:ast))
+::  M7 T11, ruling 12. The period one cost figure covers. Ownership is an
+::  interval, so a figure names the interval it belongs to. `refused` marks the
+::  whole-history scope of a vehicle that was sold and bought back: that scope
+::  crosses a gap, so it carries a reason instead of a number.
++$  cost-scope
+  [label=@t start=(unit @da) end=(unit @da) refused=?]
+::  M7 T11, ruling 11. One money fact, already reduced to mills and to the
+::  family it came from. The header makes cost uniform across every family, so
+::  one ledger reads fuel, charging, service, expense, consumables, purchase,
+::  and sale alike. `inflow` marks money received rather than spent.
++$  cost-entry
+  [family=@tas when=@da mills=@ud currency=@tas inflow=?]
+::  What one scope adds up to. `mixed` says the scope holds more than one
+::  currency, which Rover does not add.
++$  scope-total
+  [records=@ud outflow=@ud inflow=@ud currency=@tas mixed=?]
+::  One recorded service visit, with every subtype it names. A visit with no
+::  cost row is still a visit, so `priced` is separate from the amount.
++$  service-visit
+  [when=@da subtypes=(list @t) mills=@ud currency=@tas priced=?]
 ++  result-rows
   |=  command=cmd-result:ast
   ^-  (list vector:ast)
@@ -3963,6 +3983,686 @@
     "</td></tr>"
     rest
   ==
+::
+::  M7 T11. The cost read path. Everything below is DERIVED on the read from
+::  rows the view already holds. It stores nothing, it adds no relation and no
+::  column, and it never asks the owner for a figure Rover can calculate.
+::
+::  Ruling 12 governs the whole file: no derivation crosses a gap between
+::  ownership intervals. So every table here reports one row group per interval
+::  and refuses the combined figure of a vehicle that was sold and bought back.
+++  scope-label
+  |=  span=ownership-interval
+  ^-  @t
+  %-  crip
+  ;:  weld
+    ?~(start.span "First record" (format-day u.start.span))
+    " to "
+    ?~(end.span "now" (format-day u.end.span))
+  ==
+::
+::  A vehicle with no purchase and no sale has no ownership boundary, so it has
+::  exactly one scope that reaches everywhere. Every database installed before
+::  M7 T4 is in that state, and its figures are what they were before T11.
+++  cost-scopes
+  |=  spans=(list ownership-interval)
+  ^-  (list cost-scope)
+  ?~  spans
+    [['Lifetime' ~ ~ %.n] ~]
+  ?~  t.spans
+    [[(scope-label i.spans) start.i.spans end.i.spans %.n] ~]
+  %+  weld
+    ^-  (list cost-scope)
+    %+  turn  `(list ownership-interval)`spans
+    |=  span=ownership-interval
+    ^-  cost-scope
+    [(scope-label span) start.span end.span %.n]
+  ^-  (list cost-scope)
+  [['Whole history' ~ ~ %.y] ~]
+::
+++  within-scope
+  |=  [scope=cost-scope when=@da]
+  ^-  ?
+  ?&  ?~(start.scope %.y (gte when u.start.scope))
+      ?~(end.scope %.y (lte when u.end.scope))
+  ==
+::
+::  Ruling 8. An exact sum of mills renders as money when it is exactly money.
+::  A charging tariff prices below the currency's minor unit, so a sum that
+::  carries thousandths prints its thousandths rather than a rounded claim.
+::  Nothing here rounds and nothing here is entered.
+++  format-money-mills
+  |=  [mills=@ud currency=@tas]
+  ^-  @t
+  =/  places  (currency-minor-decimals:render currency)
+  =/  scale  (pow-ten:render places)
+  ?.  (lte scale 1.000)
+    (format-mills:render mills currency)
+  =/  per-minor  (div 1.000 scale)
+  ?.  =(0 (mod mills per-minor))
+    (format-mills:render mills currency)
+  (format-total:render mills currency places)
+::
+::  Spend less money received. A vehicle sold for more than it cost to own
+::  reads as a negative cost, which is the true answer, so it renders signed
+::  rather than clamped at zero.
+++  format-net-mills
+  |=  [outflow=@ud inflow=@ud currency=@tas]
+  ^-  @t
+  ?:  (gte outflow inflow)
+    (format-money-mills (sub outflow inflow) currency)
+  (crip ['-' (trip (format-money-mills (sub inflow outflow) currency))])
+::
+++  mixed-currency-text
+  ^-  @t
+  'Records in this period use more than one currency, so they are not added.'
+::
+::  Ruling 11 cashing out. Cost attaches to the family parent, so ONE walk
+::  reduces every family to mills, a date, and a name. The four tables then
+::  read this list instead of walking the database rows again.
+++  cost-ledger
+  |=  $:  fills=(list vector:ast)
+          charges=(list vector:ast)
+          charging=charging-cost-rows
+          consumables=(list vector:ast)
+          event-list=(list vector:ast)
+          events=event-rows
+      ==
+  ^-  (list cost-entry)
+  =/  priced-acquisition
+    |=  [family=@tas row=vector:ast]
+    ^-  cost-entry
+    =/  proof
+      %:  derive-fill-total:act
+          (cell-atom %quantity-milli row)
+          (cell-atom %unit-price-mills row)
+          (cell-atom %minor-unit-decimals row)
+          (cell-atom %cash-increment-mills row)
+          ;;(settlement-mode:rover (cell-term %settlement-mode row))
+      ==
+    :*  family
+        `@da`(cell-atom %observed-start row)
+        total-mills.proof
+        (cell-term %currency row)
+        %.n
+    ==
+  =/  fuel=(list cost-entry)
+    (turn fills |=(row=vector:ast (priced-acquisition %fuel row)))
+  =/  consumable=(list cost-entry)
+    (turn consumables |=(row=vector:ast (priced-acquisition %consumable row)))
+  ::  A charge carries either a receipt total or itemized components, never
+  ::  both, and a free charge carries neither. The receipt is the source's own
+  ::  figure, so it wins where it exists.
+  =/  receipt-index
+    (index-rows %acquisition-id source-totals.charging *(map @ (list vector:ast)))
+  =/  component-index
+    (index-rows %acquisition-id components.charging *(map @ (list vector:ast)))
+  =/  electric=(list cost-entry)
+    %-  zing
+    %+  turn  charges
+    |=  row=vector:ast
+    ^-  (list cost-entry)
+    =/  acquisition  (cell-atom %acquisition-id row)
+    =/  currency  (cell-term %currency row)
+    =/  when  `@da`(cell-atom %observed-start row)
+    =/  receipt  (~(gut by receipt-index) acquisition ~)
+    ?^  receipt
+      [[%charging when (cell-atom %total-mills i.receipt) currency %.n] ~]
+    =/  parts  (~(gut by component-index) acquisition ~)
+    ?~  parts
+      ~
+    =/  amounts=(list charging-component-amount:rover)
+      %+  turn  parts
+      |=  component=vector:ast
+      ^-  charging-component-amount:rover
+      :-  ;;(cost-component:rover (cell-term %component component))
+      (cell-atom %amount-mills component)
+    =/  proof  (derive-charging-total:act amounts)
+    [[%charging when total-mills.proof currency %.n] ~]
+  ::  Which kind an event is, read the only way there is to read it: by which
+  ::  typed child row exists. The five sets are built once, because asking the
+  ::  question per event against five lists is quadratic in history length.
+  =/  service-set=(set @)
+    (~(gas in *(set @)) `(list @)`(row-ids %event-id services.events))
+  =/  expense-set=(set @)
+    (~(gas in *(set @)) `(list @)`(row-ids %event-id expenses.events))
+  =/  acquisition-set=(set @)
+    (~(gas in *(set @)) `(list @)`(row-ids %event-id acquisitions.events))
+  =/  disposal-set=(set @)
+    (~(gas in *(set @)) `(list @)`(row-ids %event-id disposals.events))
+  =/  cost-index
+    (index-rows %event-id costs.events *(map @ (list vector:ast)))
+  =/  total-index
+    (index-rows %event-id cost-totals.events *(map @ (list vector:ast)))
+  =/  recorded=(list cost-entry)
+    %-  zing
+    %+  turn  event-list
+    |=  row=vector:ast
+    ^-  (list cost-entry)
+    =/  event-id  (cell-atom %event-id row)
+    =/  cost-rows  (~(gut by cost-index) event-id ~)
+    =/  total-rows  (~(gut by total-index) event-id ~)
+    ?:  ?|(?=(~ cost-rows) ?=(~ total-rows))
+      ~
+    =/  family=@tas
+      ?:  (~(has in service-set) event-id)      %service
+      ?:  (~(has in expense-set) event-id)      %expense
+      ?:  (~(has in acquisition-set) event-id)  %acquisition
+      ?:  (~(has in disposal-set) event-id)     %disposal
+      %note
+    :_  ~
+    :*  family
+        `@da`(cell-atom %observed-start row)
+        (cell-atom %total-mills i.total-rows)
+        (cell-term %currency i.cost-rows)
+        =(%disposal family)
+    ==
+  :(weld fuel electric consumable recorded)
+::
+++  scope-totals
+  |=  [scope=cost-scope ledger=(list cost-entry)]
+  ^-  scope-total
+  =|  totals=scope-total
+  =/  remaining  ledger
+  |-
+  ^-  scope-total
+  ?~  remaining
+    totals
+  =/  entry  i.remaining
+  ?.  (within-scope scope when.entry)
+    $(remaining t.remaining)
+  =/  named
+    ?:(=(0 records.totals) currency.entry currency.totals)
+  =.  totals
+    :*  +(records.totals)
+        ?:(inflow.entry outflow.totals (add outflow.totals mills.entry))
+        ?:(inflow.entry (add inflow.totals mills.entry) inflow.totals)
+        named
+        ?|(mixed.totals !=(named currency.entry))
+    ==
+  $(remaining t.remaining)
+::
+++  family-entries
+  |=  [family=@tas ledger=(list cost-entry)]
+  ^-  (list cost-entry)
+  (skim ledger |=(entry=cost-entry =(family family.entry)))
+::
+::  Distance travelled inside one ownership interval, read from the vehicle's
+::  one odometer list. A reading outside the interval belongs to a period the
+::  owner did not hold the vehicle, so it is not a bound.
+++  scope-distance
+  |=  [scope=cost-scope odometers=(list vector:ast)]
+  ^-  [available=? milli=@ud distance-unit=@tas reason=@t]
+  =/  rows=(list vector:ast)
+    %+  skim  odometers
+    |=  row=vector:ast
+    (within-scope scope `@da`(cell-atom %observed-start row))
+  ?~  rows
+    [%.n 0 %mi 'Two odometer readings inside this period are required.']
+  ?~  t.rows
+    [%.n 0 %mi 'Two odometer readings inside this period are required.']
+  =/  unit  (cell-term %unit i.rows)
+  =/  low=@ud  0
+  =/  high=@ud  0
+  =/  seen=?  %.n
+  =/  remaining=(list vector:ast)  rows
+  |-
+  ^-  [available=? milli=@ud distance-unit=@tas reason=@t]
+  ?~  remaining
+    ?.  (gth high low)
+      [%.n 0 unit 'The odometer did not advance inside this period.']
+    [%.y (sub high low) unit '']
+  ?.  =(unit (cell-term %unit i.remaining))
+    [%.n 0 unit 'Odometer readings inside this period use more than one distance unit.']
+  =/  places  (cell-atom %decimal-places i.remaining)
+  ?:  (gth places 3)
+    [%.n 0 unit 'An odometer reading inside this period carries unsupported precision.']
+  =/  milli
+    (mul (cell-atom %value-digits i.remaining) (pow-ten:render (sub 3 places)))
+  ?.  seen
+    $(remaining t.remaining, seen %.y, low milli, high milli)
+  $(remaining t.remaining, low (min low milli), high (max high milli))
+::
+::  Total cost of ownership. Fuel, charging, service, expense, consumables and
+::  the purchase, less what a sale returned. One number per ownership interval.
+++  total-cost-rows
+  |=  $:  vehicle=@t
+          scopes=(list cost-scope)
+          ledger=(list cost-entry)
+      ==
+  ^-  tape
+  ?~  scopes
+    ~
+  =/  rest  $(scopes t.scopes)
+  =/  scope  i.scopes
+  =/  open=tape
+    ;:  weld
+      "<tr data-statistics-vehicle=\""
+      (escape vehicle)
+      "\" data-cost-scope=\""
+      (escape label.scope)
+      "\""
+    ==
+  =/  refuse
+    |=  reason=@t
+    ^-  tape
+    ;:  weld
+      open
+      " data-total-cost-unavailable=\""
+      (escape label.scope)
+      "\"><td>"
+      (escape label.scope)
+      "</td><td>&mdash;</td><td>Unavailable</td><td>"
+      (escape reason)
+      "</td></tr>"
+      rest
+    ==
+  ?:  refused.scope
+    (refuse (economy-break-text %ownership-gap))
+  =/  totals  (scope-totals scope ledger)
+  ?:  =(0 records.totals)
+    ;:  weld
+      open
+      " data-total-cost-absent=\""
+      (escape label.scope)
+      "\"><td>"
+      (escape label.scope)
+      "</td><td>0</td><td>Not recorded</td>"
+      "<td>No priced record falls in this period.</td></tr>"
+      rest
+    ==
+  ?:  mixed.totals
+    (refuse mixed-currency-text)
+  =/  net  (format-net-mills outflow.totals inflow.totals currency.totals)
+  ;:  weld
+    open
+    " data-total-cost=\""
+    (escape net)
+    "\"><td>"
+    (escape label.scope)
+    "</td><td>"
+    (scow %ud records.totals)
+    "</td><td>"
+    (escape net)
+    "</td><td>Every priced record, less amounts received.</td></tr>"
+    rest
+  ==
+::
+::  Cost per distance, all in. The economy tables above divide fuel by
+::  distance. This divides EVERY priced record by distance, so a maintenance
+::  bill stands beside the fuel bill instead of behind it.
+++  cost-per-distance-rows
+  |=  $:  vehicle=@t
+          scopes=(list cost-scope)
+          ledger=(list cost-entry)
+          odometers=(list vector:ast)
+      ==
+  ^-  tape
+  ?~  scopes
+    ~
+  =/  rest  $(scopes t.scopes)
+  =/  scope  i.scopes
+  =/  open=tape
+    ;:  weld
+      "<tr data-statistics-vehicle=\""
+      (escape vehicle)
+      "\" data-cost-scope=\""
+      (escape label.scope)
+      "\""
+    ==
+  =/  refuse
+    |=  [shown=tape reason=@t]
+    ^-  tape
+    ;:  weld
+      open
+      " data-cost-per-distance-unavailable=\""
+      (escape label.scope)
+      "\"><td>"
+      (escape label.scope)
+      "</td><td>"
+      shown
+      "</td><td>Unavailable</td><td>"
+      (escape reason)
+      "</td></tr>"
+      rest
+    ==
+  ?:  refused.scope
+    (refuse "&mdash;" (economy-break-text %ownership-gap))
+  =/  span  (scope-distance scope odometers)
+  =/  shown=tape
+    ?.  available.span
+      "&mdash;"
+    (format-distance-milli milli.span distance-unit.span)
+  ?.  available.span
+    (refuse shown reason.span)
+  =/  totals  (scope-totals scope ledger)
+  ?:  =(0 records.totals)
+    (refuse shown 'No priced record falls in this period.')
+  ?:  mixed.totals
+    (refuse shown mixed-currency-text)
+  =/  rate
+    %+  format-mills:render
+      (div (add (mul outflow.totals 1.000) (div milli.span 2)) milli.span)
+    currency.totals
+  =/  display=tape
+    ;:  weld
+      (trip rate)
+      " per "
+      (trip (scot %tas distance-unit.span))
+    ==
+  ;:  weld
+    open
+    " data-cost-per-distance=\""
+    (escape (crip display))
+    "\"><td>"
+    (escape label.scope)
+    "</td><td>"
+    shown
+    "</td><td>"
+    display
+    "</td><td>Every priced record over distance travelled.</td></tr>"
+    rest
+  ==
+::
+::  The six families the owner records, in the order a person reads them.
+::  Charging and note render only where they hold a record: a gasoline car has
+::  no charge, and a note with money on it is rare.
+++  spend-family-order
+  ^-  (list [family=@tas title=@t always=?])
+  :~  [%fuel 'Fuel' %.y]
+      [%charging 'Charging' %.n]
+      [%service 'Service' %.y]
+      [%expense 'Expense' %.y]
+      [%consumable 'Consumables' %.y]
+      [%acquisition 'Purchase' %.y]
+      [%disposal 'Sale' %.y]
+      [%note 'Note' %.n]
+  ==
+::
+++  family-rows
+  |=  $:  vehicle=@t
+          scope=cost-scope
+          ledger=(list cost-entry)
+          families=(list [family=@tas title=@t always=?])
+      ==
+  ^-  tape
+  ?~  families
+    ~
+  =/  rest  $(families t.families)
+  =/  entry  i.families
+  =/  totals  (scope-totals scope (family-entries family.entry ledger))
+  ?:  ?&  =(0 records.totals)
+          !always.entry
+      ==
+    rest
+  =/  open=tape
+    ;:  weld
+      "<tr data-statistics-vehicle=\""
+      (escape vehicle)
+      "\" data-cost-scope=\""
+      (escape label.scope)
+      "\" data-spend-family=\""
+      (escape (scot %tas family.entry))
+      "\""
+    ==
+  ::  Honest absence. A family with no record says so. It does not say $0.00,
+  ::  because a zero is a claim and an absence is not.
+  ?:  =(0 records.totals)
+    ;:  weld
+      open
+      " data-spend-absent=\""
+      (escape (scot %tas family.entry))
+      "\"><td>"
+      (escape label.scope)
+      "</td><td>"
+      (escape title.entry)
+      "</td><td>0</td><td>Not recorded</td></tr>"
+      rest
+    ==
+  ?:  mixed.totals
+    ;:  weld
+      open
+      " data-spend-unavailable=\""
+      (escape (scot %tas family.entry))
+      "\"><td>"
+      (escape label.scope)
+      "</td><td>"
+      (escape title.entry)
+      "</td><td>"
+      (scow %ud records.totals)
+      "</td><td>Unavailable</td></tr>"
+      rest
+    ==
+  =/  amount
+    ?:  =(0 inflow.totals)
+      (format-money-mills outflow.totals currency.totals)
+    (crip ['-' (trip (format-money-mills inflow.totals currency.totals))])
+  ;:  weld
+    open
+    " data-spend-total=\""
+    (escape amount)
+    "\"><td>"
+    (escape label.scope)
+    "</td><td>"
+    (escape title.entry)
+    "</td><td>"
+    (scow %ud records.totals)
+    "</td><td>"
+    (escape amount)
+    "</td></tr>"
+    rest
+  ==
+::
+++  spend-by-family-rows
+  |=  $:  vehicle=@t
+          scopes=(list cost-scope)
+          ledger=(list cost-entry)
+      ==
+  ^-  tape
+  ?~  scopes
+    ~
+  =/  rest  $(scopes t.scopes)
+  =/  scope  i.scopes
+  ?:  refused.scope
+    ;:  weld
+      "<tr data-statistics-vehicle=\""
+      (escape vehicle)
+      "\" data-cost-scope=\""
+      (escape label.scope)
+      "\" data-spend-unavailable=\"all\"><td>"
+      (escape label.scope)
+      "</td><td colspan=\"3\">Unavailable &mdash; "
+      (escape (economy-break-text %ownership-gap))
+      "</td></tr>"
+      rest
+    ==
+  (weld (family-rows vehicle scope ledger spend-family-order) rest)
+::
+::  What this vehicle actually needs, and how often. A visit may name several
+::  subtypes, so a visit counts under each one it names and the money follows
+::  the whole visit. The unduplicated figure is the last row of each period.
+++  service-visits
+  |=  [event-list=(list vector:ast) events=event-rows]
+  ^-  (list service-visit)
+  =/  service-set=(set @)
+    (~(gas in *(set @)) `(list @)`(row-ids %event-id services.events))
+  =/  subtype-index
+    (index-rows %event-id service-subtypes.events *(map @ (list vector:ast)))
+  =/  cost-index
+    (index-rows %event-id costs.events *(map @ (list vector:ast)))
+  =/  total-index
+    (index-rows %event-id cost-totals.events *(map @ (list vector:ast)))
+  %-  zing
+  %+  turn  event-list
+  |=  row=vector:ast
+  ^-  (list service-visit)
+  =/  event-id  (cell-atom %event-id row)
+  ?.  (~(has in service-set) event-id)
+    ~
+  =/  labels=(list @t)
+    %+  turn  (~(gut by subtype-index) event-id ~)
+    |=  link=vector:ast
+    ^-  @t
+    (cell-text %service-subtype link)
+  =/  cost-rows  (~(gut by cost-index) event-id ~)
+  =/  total-rows  (~(gut by total-index) event-id ~)
+  =/  priced  ?&(?=(^ cost-rows) ?=(^ total-rows))
+  :_  ~
+  :*  `@da`(cell-atom %observed-start row)
+      ?~(labels [%$ ~] (sort labels aor))
+      ?~(total-rows 0 (cell-atom %total-mills i.total-rows))
+      ?~(cost-rows %usd (cell-term %currency i.cost-rows))
+      priced
+  ==
+::
+::  Which subtypes a period holds, sorted by label so ten of them read as a
+::  list rather than as storage order. `%$` is the visit that named none, and
+::  it renders as an absence, not as a subtype called nothing.
+++  service-subtype-tally
+  |=  [scope=cost-scope visits=(list service-visit)]
+  ^-  (list [label=@t visits=@ud mills=@ud currency=@tas mixed=? priced=?])
+  =/  scoped=(list service-visit)
+    (skim visits |=(visit=service-visit (within-scope scope when.visit)))
+  =/  tally=(map @t [visits=@ud mills=@ud currency=@tas mixed=? priced=?])
+    =/  remaining  scoped
+    |-
+    ^-  (map @t [visits=@ud mills=@ud currency=@tas mixed=? priced=?])
+    ?~  remaining
+      ~
+    =/  outer  $(remaining t.remaining)
+    =/  visit  i.remaining
+    =/  labels  subtypes.visit
+    |-
+    ^-  (map @t [visits=@ud mills=@ud currency=@tas mixed=? priced=?])
+    ?~  labels
+      outer
+    =/  seen  (~(gut by outer) i.labels [0 0 currency.visit %.n %.n])
+    =/  next
+      :*  +(visits.seen)
+          ?:(priced.visit (add mills.seen mills.visit) mills.seen)
+          currency.seen
+          ?|(mixed.seen ?&(priced.visit !=(currency.seen currency.visit)))
+          ?|(priced.seen priced.visit)
+      ==
+    $(labels t.labels, outer (~(put by outer) i.labels next))
+  %+  sort  ~(tap by tally)
+  |=  $:  a=[label=@t visits=@ud mills=@ud currency=@tas mixed=? priced=?]
+          b=[label=@t visits=@ud mills=@ud currency=@tas mixed=? priced=?]
+      ==
+  (aor label.a label.b)
+::
+++  service-summary-rows
+  |=  $:  vehicle=@t
+          scopes=(list cost-scope)
+          visits=(list service-visit)
+      ==
+  ^-  tape
+  ?~  scopes
+    ~
+  =/  rest  $(scopes t.scopes)
+  =/  scope  i.scopes
+  ?:  refused.scope
+    ;:  weld
+      "<tr data-statistics-vehicle=\""
+      (escape vehicle)
+      "\" data-cost-scope=\""
+      (escape label.scope)
+      "\" data-service-summary-unavailable=\""
+      (escape label.scope)
+      "\"><td>"
+      (escape label.scope)
+      "</td><td colspan=\"3\">Unavailable &mdash; "
+      (escape (economy-break-text %ownership-gap))
+      "</td></tr>"
+      rest
+    ==
+  =/  tally  (service-subtype-tally scope visits)
+  =/  scoped=(list service-visit)
+    (skim visits |=(visit=service-visit (within-scope scope when.visit)))
+  ?~  scoped
+    ;:  weld
+      "<tr data-statistics-vehicle=\""
+      (escape vehicle)
+      "\" data-cost-scope=\""
+      (escape label.scope)
+      "\" data-service-summary-empty=\""
+      (escape label.scope)
+      "\"><td>"
+      (escape label.scope)
+      "</td><td colspan=\"3\">No service record falls in this period.</td></tr>"
+      rest
+    ==
+  =/  lines=tape
+    =/  remaining  tally
+    |-
+    ^-  tape
+    ?~  remaining
+      ~
+    =/  group  i.remaining
+    =/  amount=@t
+      ?.  priced.group
+        'Not recorded'
+      ?:(mixed.group 'Unavailable' (format-money-mills mills.group currency.group))
+    =/  shown=@t
+      ?:(=(%$ label.group) 'No subtype recorded' label.group)
+    %+  weld
+      ;:  weld
+        "<tr data-statistics-vehicle=\""
+        (escape vehicle)
+        "\" data-cost-scope=\""
+        (escape label.scope)
+        "\" data-service-subtype=\""
+        (escape shown)
+        "\" data-service-visits=\""
+        (scow %ud visits.group)
+        "\" data-service-cost=\""
+        (escape amount)
+        "\"><td>"
+        (escape label.scope)
+        "</td><td>"
+        (escape shown)
+        "</td><td>"
+        (scow %ud visits.group)
+        "</td><td>"
+        (escape amount)
+        "</td></tr>"
+      ==
+    $(remaining t.remaining)
+  =/  whole  (scope-totals scope (family-entries %service (cost-visit-ledger scoped)))
+  =/  whole-amount=@t
+    ?:  =(0 records.whole)
+      'Not recorded'
+    ?:(mixed.whole 'Unavailable' (format-money-mills outflow.whole currency.whole))
+  ;:  weld
+    lines
+    "<tr data-statistics-vehicle=\""
+    (escape vehicle)
+    "\" data-cost-scope=\""
+    (escape label.scope)
+    "\" data-service-total=\""
+    (escape whole-amount)
+    "\"><td>"
+    (escape label.scope)
+    "</td><td>All service visits</td><td>"
+    (scow %ud (lent scoped))
+    "</td><td>"
+    (escape whole-amount)
+    "</td></tr>"
+    rest
+  ==
+::
+::  The unduplicated service figure. A visit contributes once, whatever number
+::  of subtypes it names, so the last row of each period cannot double count.
+++  cost-visit-ledger
+  |=  visits=(list service-visit)
+  ^-  (list cost-entry)
+  %-  zing
+  %+  turn  visits
+  |=  visit=service-visit
+  ^-  (list cost-entry)
+  ?.  priced.visit
+    ~
+  [[%service when.visit mills.visit currency.visit %.n] ~]
 ::
 ++  statistics-screen
   |=  $:  fills=(list vector:ast)

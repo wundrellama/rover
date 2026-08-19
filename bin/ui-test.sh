@@ -1211,6 +1211,23 @@ if [ "${ROVER_DEMO_ONLY:-}" = 1 ]; then
   [ "$demo_default" = $'Saved default vehicle\n201' ] \
     || fail "fixture 63 could not set the demo app-default-vehicle: $demo_default"
   demo_before_def="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  # Statistics has been scoped to the selected vehicle since the 2026-08-12
+  # repair, so one served view carries one vehicle's economy rows. The diesel
+  # figures are read while diesel is the default, and the default is restored
+  # straight after, because every later assertion expects gasoline.
+  demo_diesel_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Diesel"}' \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$demo_diesel_default" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 58 could not select the diesel demo vehicle: $demo_diesel_default"
+  demo_diesel_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  demo_regasoline_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline"}' \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$demo_regasoline_default" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 58 could not restore the gasoline demo default: $demo_regasoline_default"
   demo_summary="$(
     python3 -c 'import html, re, sys
 document = html.unescape(sys.stdin.read())
@@ -1220,9 +1237,8 @@ def values(vehicle):
         document,
     ) if v != "Unavailable")
 gas = values("Rover Demo Gasoline")
-diesel = values("Rover Demo Diesel")
 computed = {
-    "economy": bool(gas and diesel),
+    "economy": bool(gas),
     "cost": "data-fuel-cost=" in document,
     "distance": "data-distance-between-fills=" in document,
     "time": "data-time-between-fills=" in document,
@@ -1230,11 +1246,19 @@ computed = {
     "tank": "data-distance-per-tank=" in document,
 }
 print("|".join(gas))
-print("|".join(diesel))
+print("")
 print("|".join(name for name, present in computed.items() if present))
 print("yes" if "data-economy-break=\"%missed-fill\"" in document else "no")' <<<"$demo_before_def"
   )"
   mapfile -t demo_parts <<<"$demo_summary"
+  demo_parts[1]="$(
+    python3 -c 'import html, re, sys
+document = html.unescape(sys.stdin.read())
+print("|".join(sorted(v for v in re.findall(
+    rf"data-economy-vehicle=\"{re.escape(sys.argv[1])}\" data-economy=\"([^\"]+)\"",
+    document,
+) if v != "Unavailable")))' 'Rover Demo Diesel' <<<"$demo_diesel_view"
+  )"
   [ "$(tr '|' '\n' <<<"${demo_parts[0]:-}" | grep -c ' mpg$')" -ge 4 ] ||
     fail "fixture 58 gasoline demo has fewer than four computed human-unit intervals: ${demo_parts[0]:-<none>}"
   [ "$(tr '|' '\n' <<<"${demo_parts[1]:-}" | grep -c ' mpg$')" -ge 5 ] ||
@@ -1929,6 +1953,22 @@ print("yes" if subtypes == expected_subtypes else repr(sorted(subtypes)))' \
   [ "${demo_starter_parts[1]:-}" = yes ] \
     || fail "fixture 69 demo fill subtype IDs do not match starter rows: ${demo_starter_parts[1]:-<none>}"
   note "fixture 69 PASS - demo fills use starter Gasoline/Diesel IDs and starter 87/93/#2/B20 subtype IDs"
+  # Diesel fuel economy and DEF economy both belong to the diesel vehicle, and
+  # Statistics serves one vehicle at a time. Read them while diesel is the
+  # default, then restore gasoline for the assertions that follow.
+  after_diesel_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Diesel"}' \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$after_diesel_default" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 61 could not select the diesel demo vehicle: $after_diesel_default"
+  demo_after_def_diesel="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
+  after_gasoline_default="$(curl -s -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/json' \
+    --data-raw '{"vehicle":"Rover Demo Gasoline"}' \
+    "$URL/apps/rover/set-default-vehicle")"
+  [ "$after_gasoline_default" = $'Saved default vehicle\n201' ] \
+    || fail "fixture 61 could not restore the gasoline demo default: $after_gasoline_default"
   after_summary="$(
     python3 -c 'import html, re, sys
 document = html.unescape(sys.stdin.read())
@@ -1951,7 +1991,7 @@ required = (
 )
 print("|".join(diesel))
 print("|".join(def_values))
-print("yes" if all(item in document for item in required) else "no")' <<<"$demo_after_def"
+print("yes" if all(item in document for item in required) else "no")' <<<"$demo_after_def_diesel"
   )"
   mapfile -t after_parts <<<"$after_summary"
   [ "${after_parts[0]:-}" = "$diesel_before_def" ] ||
@@ -2872,7 +2912,10 @@ fi
 grep -q 'id="fill-price-completed"' <<<"$view" || fail "completed-price preview is missing"
 grep -q '<output id="fill-derived-total"' <<<"$view" \
   || fail "derived total is not a non-input output"
-if grep -Eq '<input[^>]+name="(total|unitPriceMills|quantityMilli)"' <<<"$view"; then
+# The scope is the Add Fill form, not the whole page. A fill total has operands,
+# so Rover calculates it and never asks for it. An event total has no operands,
+# so ruling 13 makes it an entered field, and Add Event carries name="total".
+if grep -Eq '<input[^>]+name="(total|unitPriceMills|quantityMilli)"' <<<"$fill_html"; then
   fail "add-fill form asks for a derived total or machine representation"
 fi
 grep -q 'Energy delivered' <<<"$view" || fail "add-charge surface lacks Energy delivered wording"
