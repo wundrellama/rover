@@ -4340,6 +4340,84 @@ if [ "${ROVER_FIXTURE_STOP:-}" = 136 ]; then
   exit 0
 fi
 
+statistics_empty_stamp="$(date +%s%N)"
+statistics_empty_vehicle="Statistics No Service $statistics_empty_stamp"
+eyre_post add-vehicle \
+  "$(printf '{"label":"%s","energy":"Gasoline","additionalEnergy":[]}' "$statistics_empty_vehicle")" \
+  "$(printf 'Added vehicle - %s\n201' "$statistics_empty_vehicle")" \
+  'fixture 137 no-service vehicle'
+eyre_post add-expense-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-06-01T09:00","zone":"America/Chicago","total":"$50.00","currency":"usd","mileage":"1000","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"Expense without service %s","subtypes":[]}' "$statistics_empty_vehicle" "$statistics_empty_stamp")" \
+  $'Saved expense event - $50.00\n201' 'fixture 137 expense only'
+statistics_empty_view="$(scoped_view_html "$(scoped_view 0 "$statistics_empty_vehicle")")"
+statistics_service_empty="$(
+  python3 -c 'import re, sys
+document = sys.stdin.read()
+match = re.search(r"<section class=\"stat-table\" data-statistic=\"service-history-summary\">.*?</section>", document, re.S)
+print(match.group(0) if match else "")' <<<"$statistics_empty_view"
+)"
+grep -q 'No service events recorded for this vehicle.' <<<"$statistics_service_empty" \
+  || fail "fixture 137 no-service vehicle lacks an honest empty state"
+if grep -q 'data-cost-family="service"\|\$0\.00' <<<"$statistics_service_empty"; then
+  fail "fixture 137 no-service vehicle fabricates a zero service total"
+fi
+note "fixture 137 PASS - a vehicle with no service events says so and renders no zero-dollar claim"
+if [ "${ROVER_FIXTURE_STOP:-}" = 137 ]; then
+  exit 0
+fi
+
+eyre_post set-default-vehicle \
+  "$(printf '{"vehicle":"%s"}' "$statistics_cost_vehicle")" \
+  $'Saved default vehicle\n201' 'fixture 138 Statistics browser default'
+statistics_mobile="$({
+  URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
+const {chromium} = require('playwright');
+const fs = require('fs');
+(async () => {
+  const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_BIN});
+  const page = await browser.newPage({viewport: {width: 390, height: 844}});
+  page.setDefaultTimeout(90000);
+  const raw = fs.readFileSync(process.env.JAR, 'utf8');
+  const cookie = raw.match(/\s(urbauth-[^\s]+)\s+([^\s]+)/);
+  if (!cookie) throw new Error('urbauth cookie missing');
+  await page.context().addCookies([{name: cookie[1], value: cookie[2], domain: 'localhost', path: '/'}]);
+  await page.goto(`${process.env.URL}/apps/rover`);
+  await page.locator('[data-open-screen="statistics-screen"]').click();
+  const result = await page.locator('#statistics-screen').evaluate((screen) => {
+    const names = [
+      'total-cost-of-ownership',
+      'cost-per-distance',
+      'spend-by-family',
+      'service-history-summary'
+    ];
+    const sections = names.map((name) => screen.querySelector(`[data-statistic="${name}"]`));
+    const tables = sections.map((section) => section && section.querySelector('table'));
+    return {
+      allPresent: sections.every(Boolean),
+      screenOverflow: screen.scrollWidth > screen.clientWidth,
+      tableOverflow: tables.some((table) => !table || table.scrollWidth > table.parentElement.clientWidth),
+      viewportOverflow: tables.some((table) => table && table.getBoundingClientRect().right > window.innerWidth + 0.5),
+      forbiddenVisual: Boolean(screen.querySelector('canvas, svg, [class*="chart"], [id*="chart"]'))
+    };
+  });
+  process.stdout.write(JSON.stringify(result));
+  await browser.close();
+})().catch((error) => { console.error(error); process.exit(1); });
+NODE
+} 2>&1)" || fail "fixture 138 Statistics browser failed: $statistics_mobile"
+python3 -c 'import json, sys
+result = json.loads(sys.argv[1])
+assert result["allPresent"], result
+assert not result["screenOverflow"], result
+assert not result["tableOverflow"], result
+assert not result["viewportOverflow"], result
+assert not result["forbiddenVisual"], result' "$statistics_mobile" \
+  || fail "fixture 138 Statistics mobile or tables-only measurement failed: $statistics_mobile"
+note "fixture 138 PASS - all four new Statistics tables fit a real 390px browser with no chart, SVG, canvas, or horizontal overflow: $statistics_mobile"
+if [ "${ROVER_FIXTURE_STOP:-}" = 138 ]; then
+  exit 0
+fi
+
 restore_test_database
 owner_view="$(curl -s -b "$JAR" "$URL/apps/rover/view")"
 python3 -c 'import sys
