@@ -836,6 +836,7 @@ grep -q '@media (min-width: 48rem)' <<<"$body" || fail "mobile-first wide breakp
 grep -q 'overflow-x: hidden' <<<"$body" || fail "narrow viewport overflow guard is missing"
 note "UA 571-C palette, fonts, glow control, and mobile rules served"
 
+if [ "${ROVER_T11_ONLY:-}" != 1 ]; then
 view="$(curl -s -b "$JAR" -D "$HDRS" "$URL/apps/rover/view")"
 grep -q '^HTTP/[0-9.]* 200' "$HDRS" || fail "vehicle view not 200"
 if [ "${ROVER_LEGACY_ONLY:-}" != 1 ]; then
@@ -4245,6 +4246,7 @@ bootstrap_counts_after="$(rover_row_counts)"
   || fail "fixture 123 view changed populated rows: before=$bootstrap_counts_before after=$bootstrap_counts_after"
 note "bootstrap idempotence counts - before $bootstrap_counts_before after $bootstrap_counts_after"
 note "fixture 123 PASS - a populated view does not re-pour, re-seed, or change fill and starter counts"
+fi
 
 statistics_cost_stamp="$(date +%s%N)"
 statistics_cost_vehicle="Statistics Cost Vehicle $statistics_cost_stamp"
@@ -4372,6 +4374,8 @@ fi
 eyre_post set-default-vehicle \
   "$(printf '{"vehicle":"%s"}' "$statistics_cost_vehicle")" \
   $'Saved default vehicle\n201' 'fixture 138 Statistics browser default'
+PLAYWRIGHT_ROOT="${PLAYWRIGHT_ROOT:-$HOME/git/hermes-workspace/node_modules/.pnpm/playwright@1.58.2/node_modules}"
+CHROMIUM_BIN="${CHROMIUM_BIN:-$HOME/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome}"
 statistics_mobile="$({
   URL="$URL" JAR="$JAR" CHROMIUM_BIN="$CHROMIUM_BIN" NODE_PATH="$PLAYWRIGHT_ROOT" node <<'NODE'
 const {chromium} = require('playwright');
@@ -4418,6 +4422,11 @@ assert not result["forbiddenVisual"], result' "$statistics_mobile" \
   || fail "fixture 138 Statistics mobile or tables-only measurement failed: $statistics_mobile"
 note "fixture 138 PASS - all four new Statistics tables fit a real 390px browser with no chart, SVG, canvas, or horizontal overflow: $statistics_mobile"
 if [ "${ROVER_FIXTURE_STOP:-}" = 138 ]; then
+  exit 0
+fi
+
+if [ "${ROVER_T11_ONLY:-}" = 1 ]; then
+  note "COVERAGE - all 5 T11 fixtures executed"
   exit 0
 fi
 
