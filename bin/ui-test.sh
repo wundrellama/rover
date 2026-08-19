@@ -4282,6 +4282,9 @@ eyre_post add-consumable \
 eyre_post add-disposal-event \
   "$(printf '{"vehicle":"%s","observed":"2026-02-01T09:00","zone":"America/Chicago","total":"$5,000.00","currency":"usd","mileage":"2000","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","subtypes":[],"disposalKind":"Sold","notes":"Statistics sale %s"}' "$statistics_cost_vehicle" "$statistics_cost_stamp")" \
   $'Saved disposal event - $5,000.00\n201' 'fixture 134 disposal credit'
+eyre_post add-service-event \
+  "$(printf '{"vehicle":"%s","observed":"2026-02-10T09:00","zone":"America/Chicago","total":"$777.00","currency":"usd","mileage":"2100","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"private","tags":[],"newTag":"","paymentMethod":"","notes":"After disposal %s","subtypes":["Brakes, Front"]}' "$statistics_cost_vehicle" "$statistics_cost_stamp")" \
+  $'Saved service event - $777.00\n201' 'fixture 134 service outside ownership'
 statistics_cost_view="$(scoped_view_html "$(scoped_view 0 "$statistics_cost_vehicle")")"
 grep -q 'data-statistic="total-cost-of-ownership"' <<<"$statistics_cost_view" \
   || fail "fixture 134 Statistics lacks total cost of ownership"
@@ -4294,7 +4297,7 @@ for family_total in service:900000 expense:100000 fuel:29990 consumables:8020 ac
 done
 grep -q 'data-service-subtype="Brakes, Front" data-service-count="1" data-service-total-mills="900000"' <<<"$statistics_cost_view" \
   || fail "fixture 134 service summary does not count and total Brakes, Front exactly"
-note "fixture 134 PASS - total cost is the exact mill sum of fuel, consumable, service, expense, acquisition, and disposal rows, and service subtype totals match"
+note "fixture 134 PASS - total cost and service subtype count are exact within ownership despite a later service outside it"
 if [ "${ROVER_FIXTURE_STOP:-}" = 134 ]; then
   exit 0
 fi
