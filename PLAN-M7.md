@@ -1,10 +1,32 @@
 # PLAN-M7.md — Expanded lifecycle records
 
-Status: ratified 2026-08-17. Opens the M7 milestone.
+Status: ratified 2026-08-17. **Complete 2026-08-19 at `5a6f441`.**
+
+Twelve tasks landed. T1 through T10 were the ratified plan; T11 and T12 were added
+during the milestone and are described at the end.
+
+| | Task | Merged |
+|---|---|---|
+| T1 | Event family backbone | `7424774` |
+| T2 | Service subtype catalog | `9a4003e` |
+| T3 | Charging odometer repair, with migration | `f64301c` |
+| T4 | Vehicle acquisition and disposal | `e8c1519` |
+| T5 | Ownership interval derivation | `ca82bdc` |
+| T6 | Reminders | `cd367d4` |
+| T7 | Vehicle identity and specification | `28e03a5` |
+| T8 | Definition lifecycle | `afb7ca1` |
+| T9 | Import widening | `87e7417` |
+| T10 | Export | `4759008` |
+| T11 | Statistics across every family | `fd8e00a` |
+| T12 | Corrections | `5a6f441` |
+
+Every task was dispatched twice, to two models, from a byte-identical frozen brief, and
+verified by the orchestrator running the battery rather than by reading a report. The
+rulings the milestone produced are 11 through 22 in `app-structure.md`.
 
 Spec pages, in read order:
 
-1. `~/brain/projects/rover/app-structure.md` rulings 11 through 14
+1. `~/brain/projects/rover/app-structure.md` rulings 11 through 22
 2. `~/brain/projects/rover/integration-plan.md` decision log, entries dated
    2026-08-16 and 2026-08-17
 3. `~/brain/projects/rover/schema-m0.md` for the shipped relation shapes
@@ -205,6 +227,39 @@ The export format is the import format. Add the read path and the download contr
 
 Done-check: an export re-imports into an empty database and produces the same row
 counts.
+
+### T11 — Statistics across every family
+
+Added after the original ten. T9 made every family importable and T4 added ownership,
+which together made a whole-cost view possible for the first time.
+
+Statistics reads the selected vehicle's event-family costs and renders total cost of
+ownership, cost per distance all-in, spend by family, and service history by subtype.
+Disposal proceeds are a credit against the total.
+
+Every figure is bounded by ownership per ruling 12. A lifetime result that would cross
+an ownership gap is unavailable with the T5 human reason, and Rover still renders exact
+rows for each interval on its own. Event counts obey the same bound as money.
+
+Done-check: a service recorded after a disposal enters neither the total nor the
+service count.
+
+### T12 — Corrections
+
+Added after the original ten. Every event could be created and none could be corrected,
+so a mistyped total was permanent.
+
+An edit control on every event card, an `edit-event` endpoint, and a correction script.
+Corrections update in place; the substrate keeps the history.
+
+Done-check: an event is corrected from its card in a real browser, and the correction
+reads back.
+
+**Ruling 22 came out of this task.** The brief told the agent to refuse a correction
+that clears the odometer link, citing ruling 11's "a family without an odometer link is
+incomplete by definition." The agent checked the create path, found that creation
+already accepts a blank mileage, and filed the contradiction rather than building it.
+That sentence describes completeness; it does not bind the write path.
 
 ## Out of scope
 
