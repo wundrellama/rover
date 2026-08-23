@@ -1726,6 +1726,10 @@
     "FROM service-reminder-time X SELECT X.reminder-id, X.interval-count, X.interval-unit, X.due-at; "
     "FROM service-reminder-distance X SELECT X.reminder-id, X.interval-digits, X.interval-decimals, X.due-digits, X.due-decimals, X.distance-unit; "
     spec-queries
+    ::  M8. Four more, and they go LAST. Every arm in `rover-export` addresses
+    ::  a relation by its ordinal in this list, so anything inserted above
+    ::  would silently move every reader after it.
+    attachment-view
   ==
 ::
 ++  sql-quote
@@ -3706,19 +3710,56 @@
         " SELECT E.event-id; "
       ==
     ==
-  ::  Every name, not the one asked for. A second `receipt.jpg` becomes
-  ::  `receipt (2).jpg`, and picking that suffix needs to know whether it is
-  ::  free too. The pinned engine has no LIKE, so the probe reads the whole
-  ::  name column - one short row per stored photo, and the same read the
-  ::  export takes anyway.
+  ::  What this owner already has. Attaching the same photo to the same record
+  ::  twice is a no-op, so a load that is run again adds nothing.
+  =/  link-query=tape
+    ?-  owner
+        %vehicle
+      ;:  weld
+        "FROM vehicles V JOIN vehicle-attachments L ON V.vehicle-id = L.vehicle-id WHERE V.label = '"
+        quoted  "' SELECT L.vehicle-id, L.attachment-id; "
+      ==
+    ::
+        %energy
+      ;:  weld
+        "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-attachments L ON A.acquisition-id = L.acquisition-id WHERE V.label = '"
+        quoted  "' AND A.observed-start = "  moment
+        " SELECT L.acquisition-id, L.attachment-id; "
+      ==
+    ::
+        %event
+      ;:  weld
+        "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id JOIN vehicle-event-attachments L ON E.event-id = L.event-id WHERE V.label = '"
+        quoted  "' AND E.observed-start = "  moment
+        " SELECT L.event-id, L.attachment-id; "
+      ==
+    ==
+  ::  Every name and every digest, not the one asked for. A second
+  ::  `receipt.jpg` becomes `receipt (2).jpg`, and picking that suffix needs to
+  ::  know whether it is free too. The digest is what makes the store
+  ::  content-addressed: bytes Rover already holds are never stored twice.
+  ::
+  ::  The pinned engine has no LIKE, so the probe reads the whole column - one
+  ::  short row per stored photo, and the same read the export takes anyway.
   ;:  weld
     owner-query
-    "FROM attachments T SELECT T.attachment-id, T.file-name;"
+    "FROM attachments T SELECT T.attachment-id, T.file-name, T.content-hash, T.backend; "
+    link-query
   ==
 ::
 ::  The reference row and its link, in ONE atomic script. A reference with no
 ::  owner would be a photo nothing points at, and a link with no reference
 ::  would break the foreign key, so neither may land without the other.
+++  attachment-link
+  |=  [owner=attachment-owner:rover owner-id=@ux attachment-id=@ux]
+  ^-  tape
+  =/  attachment=tape  (scow %ux attachment-id)
+  ?-  owner
+    %vehicle  ;:(weld "INSERT INTO vehicle-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+    %energy   ;:(weld "INSERT INTO energy-acquisition-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+    %event    ;:(weld "INSERT INTO vehicle-event-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+  ==
+::
 ++  insert-attachment
   |=  $:  ref=attachment-ref:rover
           owner=attachment-owner:rover
@@ -3727,12 +3768,7 @@
       ==
   ^-  tape
   =/  attachment=tape  (scow %ux attachment-id.ref)
-  =/  link=tape
-    ?-  owner
-      %vehicle  ;:(weld "INSERT INTO vehicle-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
-      %energy   ;:(weld "INSERT INTO energy-acquisition-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
-      %event    ;:(weld "INSERT INTO vehicle-event-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
-    ==
+  =/  link=tape  (attachment-link owner owner-id attachment-id.ref)
   ;:  weld
     "INSERT INTO attachments VALUES ("
     attachment

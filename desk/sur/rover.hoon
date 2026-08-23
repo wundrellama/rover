@@ -587,6 +587,16 @@
       owner-id=@ux
       stored-name=@t
   ==
+::  M8. An export in flight. The JSON payload is finished before the first
+::  photo is read, and the members accumulate until every reference has given
+::  up its bytes. A Clay reference is read on the spot; an S3 one costs a round
+::  trip to the bucket, and that is what this run exists to survive.
++$  export-run
+  $:  eyre-id=@ta
+      payload=@t
+      remaining=(list attachment-ref)
+      members=(list [name=@t bytes=octs])
+  ==
 +$  action
   $%  [%init-db ~]
       [%ensure-ui-schema ~]

@@ -32,6 +32,7 @@
       [%20 state-20]
       [%21 state-21]
       [%22 state-22]
+      [%23 state-23]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -502,6 +503,26 @@
       bootstrap-ready=?
       attachment-pending=(map wire attachment-write:rover)
   ==
+::  M8. The export became a container, so it can no longer finish in one turn
+::  when a photo lives in a bucket.
++$  state-23
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+      import-run=(unit import-run:rover)
+      bootstrap-ready=?
+      attachment-pending=(map wire attachment-write:rover)
+      export-run=(unit export-run:rover)
+  ==
 +$  card  card:agent:gall
 --
 =>  |%
@@ -677,6 +698,41 @@
     'Rover could not reach the S3 storage at all. Check that the endpoint is running and reachable from this ship.'
   'The S3 storage would not complete the request. The photo was not stored.'
 ::
+::  M8. The export container. Every reference the database holds, in the order
+::  the engine returned them - order is not asserted anywhere, because the
+::  engine returns sets and their order is not stable across piers.
+++  export-refs
+  |=  commands=(list cmd-result:ast)
+  ^-  (list attachment-ref:rover)
+  %+  turn  (attachment-rows:exp commands)
+  |=  row=vector:ast
+  ^-  attachment-ref:rover
+  :*  `@ux`(cell-atom:view %attachment-id row)
+      ?:(=(%s3 (cell-term:view %backend row)) %s3 %clay)
+      (cell-text:view %locator row)
+      (cell-text:view %content-hash row)
+      (cell-atom:view %byte-count row)
+      (cell-text:view %media-type row)
+      (cell-text:view %file-name row)
+  ==
+::
+++  tar-response
+  |=  [eyre-id=@ta payload=@t members=(list [name=@t bytes=octs])]
+  ^-  (list card)
+  =/  all
+    :-  ['rover-import.json' (as-octs:mimes:html payload)]
+    %+  turn  (flop members)
+    |=  [name=@t bytes=octs]
+    [(tar-name:files name) bytes]
+  %:  http-give
+      eyre-id
+      200
+      :~  ['content-type' 'application/x-tar']
+          ['content-disposition' 'attachment; filename="rover-export-complete.tar"']
+      ==
+      `(tar-archive:files all)
+  ==
+::
 ++  attachment-owner-column
   |=  owner=attachment-owner:rover
   ^-  @tas
@@ -845,9 +901,49 @@
       [%pass wir %agent [our %obelisk] %poke %obelisk-action jon]
   ==
 ::
+::  M8. Walk the reference list, gathering bytes. A Clay reference is read on
+::  the spot and the walk continues in the same turn; an S3 one stops the walk
+::  and waits for the bucket. When the list is empty the tar goes out.
+::
+::  A reference whose backend no longer holds the bytes stops the export rather
+::  than quietly shipping a short archive. Silence is the failure mode.
+++  continue-export
+  |=  [sat=state-23 our=@p now=@da run=export-run:rover]
+  ^-  [(list card) state-23]
+  ?~  remaining.run
+    [(tar-response eyre-id.run payload.run members.run) sat(export-run ~)]
+  =/  ref  i.remaining.run
+  ?:  =(%clay backend.ref)
+    =/  bytes  (clay-read:files our now attachment-id.ref)
+    ?~  bytes
+      :_  sat(export-run ~)
+      %:  http-give
+          eyre-id.run
+          500
+          ['content-type' 'text/plain']~
+          `(text-octs (cat 3 'The export stopped: this ship no longer holds the bytes for ' file-name.ref))
+      ==
+    %=  $
+      run  run(remaining t.remaining.run, members [[file-name.ref u.bytes] members.run])
+    ==
+  =/  config  (storage-configuration our now)
+  ?~  config
+    :_  sat(export-run ~)
+    %:  http-give
+        eyre-id.run
+        409
+        ['content-type' 'text/plain']~
+        `(text-octs 'The export stopped: some photos are in S3 storage and this ship has no bucket configured to read them from.')
+    ==
+  =/  wir=wire  /rover-export-fetch/(scot %da now)/[eyre-id.run]
+  =/  outbound
+    (s3-request:files u.config 'GET' attachment-id.ref media-type.ref ~ now)
+  :_  sat(export-run `run)
+  [%pass wir %arvo %i %request outbound *outbound-config:iris]~
+::
 ++  continue-import
-  |=  [sat=state-22 our=@p run=import-run:rover]
-  ^-  [(list card) state-22]
+  |=  [sat=state-23 our=@p run=import-run:rover]
+  ^-  [(list card) state-23]
   ?~  remaining.run
     :_  sat(import-run ~)
     %:  http-give
@@ -875,8 +971,8 @@
   ==
 ::
 ++  handle-http
-  |=  [sat=state-22 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-22]
+  |=  [sat=state-23 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-23]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -1528,6 +1624,22 @@
     :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
         [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
     ==
+  ::  M8. The whole history AND the bytes, in one uncompressed tar. The JSON
+  ::  member is the same payload the JSON endpoint serves, so a reader that
+  ::  wants only the facts can take that one file out and stop.
+  ?:  =('/apps/rover/export.tar' url.request.req)
+    ?.  bootstrap-ready.sat
+      [(http-give eyre-id 503 ['content-type' 'text/plain']~ `(text-octs 'Rover is still loading. Try the export again.')) sat]
+    ?^  export-run.sat
+      [(http-give eyre-id 409 ['content-type' 'text/plain']~ `(text-octs 'An export is already running')) sat]
+    =/  wir=wire  /rover-export-tar/(scot %da now.bowl)/[eyre-id]
+    =/  jon  !>([%script %rover %vector export-view:act])
+    =/  new-sat
+      sat(pending (~(put by pending.sat) wir 'export'), http-pending (~(put by http-pending.sat) wir eyre-id))
+    :_  new-sat
+    :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+        [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+    ==
   ?:  =('/apps/rover/export' url.request.req)
     ?.  bootstrap-ready.sat
       [(http-give eyre-id 503 ['content-type' 'text/plain']~ `(text-octs 'Rover is still loading. Try the export again.')) sat]
@@ -1541,7 +1653,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-22
+=|  state-23
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -1561,7 +1673,7 @@
   :_  this(bootstrap-ready %.n)
   (weld cards (ensure-files-desk:files our.bowl now.bowl))
 ::
-++  on-save  !>([%22 state])
+++  on-save  !>([%23 state])
 ::
 ++  on-load
   |=  old=vase
@@ -1569,32 +1681,33 @@
   =/  s  !<(versioned-state old)
   =/  loaded=_this
     ?-  -.s
-      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ %.n ~])
-      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ %.n ~])
-      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~ ~ ~ %.n ~])
-      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~ ~ %.n ~])
-      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~ %.n ~])
-      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~ %.n ~])
-      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~ %.n ~])
-      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~ %.n ~])
-      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~ %.n ~])
-      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~ %.n ~])
-      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~])
-      %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~])
-      %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~])
-      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~])
-      %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~])
-      %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~])
-      %16  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~])
-      %17  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s ~])
-      %18  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s ~])
-      %19  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s ~])
-      %20  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s bootstrap-ready.+.s ~])
+      %0  this(state [pending.+.s last.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ %.n ~ ~])
+      %1  this(state [pending.+.s last.+.s preview.+.s total.+.s ~ ~ ~ ~ ~ ~ ~ ~ ~ %.n ~ ~])
+      %2  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s ~ ~ ~ ~ ~ ~ ~ ~ %.n ~ ~])
+      %3  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s ~ ~ ~ ~ ~ ~ ~ %.n ~ ~])
+      %4  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~ %.n ~ ~])
+      %5  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ ~ ~ ~ ~ %.n ~ ~])
+      %6  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~ %.n ~ ~])
+      %7  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s ~ ~ ~ %.n ~ ~])
+      %8  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~ %.n ~ ~])
+      %9  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s ~ ~ %.n ~ ~])
+      %10  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~ ~])
+      %11  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~ ~])
+      %12  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~ ~])
+      %13  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s ~ ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~ ~])
+      %14  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~ ~])
+      %15  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s ~ odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~ ~])
+      %16  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ %.n ~ ~])
+      %17  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s ~ ~])
+      %18  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s ~ ~])
+      %19  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s ~ ~])
+      %20  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s bootstrap-ready.+.s ~ ~])
       ::  An in-flight attachment cannot cross an upgrade: the bytes waiting
       ::  here belong to an HTTP request whose connection is already gone. The
       ::  map is dropped and the browser is told to send the photo again.
-      %21  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s bootstrap-ready.+.s ~])
-      %22  this(state +.s)
+      %21  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s bootstrap-ready.+.s ~ ~])
+      %22  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s bootstrap-ready.+.s attachment-pending.+.s ~])
+      %23  this(state +.s)
     ==
   =/  cards=(list card)  ~[bind-eyre]
   :_  loaded
@@ -1693,11 +1806,55 @@
         ==
       =/  owner-id=@ux
         `@ux`(cell-atom:view (attachment-owner-column owner.entry.write) (snag 0 owners))
+      =/  stored  (rows-at:view p.res 1)
       =/  taken=(set @t)
         %-  silt
-        %+  turn  (rows-at:view p.res 1)
+        %+  turn  stored
         |=(row=vector:ast (cell-text:view %file-name row))
       =/  name=@t  (unique-name:files file-name.entry.write taken)
+      ::  The store is content-addressed. If Rover already holds these exact
+      ::  bytes in this backend, the photo is not stored a second time: the
+      ::  existing reference is linked to this record as well.
+      ::
+      ::  The corpus proves this matters - it carries one byte-identical
+      ::  duplicate - and it is also what makes running a load twice a no-op,
+      ::  which is ruling 18's rule applied to photos.
+      =/  same-bytes=(unit vector:ast)
+        |-  ^-  (unit vector:ast)
+        ?~  stored  ~
+        ?:  ?&  =(content-hash.write (cell-text:view %content-hash i.stored))
+                =(backend.entry.write (cell-term:view %backend i.stored))
+            ==
+          `i.stored
+        $(stored t.stored)
+      ?^  same-bytes
+        =/  existing=@ux  `@ux`(cell-atom:view %attachment-id u.same-bytes)
+        =/  existing-name  (cell-text:view %file-name u.same-bytes)
+        =/  already
+          %+  lien  (rows-at:view p.res 2)
+          |=(row=vector:ast =(existing `@ux`(cell-atom:view %attachment-id row)))
+        ?:  already
+          :_  cleared
+          %:  http-give
+              u.eyre-id
+              200
+              ['content-type' 'text/plain']~
+              `(text-octs (cat 3 'Already attached ' existing-name))
+          ==
+        =/  link-wire=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
+        =/  jon
+          !>  :*  %script  %rover  %vector
+                  (attachment-link:act owner.entry.write owner-id existing)
+              ==
+        =/  next=_this
+          %=  cleared
+            http-pending  (~(put by (~(del by http-pending) wire)) link-wire u.eyre-id)
+            pending       (~(put by pending) link-wire existing-name)
+          ==
+        :_  next
+        :~  [%pass link-wire %agent [our.bowl %obelisk] %watch /server]
+            [%pass link-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+        ==
       =/  resolved=attachment-write:rover  write(owner-id owner-id, stored-name name)
       ::  Clay is synchronous: the commit and the reference insert go out in
       ::  the same turn. S3 is a round trip over the network, so the bytes go
@@ -1857,6 +2014,35 @@
     ::
         %kick
       `this(http-pending (~(del by http-pending) wire), pending (~(del by pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
+      ::  M8. The facts came back. The JSON is finished here, and the walk over
+      ::  the references starts.
+      [%rover-export-tar *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      ::  The wire is retired before the walk begins, so `continue-export`
+      ::  starts from the state the rest of the export will carry.
+      =.  pending  (~(del by pending) wire)
+      =.  http-pending  (~(del by http-pending) wire)
+      ?~  eyre-id
+        `this
+      ?:  ?=(%.n -.res)
+        :_  this
+        (http-give u.eyre-id 503 ['content-type' 'text/plain']~ `(text-octs 'Rover could not read the export facts.'))
+      =/  run=export-run:rover
+        [u.eyre-id (document:exp p.res) (export-refs p.res) ~]
+      =/  continued=[(list card) state-23]
+        (continue-export state our.bowl now.bowl run)
+      [-.continued this(state +.continued)]
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
     ::
         %watch-ack
       `this
@@ -4133,7 +4319,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-22]
+        =/  continued=[(list card) state-23]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4713,7 +4899,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-22]
+        =/  continued=[(list card) state-23]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4769,7 +4955,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-22]
+        =/  continued=[(list card) state-23]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4822,7 +5008,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-22]
+        =/  continued=[(list card) state-23]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4991,7 +5177,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-22]
+        =/  continued=[(list card) state-23]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  phase=@ta
@@ -5049,7 +5235,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-22]
+        =/  continued=[(list card) state-23]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -5081,7 +5267,7 @@
         ==
       =/  next
         run(writing %.n, remaining t.remaining.run, report report)
-      =/  continued=[(list card) state-22]
+      =/  continued=[(list card) state-23]
         (continue-import state our.bowl next)
       [-.continued this(state +.continued)]
     ::
@@ -5609,6 +5795,40 @@
     :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
         [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
     ==
+  ::  M8. The bucket answered an export fetch. One more member, then the walk
+  ::  continues where it stopped.
+  ?:  ?=([%rover-export-fetch *] wire)
+    ?.  ?=([%iris %http-response *] sign-arvo)
+      (on-arvo:def wire sign-arvo)
+    =/  run-unit  export-run
+    ?~  run-unit
+      `this
+    ?.  ?=(%finished -.client-response.sign-arvo)
+      `this
+    =/  run  u.run-unit
+    ?~  remaining.run
+      `this(export-run ~)
+    =/  ref  i.remaining.run
+    =/  status  status-code.response-header.client-response.sign-arvo
+    =/  body  full-file.client-response.sign-arvo
+    ?.  ?&  =(200 status)
+            ?=(^ body)
+        ==
+      :_  this(export-run ~)
+      %:  http-give
+          eyre-id.run
+          502
+          ['content-type' 'text/plain']~
+          `(text-octs (cat 3 'The export stopped: the S3 storage would not return ' file-name.ref))
+      ==
+    =/  next=export-run:rover
+      %=  run
+        remaining  t.remaining.run
+        members    [[file-name.ref data.u.body] members.run]
+      ==
+    =/  continued=[(list card) state-23]
+      (continue-export state our.bowl now.bowl next)
+    [-.continued this(state +.continued)]
   ::  M8. The bucket answered a GET. The ship hands the bytes on itself.
   ?:  ?=([%rover-attachment-s3-get *] wire)
     ?.  ?=([%iris %http-response *] sign-arvo)
