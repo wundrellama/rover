@@ -2619,4 +2619,68 @@
   ?.  (nonempty u.new-label)
     [%| %bad-shape 'definition.new-label']
   [%& u.family u.label u.new-label]
+::  M8. An attachment request. Every value arrives in the query string, because
+::  the request BODY carries the photo itself as raw bytes.
+::
+::  The record is addressed the way `edit-event` addresses one: by vehicle label
+::  and the moment the record holds. No machine id crosses this boundary in
+::  either direction.
+++  decode-attachment
+  |=  params=(map @t @t)
+  ^-  (each attachment-entry:rover entry-verdict:rover)
+  =/  owner-text  (~(get by params) 'owner')
+  =/  vehicle  (~(get by params) 'vehicle')
+  =/  file-name  (~(get by params) 'file')
+  ?:  ?|  ?=(~ owner-text)
+          ?=(~ vehicle)
+          ?=(~ file-name)
+      ==
+    [%| %missing-key 'attachment']
+  ?.  ?&  (nonempty u.vehicle)
+          (nonempty u.file-name)
+      ==
+    [%| %bad-shape 'attachment']
+  ::  A file name is a name, not a path. A separator in it would let a request
+  ::  reach outside the attachment tree of either backend.
+  ?:  ?|  ?=(^ (find "/" (trip u.file-name)))
+          ?=(^ (find "\\" (trip u.file-name)))
+          ?=(^ (find ".." (trip u.file-name)))
+      ==
+    [%| %bad-shape 'attachment.file']
+  =/  owner=(unit attachment-owner:rover)
+    ?:  ?|(=('fill' u.owner-text) =('charge' u.owner-text) =('energy' u.owner-text))
+      `%energy
+    ?:  =('event' u.owner-text)  `%event
+    ?:  =('vehicle' u.owner-text)  `%vehicle
+    ~
+  ?~  owner
+    [%| %bad-shape 'attachment.owner']
+  =/  observed-text  (~(get by params) 'observed')
+  =/  observed=(unit @da)
+    ?~  observed-text  ~
+    (local-da u.observed-text)
+  ::  A fill or an event is found by its moment. A vehicle needs none, and
+  ::  supplying one would name a record this owner kind does not have.
+  ?:  ?&  !=(%vehicle u.owner)
+          ?=(~ observed)
+      ==
+    [%| %bad-shape 'attachment.observed']
+  =/  type-text  (~(get by params) 'type')
+  =/  media-type=@t  ?~(type-text 'application/octet-stream' u.type-text)
+  =/  backend-text  (~(get by params) 'backend')
+  =/  backend=(unit attachment-backend:rover)
+    ?~  backend-text  `%clay
+    ?:  =('clay' u.backend-text)  `%clay
+    ?:  =('s3' u.backend-text)  `%s3
+    ~
+  ?~  backend
+    [%| %bad-shape 'attachment.backend']
+  :-  %&
+  :*  u.owner
+      u.vehicle
+      ?:(=(%vehicle u.owner) ~ observed)
+      u.file-name
+      media-type
+      u.backend
+  ==
 --

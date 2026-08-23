@@ -1371,6 +1371,33 @@
       ::  odometer, so two unit columns would only make a state that is wrong.
       :-  %service-reminder-distance
       "CREATE TABLE rover..service-reminder-distance (reminder-id @ux, interval-digits @ud, interval-decimals @ud, due-digits @ud, due-decimals @ud, distance-unit @tas) PRIMARY KEY (reminder-id) FOREIGN KEY (reminder-id) REFERENCES service-reminders (reminder-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      ::  M8. The attachment reference. Ruling 17: the BYTES never enter this
+      ::  database. This row holds only what a person needs to find the image
+      ::  again, and every column is small and fixed-width in practice.
+      ::
+      ::  `backend` and `locator` are the address: which store holds the bytes
+      ::  and where inside it. `content-hash` and `byte-count` are the identity
+      ::  of the bytes, so a reader can prove what it got back is what went in.
+      ::  `media-type` is what to send them back as. `file-name` is the HUMAN
+      ::  handle - the only name for an attachment that crosses the Eyre
+      ::  boundary in either direction, because a raw machine id never does.
+      ::  `recorded-at` is when Rover took custody, matching every other family.
+      :-  %attachments
+      "CREATE TABLE rover..attachments (attachment-id @ux, backend @tas, locator @t, content-hash @t, byte-count @ud, media-type @t, file-name @t, recorded-at @da) PRIMARY KEY (attachment-id); "
+      ::  Three owners, one reference relation. Each link keys to the event
+      ::  FAMILY PARENT and never to a typed child, so a fill and a charge
+      ::  share one link relation exactly as they share one odometer link.
+      ::
+      ::  Many-to-many in both directions: a record may carry several photos,
+      ::  and one photo may belong to more than one record. The corpus holds a
+      ::  byte-identical duplicate pair, and this shape is what lets a later
+      ::  owner point two records at one stored blob without copying it.
+      :-  %energy-acquisition-attachments
+      "CREATE TABLE rover..energy-acquisition-attachments (acquisition-id @ux, attachment-id @ux) PRIMARY KEY (acquisition-id, attachment-id) FOREIGN KEY (acquisition-id) REFERENCES energy-acquisitions (acquisition-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (attachment-id) REFERENCES attachments (attachment-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-event-attachments
+      "CREATE TABLE rover..vehicle-event-attachments (event-id @ux, attachment-id @ux) PRIMARY KEY (event-id, attachment-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (attachment-id) REFERENCES attachments (attachment-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-attachments
+      "CREATE TABLE rover..vehicle-attachments (vehicle-id @ux, attachment-id @ux) PRIMARY KEY (vehicle-id, attachment-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (attachment-id) REFERENCES attachments (attachment-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
     ::  M7 T7. Every member keys only to `vehicles`, which `schema-m0` pours
     ::  before it reaches this list at all, so these may sit at either end.
@@ -3642,4 +3669,110 @@
   ?:  descending
     (gth u.a-key u.b-key)
   (lth u.a-key u.b-key)
+::  M8. The attachment path. Every arm here writes or reads a REFERENCE. The
+::  bytes are never an operand of any statement in this file.
+::
+::  One lookup answers both questions the write needs: which record owns the
+::  new attachment, and whether the file name is already taken. The file name
+::  is the human handle - the only name for an attachment that crosses the Eyre
+::  boundary - so Rover keeps it unique and this probe is how it knows.
+++  attachment-owner-lookup
+  |=  $:  owner=attachment-owner:rover
+          vehicle-label=@t
+          observed=(unit @da)
+      ==
+  ^-  tape
+  =/  quoted=tape  (sql-quote vehicle-label)
+  =/  moment=tape  ?~(observed "~2000.1.1" (scow %da u.observed))
+  =/  owner-query=tape
+    ?-  owner
+        %vehicle
+      ;:  weld
+        "FROM vehicles V WHERE V.label = '"  quoted
+        "' SELECT V.vehicle-id; "
+      ==
+    ::
+        %energy
+      ;:  weld
+        "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id WHERE V.label = '"
+        quoted  "' AND A.observed-start = "  moment
+        " SELECT A.acquisition-id; "
+      ==
+    ::
+        %event
+      ;:  weld
+        "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '"
+        quoted  "' AND E.observed-start = "  moment
+        " SELECT E.event-id; "
+      ==
+    ==
+  ::  Every name, not the one asked for. A second `receipt.jpg` becomes
+  ::  `receipt (2).jpg`, and picking that suffix needs to know whether it is
+  ::  free too. The pinned engine has no LIKE, so the probe reads the whole
+  ::  name column - one short row per stored photo, and the same read the
+  ::  export takes anyway.
+  ;:  weld
+    owner-query
+    "FROM attachments T SELECT T.attachment-id, T.file-name;"
+  ==
+::
+::  The reference row and its link, in ONE atomic script. A reference with no
+::  owner would be a photo nothing points at, and a link with no reference
+::  would break the foreign key, so neither may land without the other.
+++  insert-attachment
+  |=  $:  ref=attachment-ref:rover
+          owner=attachment-owner:rover
+          owner-id=@ux
+          now=@da
+      ==
+  ^-  tape
+  =/  attachment=tape  (scow %ux attachment-id.ref)
+  =/  link=tape
+    ?-  owner
+      %vehicle  ;:(weld "INSERT INTO vehicle-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+      %energy   ;:(weld "INSERT INTO energy-acquisition-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+      %event    ;:(weld "INSERT INTO vehicle-event-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+    ==
+  ;:  weld
+    "INSERT INTO attachments VALUES ("
+    attachment
+    ", "
+    (sql-term backend.ref)
+    ", '"
+    (sql-quote locator.ref)
+    "', '"
+    (sql-quote content-hash.ref)
+    "', "
+    (sql-ud byte-count.ref)
+    ", '"
+    (sql-quote media-type.ref)
+    "', '"
+    (sql-quote file-name.ref)
+    "', "
+    (scow %da now)
+    "); "
+    link
+  ==
+::
+::  Serving one attachment. The file name is the address a browser asks with.
+++  attachment-by-name
+  |=  file-name=@t
+  ^-  tape
+  ;:  weld
+    "FROM attachments T WHERE T.file-name = '"
+    (sql-quote file-name)
+    "' SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;"
+  ==
+::
+::  Every reference and every link, for the export and for the served view.
+::  Each projection carries its relation key, because the pinned engine
+::  collapses identical projected rows into one.
+++  attachment-view
+  ^-  tape
+  ;:  weld
+    "FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name; "
+    "FROM energy-acquisition-attachments L SELECT L.acquisition-id, L.attachment-id; "
+    "FROM vehicle-event-attachments L SELECT L.event-id, L.attachment-id; "
+    "FROM vehicle-attachments L SELECT L.vehicle-id, L.attachment-id;"
+  ==
 --

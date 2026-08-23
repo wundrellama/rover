@@ -534,6 +534,55 @@
       rejected=?
       message=@t
   ==
+::  M8. An attachment is a photo or a receipt the owner keeps beside a record.
+::  The BYTES never enter Obelisk. A reference row names where they are, and
+::  these shapes carry the request that creates one.
+::
+::  The owner term names the event FAMILY, not the typed child, per ruling 11.
+::  A fill and a charge share `%energy`, because both are energy acquisitions
+::  and the link keys to that parent.
++$  attachment-owner  ?(%energy %event %vehicle)
+::  What Rover needs to reach an S3-compatible bucket, read from Landscape's
+::  %storage agent so a NativePlanet owner who already pointed %storage at
+::  RustFS never configures the same bucket twice.
++$  s3-config
+  $:  endpoint=@t
+      region=@t
+      bucket=@t
+      access-key-id=@t
+      secret-access-key=@t
+  ==
++$  attachment-backend  ?(%clay %s3)
+::  What the Eyre boundary supplies. No machine id: the record is addressed the
+::  way every other correction addresses one, by vehicle label and the moment it
+::  holds. A vehicle attachment carries no moment, so `observed` is absent.
++$  attachment-entry
+  $:  owner=attachment-owner
+      vehicle-label=@t
+      observed=(unit @da)
+      file-name=@t
+      media-type=@t
+      backend=attachment-backend
+  ==
+::  The stored reference, as Rover reads it back out of the database.
++$  attachment-ref
+  $:  attachment-id=@ux
+      backend=attachment-backend
+      locator=@t
+      content-hash=@t
+      byte-count=@ud
+      media-type=@t
+      file-name=@t
+  ==
+::  An attachment write in flight. The bytes wait here while Obelisk resolves
+::  the owning record, so a request naming a vehicle that does not exist is
+::  refused before anything reaches a storage backend.
++$  attachment-write
+  $:  entry=attachment-entry
+      bytes=octs
+      content-hash=@t
+      attachment-id=@ux
+  ==
 +$  action
   $%  [%init-db ~]
       [%ensure-ui-schema ~]
