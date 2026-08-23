@@ -350,4 +350,184 @@
   =/  rest  (slag 12 text)
   ?~  rest  ~
   `(crip rest)
+::  ---------------------------------------------------------------------
+::  The S3 backend: AWS Signature Version 4, written here
+::  ---------------------------------------------------------------------
+::
+::  The SHIP signs and the ship proxies. The browser never receives a
+::  presigned URL: those expire, they carry a credential into any file the
+::  owner saves, and an archived export that depends on one rots silently.
+::
+::  Byte order is the trap in this section. `shay` reads and writes an atom
+::  least-significant-byte first, the way a cord does. `sha-256l` and
+::  `hmac-sha256l` read and write MOST significant first. Every value that
+::  enters the signing chain is converted once, at `msb-byts`, and stays in
+::  that order until it is rendered as hex.
+++  msb-byts
+  |=  value=@
+  ^-  byts
+  =/  width  (met 3 value)
+  [width (rev 3 width value)]
+::
+++  digest-byts  |=(value=@ `byts`[32 value])
+::
+::  `hex-digest` reads byte 31 first, which is the first byte of a value that
+::  is already most-significant-byte first. So no reversal here.
+++  hex-msb  |=(value=@ `@t`(hex-digest value))
+::
+::  One newline, as a tape. Written out rather than escaped, so nothing here
+::  depends on how a string escape is read.
+++  nl  ^-(tape ~[`@tD`10])
+::
+++  sign-step
+  |=  [key=byts message=@t]
+  ^-  @
+  (hmac-sha256l:hmac:crypto key (msb-byts message))
+::
+::  kSigning = HMAC(HMAC(HMAC(HMAC("AWS4"+secret, date), region), "s3"), "aws4_request")
+++  signing-key
+  |=  [secret=@t stamp=@t region=@t]
+  ^-  @
+  =/  seed=@t  (crip (weld "AWS4" (trip secret)))
+  =/  k-date  (sign-step (msb-byts seed) stamp)
+  =/  k-region  (sign-step (digest-byts k-date) region)
+  =/  k-service  (sign-step (digest-byts k-region) 's3')
+  (sign-step (digest-byts k-service) 'aws4_request')
+::
+++  sha-hex
+  |=  text=@t
+  ^-  @t
+  (hex-msb (sha-256l:sha (msb-byts text)))
+::
+::  Two ASCII stamps, both derived from the same moment: 20260822T235959Z for
+::  the request and 20260822 for the credential scope.
+++  amz-stamps
+  |=  now=@da
+  ^-  [full=@t day=@t]
+  =/  d  (yore now)
+  =/  day=tape
+    ;:  weld
+      (pad-decimal y.d 4)  (pad-decimal m.d 2)  (pad-decimal d.t.d 2)
+    ==
+  :-  %-  crip
+      ;:  weld
+        day  "T"
+        (pad-decimal h.t.d 2)  (pad-decimal m.t.d 2)  (pad-decimal s.t.d 2)
+        "Z"
+      ==
+  (crip day)
+::
+++  pad-decimal
+  |=  [value=@ud width=@ud]
+  ^-  tape
+  =/  text  (decimal value)
+  =/  have  (lent text)
+  ?:  (gte have width)
+    text
+  (weld (reap (sub width have) '0') text)
+::
+::  The host an endpoint names, without scheme or trailing slash. RustFS and
+::  MinIO both answer path-style requests, which is what a bucket name with a
+::  dot in it needs anyway.
+++  endpoint-host
+  |=  endpoint=@t
+  ^-  @t
+  =/  text  (trip endpoint)
+  =/  after-scheme
+    ?:  =("http://" (scag 7 text))   (slag 7 text)
+    ?:  =("https://" (scag 8 text))  (slag 8 text)
+    text
+  =/  cut-at  (find "/" after-scheme)
+  ?~  cut-at  (crip after-scheme)
+  (crip (scag u.cut-at after-scheme))
+::
+++  endpoint-base
+  |=  endpoint=@t
+  ^-  tape
+  =/  text  (trip endpoint)
+  ?:  =("http://" (scag 7 text))   text
+  ?:  =("https://" (scag 8 text))  text
+  (weld "http://" text)
+::
+::  Where one attachment lives in a bucket. The id keys it for the same reason
+::  it keys the Clay path: a file name is not unique and not URL-safe.
+++  s3-key
+  |=  attachment-id=@ux
+  ^-  @t
+  (crip (weld "attachments/" (trip (scot %ux attachment-id))))
+::
+++  s3-locator
+  |=  [bucket=@t attachment-id=@ux]
+  ^-  @t
+  (crip :(weld "/" (trip bucket) "/" (trip (s3-key attachment-id))))
+::
+::  A signed request, ready for Iris. `method` is 'PUT' or 'GET'; a GET carries
+::  no body and hashes the empty string, exactly as the specification says.
+++  s3-request
+  |=  $:  config=s3-config:rover
+          method=@t
+          attachment-id=@ux
+          media-type=@t
+          bytes=(unit octs)
+          now=@da
+      ==
+  ^-  request:http
+  =/  stamps  (amz-stamps now)
+  =/  host  (endpoint-host endpoint.config)
+  =/  key  (s3-key attachment-id)
+  =/  resource=tape  :(weld "/" (trip bucket.config) "/" (trip key))
+  =/  payload=@t
+    ?~  bytes  (sha-hex '')
+    (hash-octs u.bytes)
+  =/  signed-headers=@t  'host;x-amz-content-sha256;x-amz-date'
+  =/  canonical=@t
+    %-  crip
+    ;:  weld
+      (trip method)                            nl
+      resource                                 nl
+      nl
+      "host:"  (trip host)                     nl
+      "x-amz-content-sha256:"  (trip payload)  nl
+      "x-amz-date:"  (trip full.stamps)        nl
+      nl
+      (trip signed-headers)                    nl
+      (trip payload)
+    ==
+  =/  region=@t  ?:(=('' region.config) 'us-east-1' region.config)
+  =/  scope=tape
+    :(weld (trip day.stamps) "/" (trip region) "/s3/aws4_request")
+  =/  to-sign=@t
+    %-  crip
+    ;:  weld
+      "AWS4-HMAC-SHA256"    nl
+      (trip full.stamps)    nl
+      scope                 nl
+      (trip (sha-hex canonical))
+    ==
+  =/  key-bytes  (signing-key secret-access-key.config day.stamps region)
+  =/  signature  (hex-msb (sign-step (digest-byts key-bytes) to-sign))
+  =/  authorization=@t
+    %-  crip
+    ;:  weld
+      "AWS4-HMAC-SHA256 Credential="
+      (trip access-key-id.config)  "/"  scope
+      ", SignedHeaders="  (trip signed-headers)
+      ", Signature="  (trip signature)
+    ==
+  ::  `host` is SIGNED but not EMITTED. Vere writes its own `Host:` line, and a
+  ::  second one makes the request ambiguous - S3-compatible servers answer 403
+  ::  for it, which reads exactly like a bad credential and is not one.
+  =/  headers=header-list:http
+    :~  ['x-amz-content-sha256' payload]
+        ['x-amz-date' full.stamps]
+        ['authorization' authorization]
+    ==
+  =/  headers
+    ?~  bytes  headers
+    (weld headers `header-list:http`~[['content-type' media-type]])
+  :*  ?:(=('PUT' method) %'PUT' %'GET')
+      (crip (weld (endpoint-base endpoint.config) resource))
+      headers
+      bytes
+  ==
 --

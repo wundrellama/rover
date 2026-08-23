@@ -31,6 +31,7 @@
       [%19 state-19]
       [%20 state-20]
       [%21 state-21]
+      [%22 state-22]
   ==
 +$  new-station-entry-10
   [place-label=@t station-label=@t station-kind=station-kind:rover]
@@ -471,6 +472,34 @@
       fill-body-pending=(map wire @t)
       import-run=(unit import-run:rover)
       bootstrap-ready=?
+      attachment-pending=(map wire attachment-write-21)
+  ==
+::  The in-flight shape before the S3 backend landed. It knew nothing of the
+::  resolved owner or the free file name, because Clay needed neither: the
+::  commit and the reference insert went out in one turn.
++$  attachment-write-21
+  $:  entry=attachment-entry:rover
+      bytes=octs
+      content-hash=@t
+      attachment-id=@ux
+  ==
+::  M8. The S3 backend made the write a three-phase one, so what waits in
+::  `attachment-pending` now carries the record the lookup resolved.
++$  state-22
+  $:  pending=(map wire @t)
+      last=(unit (each (list cmd-result:ast) tang))
+      preview=(unit price-preview:rover)
+      total=(unit total-proof:rover)
+      charging-total=(unit charging-total-proof:rover)
+      integrity=(unit integrity-proof:rover)
+      http-pending=(map wire @ta)
+      fill-pending=(map wire fill-entry:rover)
+      charge-pending=(map wire charge-entry:rover)
+      odometer-pending=(map wire odometer-entry:rover)
+      preference-pending=(map wire preference-entry:rover)
+      fill-body-pending=(map wire @t)
+      import-run=(unit import-run:rover)
+      bootstrap-ready=?
       attachment-pending=(map wire attachment-write:rover)
   ==
 +$  card  card:agent:gall
@@ -633,6 +662,20 @@
     3
   'This ship has no S3 storage set up yet. '
   'Open the Landscape storage settings to point it at a bucket, or store this photo on the ship itself by choosing Clay.'
+::
+::  A bucket refusal, in words. The status is named because it is the only
+::  thing that tells the owner whether the credentials are wrong, the bucket is
+::  missing, or the server is down - but no raw error body is echoed back.
+++  s3-refusal
+  |=  status=@ud
+  ^-  @t
+  ?:  =(403 status)
+    'The S3 storage refused Rover\'s credentials. Check the keys in the Landscape storage settings.'
+  ?:  =(404 status)
+    'The S3 storage has no such bucket or object. Check the bucket name in the Landscape storage settings.'
+  ?:  =(0 status)
+    'Rover could not reach the S3 storage at all. Check that the endpoint is running and reachable from this ship.'
+  'The S3 storage would not complete the request. The photo was not stored.'
 ::
 ++  attachment-owner-column
   |=  owner=attachment-owner:rover
@@ -803,8 +846,8 @@
   ==
 ::
 ++  continue-import
-  |=  [sat=state-21 our=@p run=import-run:rover]
-  ^-  [(list card) state-21]
+  |=  [sat=state-22 our=@p run=import-run:rover]
+  ^-  [(list card) state-22]
   ?~  remaining.run
     :_  sat(import-run ~)
     %:  http-give
@@ -832,8 +875,8 @@
   ==
 ::
 ++  handle-http
-  |=  [sat=state-21 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
-  ^-  [(list card) state-21]
+  |=  [sat=state-22 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
+  ^-  [(list card) state-22]
   ?.  authenticated.req
     =/  loc  (cat 3 '/~/login?redirect=' url.request.req)
     [(http-give eyre-id 303 ['location' loc]~ ~) sat]
@@ -906,7 +949,7 @@
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  attachment-id=@ux  (fixture-id:act base 9.201)
       =/  write=attachment-write:rover
-        [p.decoded bytes (hash-octs:files bytes) attachment-id]
+        [p.decoded bytes (hash-octs:files bytes) attachment-id 0x0 '']
       =/  wir=wire  /rover-attachment-lookup/(scot %da now.bowl)/[eyre-id]
       =/  jon
         !>  :*  %script  %rover  %vector
@@ -1498,7 +1541,7 @@
     ==
   [(http-give eyre-id 200 ['content-type' 'text/html']~ `shell-page) sat]
 --
-=|  state-21
+=|  state-22
 =*  state  -
 %-  agent:dbug
 ^-  agent:gall
@@ -1518,7 +1561,7 @@
   :_  this(bootstrap-ready %.n)
   (weld cards (ensure-files-desk:files our.bowl now.bowl))
 ::
-++  on-save  !>([%21 state])
+++  on-save  !>([%22 state])
 ::
 ++  on-load
   |=  old=vase
@@ -1547,7 +1590,11 @@
       %18  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s ~])
       %19  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s ~ bootstrap-ready.+.s ~])
       %20  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s bootstrap-ready.+.s ~])
-      %21  this(state +.s)
+      ::  An in-flight attachment cannot cross an upgrade: the bytes waiting
+      ::  here belong to an HTTP request whose connection is already gone. The
+      ::  map is dropped and the browser is told to send the photo again.
+      %21  this(state [pending.+.s last.+.s preview.+.s total.+.s charging-total.+.s integrity.+.s http-pending.+.s fill-pending.+.s charge-pending.+.s odometer-pending.+.s preference-pending.+.s fill-body-pending.+.s import-run.+.s bootstrap-ready.+.s ~])
+      %22  this(state +.s)
     ==
   =/  cards=(list card)  ~[bind-eyre]
   :_  loaded
@@ -1651,6 +1698,34 @@
         %+  turn  (rows-at:view p.res 1)
         |=(row=vector:ast (cell-text:view %file-name row))
       =/  name=@t  (unique-name:files file-name.entry.write taken)
+      =/  resolved=attachment-write:rover  write(owner-id owner-id, stored-name name)
+      ::  Clay is synchronous: the commit and the reference insert go out in
+      ::  the same turn. S3 is a round trip over the network, so the bytes go
+      ::  first and the reference waits for the bucket to acknowledge them. A
+      ::  reference to an object that was never stored would be worse than a
+      ::  refusal.
+      ?:  =(%s3 backend.entry.write)
+        =/  config  (storage-configuration our.bowl now.bowl)
+        ?~  config
+          :_  cleared
+          (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs storage-unconfigured))
+        =/  put-wire=path  /rover-attachment-s3-put/(scot %da now.bowl)/[u.eyre-id]
+        =/  outbound
+          %:  s3-request:files
+              u.config
+              'PUT'
+              attachment-id.write
+              media-type.entry.write
+              `bytes.write
+              now.bowl
+          ==
+        =/  next=_this
+          %=  cleared
+            http-pending        (~(put by (~(del by http-pending) wire)) put-wire u.eyre-id)
+            attachment-pending  (~(put by (~(del by attachment-pending) wire)) put-wire resolved)
+          ==
+        :_  next
+        [%pass put-wire %arvo %i %request outbound *outbound-config:iris]~
       =/  ref=attachment-ref:rover
         :*  attachment-id.write
             backend.entry.write
@@ -1744,13 +1819,25 @@
       =/  backend=@tas  (cell-term:view %backend row)
       =/  media-type=@t  (cell-text:view %media-type row)
       ?.  =(%clay backend)
-        :_  cleared
-        %:  http-give
-            u.eyre-id
-            501
-            ['content-type' 'text/plain']~
-            `(text-octs 'This photo is in S3 storage, which this ship cannot read back yet.')
-        ==
+        =/  config  (storage-configuration our.bowl now.bowl)
+        ?~  config
+          :_  cleared
+          %:  http-give
+              u.eyre-id
+              409
+              ['content-type' 'text/plain']~
+              `(text-octs 'That photo is in S3 storage, and this ship has no bucket configured to read it from.')
+          ==
+        =/  get-wire=path  /rover-attachment-s3-get/(scot %da now.bowl)/[u.eyre-id]
+        =/  outbound
+          (s3-request:files u.config 'GET' attachment-id media-type ~ now.bowl)
+        =/  next=_this
+          %=  this
+            http-pending  (~(put by (~(del by http-pending) wire)) get-wire u.eyre-id)
+            pending       (~(put by (~(del by pending) wire)) get-wire media-type)
+          ==
+        :_  next
+        [%pass get-wire %arvo %i %request outbound *outbound-config:iris]~
       =/  bytes  (clay-read:files our.bowl now.bowl attachment-id)
       ?~  bytes
         :_  cleared
@@ -4046,7 +4133,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-21]
+        =/  continued=[(list card) state-22]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4626,7 +4713,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-21]
+        =/  continued=[(list card) state-22]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4682,7 +4769,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-21]
+        =/  continued=[(list card) state-22]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4735,7 +4822,7 @@
       =/  advance
         |=  next=import-run:rover
         ^-  (quip card _this)
-        =/  continued=[(list card) state-21]
+        =/  continued=[(list card) state-22]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  fail
@@ -4904,7 +4991,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-21]
+        =/  continued=[(list card) state-22]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  phase=@ta
@@ -4962,7 +5049,7 @@
           ==
         =/  next
           run(writing %.n, remaining t.remaining.run, report report)
-        =/  continued=[(list card) state-21]
+        =/  continued=[(list card) state-22]
           (continue-import state our.bowl next)
         [-.continued this(state +.continued)]
       =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
@@ -4994,7 +5081,7 @@
         ==
       =/  next
         run(writing %.n, remaining t.remaining.run, report report)
-      =/  continued=[(list card) state-21]
+      =/  continued=[(list card) state-22]
         (continue-import state our.bowl next)
       [-.continued this(state +.continued)]
     ::
@@ -5468,6 +5555,91 @@
 ++  on-arvo
   |=  [=wire =sign-arvo]
   ^-  (quip card _this)
+  ::  M8. The bucket answered a PUT. Only now does the reference go in.
+  ?:  ?=([%rover-attachment-s3-put *] wire)
+    ?.  ?=([%iris %http-response *] sign-arvo)
+      (on-arvo:def wire sign-arvo)
+    =/  eyre-id  (~(get by http-pending) wire)
+    =/  waiting  (~(get by attachment-pending) wire)
+    =/  cleared=_this
+      %=  this
+        http-pending        (~(del by http-pending) wire)
+        attachment-pending  (~(del by attachment-pending) wire)
+      ==
+    ?~  eyre-id
+      `cleared
+    ?~  waiting
+      :_  cleared
+      (restart-http u.eyre-id)
+    ?.  ?=(%finished -.client-response.sign-arvo)
+      `this
+    =/  status  status-code.response-header.client-response.sign-arvo
+    ?.  ?|(=(200 status) =(204 status))
+      :_  cleared
+      %:  http-give
+          u.eyre-id
+          502
+          ['content-type' 'text/plain']~
+          `(text-octs (s3-refusal status))
+      ==
+    =/  write  u.waiting
+    =/  config  (storage-configuration our.bowl now.bowl)
+    ?~  config
+      :_  cleared
+      (http-give u.eyre-id 409 ['content-type' 'text/plain']~ `(text-octs storage-unconfigured))
+    =/  ref=attachment-ref:rover
+      :*  attachment-id.write
+          %s3
+          (s3-locator:files bucket.u.config attachment-id.write)
+          content-hash.write
+          p.bytes.write
+          media-type.entry.write
+          stored-name.write
+      ==
+    =/  write-wire=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
+    =/  script=tape
+      (insert-attachment:act ref owner.entry.write owner-id.write now.bowl)
+    =/  jon  !>([%script %rover %vector script])
+    =/  next=_this
+      %=  cleared
+        http-pending  (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
+        pending       (~(put by pending) write-wire stored-name.write)
+      ==
+    :_  next
+    :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+        [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+    ==
+  ::  M8. The bucket answered a GET. The ship hands the bytes on itself.
+  ?:  ?=([%rover-attachment-s3-get *] wire)
+    ?.  ?=([%iris %http-response *] sign-arvo)
+      (on-arvo:def wire sign-arvo)
+    =/  eyre-id  (~(get by http-pending) wire)
+    =/  media-type  (~(get by pending) wire)
+    =/  cleared=_this
+      this(http-pending (~(del by http-pending) wire), pending (~(del by pending) wire))
+    ?~  eyre-id
+      `cleared
+    ?.  ?=(%finished -.client-response.sign-arvo)
+      `this
+    =/  status  status-code.response-header.client-response.sign-arvo
+    =/  body  full-file.client-response.sign-arvo
+    ?.  ?&  =(200 status)
+            ?=(^ body)
+        ==
+      :_  cleared
+      %:  http-give
+          u.eyre-id
+          502
+          ['content-type' 'text/plain']~
+          `(text-octs (s3-refusal status))
+      ==
+    :_  cleared
+    %:  http-give
+        u.eyre-id
+        200
+        ['content-type' ?~(media-type 'application/octet-stream' u.media-type)]~
+        `data.u.body
+    ==
   ?:  ?=([%rover-energy-odometer-precheck-delay *] wire)
     ?.  ?=([%behn %wake *] sign-arvo)
       (on-arvo:def wire sign-arvo)

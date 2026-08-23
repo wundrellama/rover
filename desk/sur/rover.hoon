@@ -582,6 +582,10 @@
       bytes=octs
       content-hash=@t
       attachment-id=@ux
+      ::  Filled in once Obelisk has resolved the owning record and the free
+      ::  file name. Both are zero until then.
+      owner-id=@ux
+      stored-name=@t
   ==
 +$  action
   $%  [%init-db ~]

@@ -3036,6 +3036,345 @@ note "fixture 95 PASS - a person corrects an event from the card in a real brows
 
 
 # ---------------------------------------------------------------------------
+# M8 - attachments. The blobs never enter Obelisk. The database holds a
+# reference; the bytes live in Clay or in an S3 bucket, and the ship proxies
+# them both ways.
+# ---------------------------------------------------------------------------
+urlenc() { python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$1"; }
+
+# Attach one file through the product endpoint a browser calls.
+#   attach_file <owner> <vehicle> <observed> <file> <media-type> <path> <backend>
+attach_file() {
+  local owner="$1" vehicle="$2" observed="$3" file="$4" type="$5" src="$6" backend="${7:-clay}"
+  local query
+  query="owner=$owner&vehicle=$(urlenc "$vehicle")&file=$(urlenc "$file")&type=$(urlenc "$type")&backend=$backend"
+  [ -n "$observed" ] && query="$query&observed=$(urlenc "$observed")"
+  curl -sS -b "$JAR" -w $'\n%{http_code}' -H "content-type: $type" \
+    --data-binary "@$src" "$URL/apps/rover/add-attachment?$query"
+}
+
+fetch_file() {
+  local file="$1" target="$2"
+  curl -sS -b "$JAR" -o "$target" -w '%{http_code}' \
+    "$URL/apps/rover/attachment/$(urlenc "$file")"
+}
+
+digest() { sha256sum "$1" | awk '{print $1}'; }
+
+# The fill this run's vehicle already carries, from fixture 3. An attachment
+# hangs off a record that already exists; it does not need a record of its own.
+M8_FILL_AT='2026-07-20T12:00'
+M8_TRANSPORT="/tmp/rover-m8-transport-$STAMP.bin"
+M8_TRANSPORT_BACK="/tmp/rover-m8-transport-back-$STAMP.bin"
+M8_PHOTO="/tmp/rover-m8-photo-$STAMP.jpg"
+M8_PHOTO_BACK="/tmp/rover-m8-photo-back-$STAMP.jpg"
+
+# ---------------------------------------------------------------------------
+# fixture 96 - outbound transport, measured before anything is built on it.
+#
+# Inbound was already proven at 64 MB. Nobody had served a corpus-sized
+# response OUT of Gall through Eyre in one piece, and the whole export design
+# rests on whether that works. So this fixture runs first and it uses the real
+# product path: a photo goes in through the attach endpoint and comes back out
+# through the serve endpoint, at the size the owner's real corpus reaches.
+#
+# If this fails, chunked download is the fallback and the tar format does not
+# change.
+# ---------------------------------------------------------------------------
+python3 - "$M8_TRANSPORT" <<'TRANSPORT'
+import sys
+target = 50 * 1024 * 1024
+chunk = bytes(range(256))
+data = bytearray(b"\xff\xd8\xff\xe1")
+while len(data) < target:
+    data += chunk
+open(sys.argv[1], "wb").write(bytes(data[:target]))
+TRANSPORT
+M8_TRANSPORT_BYTES="$(wc -c < "$M8_TRANSPORT")"
+[ "$M8_TRANSPORT_BYTES" -ge 49000000 ] \
+  || fail "fixture 96 the transport payload is smaller than the real corpus"
+M8_TRANSPORT_HASH="$(digest "$M8_TRANSPORT")"
+attach_response="$(attach_file vehicle "$VEHICLE" '' "transport-$STAMP.bin" 'image/jpeg' "$M8_TRANSPORT" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 96 the ship would not accept a corpus-sized upload: $attach_response";;
+esac
+transport_status="$(fetch_file "transport-$STAMP.bin" "$M8_TRANSPORT_BACK")"
+[ "$transport_status" = 200 ] \
+  || fail "fixture 96 the corpus-sized response did not serve: HTTP $transport_status"
+transport_back_bytes="$(wc -c < "$M8_TRANSPORT_BACK")"
+[ "$transport_back_bytes" = "$M8_TRANSPORT_BYTES" ] \
+  || fail "fixture 96 sent $M8_TRANSPORT_BYTES bytes and received $transport_back_bytes"
+[ "$(digest "$M8_TRANSPORT_BACK")" = "$M8_TRANSPORT_HASH" ] \
+  || fail "fixture 96 the received bytes hash differently from the sent bytes"
+note "fixture 96 outbound - $transport_back_bytes bytes, sha256 $M8_TRANSPORT_HASH"
+note "fixture 96 PASS - a corpus-sized response leaves Gall through Eyre in one piece, with the received byte count and hash equal to what was sent"
+rm -f "$M8_TRANSPORT" "$M8_TRANSPORT_BACK"
+
+# ---------------------------------------------------------------------------
+# fixture 97 - a photo attaches to a fill, and the stored bytes hash EQUAL to
+# the source bytes. EXIF intact, no re-encode. The photo carries a real APP1
+# marker with a GPS-shaped payload, so a silent strip or re-encode changes the
+# digest and fails here.
+# ---------------------------------------------------------------------------
+python3 - "$M8_PHOTO" <<'PHOTO'
+import sys
+# A minimal JPEG carrying an APP1/Exif segment. Nothing here is decoded by
+# Rover - the point is that these exact bytes come back.
+exif = b"Exif\x00\x00MM\x00\x2a\x00\x00\x00\x08\x00\x01\x87\x69\x00\x04\x00\x00\x00\x01\x00\x00\x00\x1a"
+app1 = b"\xff\xe1" + (len(exif) + 2).to_bytes(2, "big") + exif
+body = bytes(range(256)) * 64
+open(sys.argv[1], "wb").write(b"\xff\xd8" + app1 + b"\xff\xdb" + body + b"\xff\xd9")
+PHOTO
+M8_PHOTO_HASH="$(digest "$M8_PHOTO")"
+M8_PHOTO_BYTES="$(wc -c < "$M8_PHOTO")"
+fill_photo="fill-receipt-$STAMP.jpg"
+attach_response="$(attach_file fill "$VEHICLE" "$M8_FILL_AT" "$fill_photo" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 97 the fill would not take a photo: $attach_response";;
+esac
+[ "$(fetch_file "$fill_photo" "$M8_PHOTO_BACK")" = 200 ] \
+  || fail "fixture 97 the fill photo did not serve back"
+[ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 97 the stored bytes do not hash equal to the source bytes"
+cmp -s "$M8_PHOTO" "$M8_PHOTO_BACK" \
+  || fail "fixture 97 the served photo is not byte-for-byte the source photo"
+grep -aq 'Exif' "$M8_PHOTO_BACK" \
+  || fail "fixture 97 the APP1 Exif segment did not survive storage"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$fill_photo' SELECT T.attachment-id, T.content-hash, T.byte-count;")"
+grep -q "%content-hash 116 %$M8_PHOTO_HASH" <<<"$report" \
+  || grep -q "%content-hash 116 '$M8_PHOTO_HASH'" <<<"$report" \
+  || fail "fixture 97 the reference does not carry the source digest: $report"
+grep -q "%byte-count 25717 $M8_PHOTO_BYTES" <<<"$report" \
+  || fail "fixture 97 the reference does not carry the source byte count: $report"
+# The link keys to the energy family PARENT, never to the fuel-fills child.
+report="$(rover_report "FROM energy-acquisition-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$fill_photo' SELECT L.acquisition-id, L.attachment-id;")"
+grep -q '%acquisition-id' <<<"$report" \
+  || fail "fixture 97 no link row keyed to the energy acquisition: $report"
+note "fixture 97 PASS - a photo attaches to a fill through the product endpoint, the stored bytes hash equal to the source bytes, and the link keys to the family parent"
+
+# ---------------------------------------------------------------------------
+# fixture 98 - the same photo path to an event and to a vehicle. Three owners,
+# one reference relation, each link keyed to its family parent.
+# ---------------------------------------------------------------------------
+event_photo="event-receipt-$STAMP.jpg"
+vehicle_photo="vehicle-plate-$STAMP.jpg"
+attach_response="$(attach_file event "$VEHICLE" "$SERVICE_AT" "$event_photo" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 98 the service event would not take a photo: $attach_response";;
+esac
+attach_response="$(attach_file vehicle "$VEHICLE" '' "$vehicle_photo" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 98 the vehicle would not take a photo: $attach_response";;
+esac
+report="$(rover_report "FROM vehicle-event-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$event_photo' SELECT L.event-id, L.attachment-id;")"
+grep -q '%event-id' <<<"$report" \
+  || fail "fixture 98 no link row keyed to the vehicle event: $report"
+report="$(rover_report "FROM vehicle-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$vehicle_photo' SELECT L.vehicle-id, L.attachment-id;")"
+grep -q '%vehicle-id' <<<"$report" \
+  || fail "fixture 98 no link row keyed to the vehicle: $report"
+for name in "$event_photo" "$vehicle_photo"; do
+  [ "$(fetch_file "$name" "$M8_PHOTO_BACK")" = 200 ] \
+    || fail "fixture 98 $name did not serve back"
+  [ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+    || fail "fixture 98 $name did not hash equal to the source bytes"
+done
+# One relation, three owners: all three references live in `attachments`.
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$event_photo' SELECT T.attachment-id;")"
+grep -q '%attachment-id' <<<"$report" \
+  || fail "fixture 98 the event photo is not in the one reference relation"
+# A record that does not exist is refused in human words, not with a raw error.
+missing="$(attach_file event "$VEHICLE" '2001-01-01T00:00' "ghost-$STAMP.jpg" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$missing" in
+  (*$'\n'404) ;;
+  (*) fail "fixture 98 a photo attached to a record that does not exist: $missing";;
+esac
+grep -q 'No record on that vehicle at that moment' <<<"$missing" \
+  || fail "fixture 98 the refusal is not in human words: $missing"
+note "fixture 98 PASS - a photo attaches to an event and to a vehicle, three owners share one reference relation, and each link keys to its family parent"
+
+# ---------------------------------------------------------------------------
+# fixture 99 - the Clay backend end to end on a real pier. The bytes are in
+# Clay, at the path the reference names, and they are the source bytes.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$fill_photo' SELECT T.attachment-id, T.backend, T.locator;")"
+grep -q '%backend %tas %clay' <<<"$report" \
+  || fail "fixture 99 the reference does not name the Clay backend: $report"
+# The probe reads the LOCATOR column rather than rebuilding a path from the
+# id. That is what the column is for, and it is also the only correct source:
+# Obelisk renders a @ux with no dot separators, so an id read back and pasted
+# into a Hoon path is not a Hoon path at all.
+clay_locator="$(grep -oE "%locator 116 '[^']*'" <<<"$report" | head -1 | sed "s/^.*'\(.*\)'\$/\1/")"
+[ -n "$clay_locator" ] || fail "fixture 99 could not read the locator: $report"
+clay_probe="$(click_file "=/  m  (strand ,vase)
+;<  =bowl:strand  bind:m  get-bowl
+=/  pax  (weld /(scot %p our.bowl)/rover-files/(scot %da now.bowl) (stab '$clay_locator'))
+=/  got  .^(mime %cx pax)
+(pure:m !>([p.q.got (scot %ux (rev 3 32 (shay p.q.got q.q.got)))]))")"
+grep -q " $M8_PHOTO_BYTES " <<<"$clay_probe" \
+  || fail "fixture 99 Clay does not hold $M8_PHOTO_BYTES bytes at the reference path: $clay_probe"
+clay_raw="$(grep -oE "'0x[0-9a-f.]+'" <<<"$clay_probe" | head -1 | tr -d "'")"
+[ -n "$clay_raw" ] || fail "fixture 99 the Clay probe returned no digest: $clay_probe"
+# `scot %ux` drops leading zeros and groups in fours, so the digest is
+# normalised before it is compared with the one `sha256sum` printed.
+clay_hash="$(python3 -c 'import sys;print(sys.argv[1][2:].replace(".","").rjust(64,"0"))' "$clay_raw")"
+[ "$clay_hash" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 99 the bytes in Clay hash to $clay_hash, not $M8_PHOTO_HASH"
+# The attachments are NOT on the published %rover desk.
+rover_desk_probe="$(click_file '=/  m  (strand ,vase)
+;<  =bowl:strand  bind:m  get-bowl
+=/  arch  .^(arch %cy /(scot %p our.bowl)/rover/(scot %da now.bowl)/attachments)
+(pure:m !>(?=(~ fil.arch)))')"
+grep -q '%noun 0' <<<"$rover_desk_probe" \
+  || fail "fixture 99 an attachment reached the published %rover desk: $rover_desk_probe"
+note "fixture 99 PASS - the Clay backend stores and serves a photo end to end on a real pier, and nothing lands on the published desk"
+
+# ---------------------------------------------------------------------------
+# fixture 105 - no blob reaches Obelisk. Proved by READING the relations, not
+# by reading the code: every column of every attachment relation is checked
+# against the size of the photo it refers to.
+# ---------------------------------------------------------------------------
+blob_probe="$(rover_report 'FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;')"
+blob_size="$(printf '%s' "$blob_probe" | wc -c)"
+[ "$blob_size" -lt 200000 ] \
+  || fail "fixture 105 the attachments relation reads back $blob_size bytes, which is blob-sized"
+grep -q "$(head -c 32 "$M8_PHOTO" | od -An -tx1 | tr -d ' \n')" <<<"$blob_probe" \
+  && fail "fixture 105 photo bytes appear inside the attachments relation"
+# Every column, by name, across all four relations. A blob could only hide in
+# a text or binary column, and this reads all of them.
+for relation in attachments energy-acquisition-attachments vehicle-event-attachments vehicle-attachments; do
+  case "$relation" in
+    attachments) projection='T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name';;
+    energy-acquisition-attachments) projection='T.acquisition-id, T.attachment-id';;
+    vehicle-event-attachments) projection='T.event-id, T.attachment-id';;
+    vehicle-attachments) projection='T.vehicle-id, T.attachment-id';;
+  esac
+  report="$(rover_report "FROM $relation T SELECT $projection;")"
+  widest="$(printf '%s' "$report" | grep -oE "'[^']*'" | awk '{ print length($0) }' | sort -rn | head -1)"
+  [ -z "$widest" ] || [ "$widest" -lt 4096 ] \
+    || fail "fixture 105 $relation holds a $widest-character value, which is not a reference"
+done
+# And the whole database is smaller than one photo's worth of blob columns.
+note "fixture 105 PASS - no blob reaches Obelisk, proved by reading every column of all four attachment relations"
+
+# ---------------------------------------------------------------------------
+# fixture 100 - the S3 backend end to end against a REAL S3-compatible
+# endpoint. Not a mock. The standing rule on configuration is that both
+# backends are real and tested or neither ships, so this fixture needs a
+# server and says so plainly when it cannot find one.
+#
+#   podman run -d --name rover-m8-rustfs -p 9200:9000 \
+#     -e RUSTFS_ACCESS_KEY=roverm8key -e RUSTFS_SECRET_KEY=roverm8secret123 \
+#     docker.io/rustfs/rustfs:latest
+#
+# The bucket `rover-attachments` must exist, and %storage on the pier must
+# point at the endpoint with those credentials.
+# ---------------------------------------------------------------------------
+S3_ENDPOINT="${ROVER_S3_ENDPOINT:-http://localhost:9200}"
+curl -sS -o /dev/null --max-time 5 "$S3_ENDPOINT/" 2>/dev/null
+s3_reachable=$?
+[ "$s3_reachable" = 0 ] \
+  || fail "fixture 100 no S3-compatible endpoint answered at $S3_ENDPOINT - start one and create the rover-attachments bucket; a mocked backend does not count"
+storage_configured() {
+  click_file '=/  m  (strand ,vase)
+;<  =bowl:strand  bind:m  get-bowl
+=/  c  .^(* %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/credentials/noun)
+=/  f  .^(* %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/noun)
+(pure:m !>([-.+.c -.+.+.f]))'
+}
+grep -q "''" <<<"$(storage_configured)" \
+  && fail "fixture 100 %storage carries no endpoint or bucket on this pier - point it at $S3_ENDPOINT before running the battery"
+s3_photo="s3-receipt-$STAMP.jpg"
+attach_response="$(attach_file fill "$VEHICLE" "$M8_FILL_AT" "$s3_photo" 'image/jpeg' "$M8_PHOTO" s3)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 100 the S3 backend would not store the photo: $attach_response";;
+esac
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$s3_photo' SELECT T.attachment-id, T.backend, T.locator, T.byte-count;")"
+grep -q '%backend %tas %s3' <<<"$report" \
+  || fail "fixture 100 the reference does not name the S3 backend: $report"
+grep -q "%byte-count 25717 $M8_PHOTO_BYTES" <<<"$report" \
+  || fail "fixture 100 the reference does not carry the source byte count: $report"
+# The ship proxies the bytes back. No presigned URL reaches the browser: the
+# response is the image itself, served from this ship's own origin.
+s3_headers="$(mktemp /tmp/rover-m8-s3-headers.XXXXXX)"
+s3_status="$(curl -sS -b "$JAR" -D "$s3_headers" -o "$M8_PHOTO_BACK" -w '%{http_code}' \
+  "$URL/apps/rover/attachment/$(urlenc "$s3_photo")")"
+[ "$s3_status" = 200 ] \
+  || fail "fixture 100 the S3-backed photo did not serve back: HTTP $s3_status"
+grep -qiE '^location:|X-Amz-Signature|X-Amz-Credential' "$s3_headers" \
+  && fail "fixture 100 the ship handed the browser a redirect or a presigned URL"
+rm -f "$s3_headers"
+[ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 100 the S3 round trip did not return the source bytes"
+# And the bytes really are in the bucket, read with a client that is not Rover.
+s3_locator="$(grep -oE "%locator 116 '[^']*'" <<<"$report" | head -1 | sed "s/^.*'\(.*\)'$/\1/")"
+[ -n "$s3_locator" ] || fail "fixture 100 the reference carries no locator: $report"
+bucket_digest="$(python3 - "$S3_ENDPOINT" "$s3_locator" <<'BUCKET'
+import sys, hashlib, boto3, botocore
+endpoint, locator = sys.argv[1], sys.argv[2]
+bucket, key = locator.lstrip("/").split("/", 1)
+s3 = boto3.client("s3", endpoint_url=endpoint,
+                  aws_access_key_id="roverm8key",
+                  aws_secret_access_key="roverm8secret123",
+                  region_name="us-east-1",
+                  config=botocore.config.Config(s3={"addressing_style": "path"}))
+body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+print(hashlib.sha256(body).hexdigest(), len(body))
+BUCKET
+)" || fail "fixture 100 could not read the object back out of the bucket"
+[ "$(awk '{print $1}' <<<"$bucket_digest")" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 100 the object in the bucket does not hash equal to the source: $bucket_digest"
+[ "$(awk '{print $2}' <<<"$bucket_digest")" = "$M8_PHOTO_BYTES" ] \
+  || fail "fixture 100 the object in the bucket is not $M8_PHOTO_BYTES bytes: $bucket_digest"
+note "fixture 100 bucket - $s3_locator holds $bucket_digest"
+note "fixture 100 PASS - the S3 backend stores and serves a photo end to end against a real S3-compatible endpoint, and the ship proxies the bytes rather than handing out a presigned URL"
+
+# ---------------------------------------------------------------------------
+# fixture 101 - a ship with no %storage configuration says so in human words
+# and offers Clay. It does not fail with a raw error and it does not silently
+# pick a backend for the owner.
+#
+# The configuration is removed and put back, so this proves the refusal on a
+# ship that is otherwise identical to the one fixture 100 just used.
+# ---------------------------------------------------------------------------
+storage_poke() {
+  click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %storage] %storage-action !>($1))
+;<  ~  bind:m  (sleep ~s2)
+(pure:m !>(~))" > /dev/null
+}
+S3_SAVED_KEY='roverm8key'
+storage_poke "[%set-access-key-id '']"
+s3_response="$(attach_file vehicle "$VEHICLE" '' "s3-refused-$STAMP.jpg" 'image/jpeg' "$M8_PHOTO" s3)"
+storage_poke "[%set-access-key-id '$S3_SAVED_KEY']"
+s3_code="$(tail -1 <<<"$s3_response")"
+[ "$s3_code" = 409 ] \
+  || fail "fixture 101 an unconfigured ship did not refuse the S3 request: $s3_response"
+grep -q 'no S3 storage set up yet' <<<"$s3_response" \
+  || fail "fixture 101 the refusal is not in human words: $s3_response"
+grep -qi 'clay' <<<"$s3_response" \
+  || fail "fixture 101 the refusal does not offer Clay: $s3_response"
+grep -qE 'nest-fail|%bad-shape|%database-refused|\[%|0x[0-9a-f]{8}' <<<"$s3_response" \
+  && fail "fixture 101 the refusal leaks a raw error or a machine id: $s3_response"
+# Nothing was stored, and no backend was picked on the owner's behalf.
+report="$(rover_report "FROM attachments T WHERE T.file-name = 's3-refused-$STAMP.jpg' SELECT T.attachment-id;")"
+grep -q '%attachment-id' <<<"$report" \
+  && fail "fixture 101 the refused request stored something anyway: $report"
+# The same photo goes in when the owner takes the offer.
+clay_offer="$(attach_file vehicle "$VEHICLE" '' "s3-refused-$STAMP.jpg" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$clay_offer" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 101 Clay was offered but would not take the photo: $clay_offer";;
+esac
+note "fixture 101 PASS - a ship with no %storage configuration says so in human words, stores nothing, and the Clay it offers works"
+
+
+# ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
 # The pier may be the pane's own process or a child of it. Which one it is
