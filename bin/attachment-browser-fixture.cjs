@@ -10,9 +10,14 @@
 
 const {chromium} = require(process.env.ROVER_PLAYWRIGHT_MODULE);
 
+// `mode` is "enter" for the whole journey, or "verify" to read a vehicle whose
+// records were entered earlier. The verify pass is what fixture 114 runs on the
+// far side of a ship restart: the same card, the same address, the same photo.
 const [
-  url, authName, auth, vehicle, fillPhoto, eventPhoto, eventNote, backend
+  url, authName, auth, vehicle, fillPhoto, eventPhoto, eventNote, backend,
+  mode, knownFillObserved, knownEventObserved
 ] = process.argv.slice(2);
+const entering = mode !== 'verify';
 const executablePath = process.env.ROVER_CHROMIUM;
 const WIDTH = 390;
 
@@ -52,6 +57,9 @@ async function settledVerdict(page, selector) {
   try {
     await page.goto(`${url}/apps/rover`, {waitUntil: 'networkidle'});
 
+    let fillObserved = knownFillObserved;
+    let eventObserved = knownEventObserved;
+    if (entering) {
     // ---- Add Fill, with a photo -------------------------------------------
     await page.locator('[data-open-screen="add-fill"]').first().click();
     const fillForm = page.locator('#fill-form');
@@ -111,7 +119,7 @@ async function settledVerdict(page, selector) {
     );
     console.log(`FILL_FIELD_OVERFLOW=${fieldOverflow}`);
 
-    const fillObserved = await fillForm
+    fillObserved = await fillForm
       .locator('[name="observed"]')
       .evaluate((node) => node.value);
     console.log(`FILL_OBSERVED=${fillObserved}`);
@@ -128,7 +136,7 @@ async function settledVerdict(page, selector) {
     await eventForm.locator('[name="vehicle"]').selectOption(vehicle);
     await eventForm.locator('[name="kind"]').selectOption('note');
     await eventForm.locator('[name="notes"]').fill(eventNote);
-    const eventObserved = localStamp(-3);
+    eventObserved = localStamp(-3);
     await eventForm.locator('[name="observed"]').fill(eventObserved);
     console.log(`EVENT_OBSERVED=${eventObserved}`);
     const eventField = eventForm.locator('[data-photo-field="event"]');
@@ -143,6 +151,9 @@ async function settledVerdict(page, selector) {
     await eventField.locator('[data-photo-backend]').selectOption(backend);
     await eventForm.locator('button[type="submit"]').click();
     console.log(`EVENT_VERDICT=${await settledVerdict(page, '#event-verdict')}`);
+    }
+    console.log(`FILL_OBSERVED_READ=${fillObserved}`);
+    console.log(`EVENT_OBSERVED_READ=${eventObserved}`);
 
     // ---- The photo on the card --------------------------------------------
     await page.locator('[data-open-screen="vehicles-screen"]').first().click();
