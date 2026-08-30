@@ -4411,17 +4411,22 @@ import sys
 document = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert document["rover-import"] == 1
 assert document["source"]["app"] == "Rover"
-# M8. The notice used to say the photos were left behind. They are not, and
-# the manifest names each one instead of naming a file nothing wrote.
+# M8, second leg. This endpoint serves the DOCUMENT alone, so its manifest
+# says the photos are not in this file, counts them anyway, and names the
+# download that does carry them. A false positive claim is worse than silence.
 attachments = document["source"]["attachments"]
-assert attachments["included"] is True
+assert attachments["included"] is False
 assert attachments["container"] == "tar"
 assert attachments["directory"] == "attachments/"
+assert attachments["download"] == "/apps/rover/export.tar"
+assert "export.tar" in attachments["reason"]
 assert int(attachments["photoCount"]) == len(attachments["files"])
 assert int(attachments["photoCount"]) > 0
 assert "manifest" not in attachments
 for photo in attachments["files"]:
-    assert photo["path"] == f"attachments/{photo['name']}"
+    # No path: this file holds no member for the path to name.
+    assert "path" not in photo
+    assert photo["name"]
     assert len(photo["hash"]) == 64
     assert int(photo["bytes"]) > 0
     assert photo["mediaType"]
@@ -4523,13 +4528,20 @@ note "fixture 85 PASS - the export carries every product record family, keeps an
 
 # ---------------------------------------------------------------------------
 # fixture 102 - the complete export is a tar the system `tar` command unpacks,
-# and the `rover-import.json` inside it is the same payload the JSON endpoint
-# serves, byte for byte.
+# and the `rover-import.json` inside it is the payload the JSON endpoint
+# serves, byte for byte everywhere except the manifest.
 #
 # The second half is what makes the container honest. A reader who wants only
 # the facts takes one member out and stops; nothing is re-serialized on the
 # way into the archive, so the two cannot drift apart. The tar is fetched
 # first and the JSON second, with no write between them.
+#
+# The two manifests differ ON PURPOSE and the difference is asserted exactly:
+# the document says the photos are NOT included and names the archive that
+# carries them. Everything else - every record, every definition, every field
+# order and every separator - is still compared byte for byte, because a
+# semantic comparison of the whole document would drop the formatting check
+# this fixture exists for.
 #
 # Every photo in the archive is checked against the manifest that names it:
 # the member is at the path the manifest gives, it is the size the manifest
@@ -4560,8 +4572,70 @@ tar -xf "$M8_EXPORT_TAR" -C "$M8_UNPACKED" \
   || fail "fixture 102 the system tar cannot unpack the archive"
 [ -f "$M8_UNPACKED/rover-import.json" ] \
   || fail "fixture 102 the archive holds no rover-import.json"
-cmp -s "$M8_UNPACKED/rover-import.json" "$M8_EXPORT_JSON" \
-  || fail "fixture 102 the member in the archive is not the payload the JSON endpoint serves"
+m8_manifest_diff="$(python3 - "$M8_UNPACKED/rover-import.json" "$M8_EXPORT_JSON" 2>&1 <<'PY'
+# Excise the attachment manifest from each document by BYTE SPAN, compare
+# everything that is left byte for byte, and then compare the two manifests
+# field by field. A re-serialization that reorders a key anywhere else still
+# fails the byte comparison.
+import json
+import sys
+
+def source_manifest_span(raw):
+    anchor = raw.index(b'"source":')
+    start = raw.index(b'"attachments":', anchor) + len(b'"attachments":')
+    assert raw[start:start + 1] == b"{", "the source manifest is not an object"
+    depth, index, in_string, escaped = 0, start, False, False
+    while index < len(raw):
+        byte = raw[index:index + 1]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == b"\\":
+                escaped = True
+            elif byte == b'"':
+                in_string = False
+        elif byte == b'"':
+            in_string = True
+        elif byte == b"{":
+            depth += 1
+        elif byte == b"}":
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+        index += 1
+    raise AssertionError("the source manifest never closes")
+
+archive_raw = open(sys.argv[1], "rb").read()
+document_raw = open(sys.argv[2], "rb").read()
+archive_span = source_manifest_span(archive_raw)
+document_span = source_manifest_span(document_raw)
+archive_rest = archive_raw[:archive_span[0]] + archive_raw[archive_span[1]:]
+document_rest = document_raw[:document_span[0]] + document_raw[document_span[1]:]
+assert archive_rest == document_rest, "the two documents differ outside the manifest"
+
+archive = json.loads(archive_raw[archive_span[0]:archive_span[1]])
+document = json.loads(document_raw[document_span[0]:document_span[1]])
+assert archive["included"] is True, "the archive manifest does not claim the photos"
+assert document["included"] is False, "the document manifest claims photos it does not carry"
+assert document["download"] == "/apps/rover/export.tar", document.get("download")
+assert "export.tar" in document["reason"], document.get("reason")
+assert "download" not in archive and "reason" not in archive, sorted(archive)
+assert int(archive["photoCount"]) == int(document["photoCount"])
+assert int(archive["photoCount"]) == len(archive["files"]) == len(document["files"])
+# Every difference between the two manifests, named. Nothing else may differ.
+changed = {key for key in set(archive) | set(document)
+           if archive.get(key) != document.get(key)}
+assert changed == {"included", "download", "reason", "files"}, sorted(changed)
+by_name = {photo["name"]: photo for photo in document["files"]}
+for photo in archive["files"]:
+    twin = by_name[photo["name"]]
+    assert photo["path"] == f"attachments/{photo['name']}", photo["name"]
+    assert "path" not in twin, photo["name"]
+    assert {key: photo[key] for key in ("name", "hash", "bytes", "mediaType")} == twin
+print(f"PHOTOS={len(archive['files'])} BYTES_COMPARED={len(archive_rest)}")
+PY
+)" || fail "fixture 102 the archive member and the document endpoint disagree beyond the manifest: $m8_manifest_diff"
+note "fixture 102 manifests - $m8_manifest_diff"
 python3 - "$M8_UNPACKED" <<'PY' \
   || fail "fixture 102 the archive and its manifest disagree"
 import hashlib
@@ -4602,6 +4676,45 @@ m8_attachment_counts() {
 }
 # What the source ship holds, read before fixture 86 puts it aside.
 M8_ATTACHMENT_COUNTS_BEFORE="$(m8_attachment_counts)"
+
+# ---------------------------------------------------------------------------
+# fixture 113 - both download endpoints tell the truth about themselves.
+#
+# `/apps/rover/export` serves the document alone, so its manifest says the
+# photos are NOT in this file and names the archive that carries them.
+# `/apps/rover/export.tar` serves the archive, so its manifest says they are.
+# Both counts are the count the database really holds, read from the relation
+# by primary key rather than from either document.
+#
+# Ruling 19 says nothing is silently absent. A claim to carry photographs a
+# file does not hold is worse than silence, because a reader who believes it
+# stops looking for them.
+# ---------------------------------------------------------------------------
+m8_reference_count="$(awk '{print $1}' <<<"$M8_ATTACHMENT_COUNTS_BEFORE")"
+[ -n "$m8_reference_count" ] && [ "$m8_reference_count" -gt 0 ] \
+  || fail "fixture 113 the database holds no attachment reference to count"
+m8_manifest_counts="$(python3 - "$M8_EXPORT_JSON" "$M8_UNPACKED/rover-import.json" "$m8_reference_count" 2>&1 <<'PY'
+import json
+import sys
+
+document = json.loads(open(sys.argv[1], "rb").read())["source"]["attachments"]
+archive = json.loads(open(sys.argv[2], "rb").read())["source"]["attachments"]
+stored = int(sys.argv[3])
+
+assert document["included"] is False, "the document claims to carry the photos"
+assert document["download"] == "/apps/rover/export.tar", document.get("download")
+assert "export.tar" in document["reason"], document.get("reason")
+assert archive["included"] is True, "the archive disowns the photos it carries"
+
+for name, manifest in (("document", document), ("archive", archive)):
+    counted = int(manifest["photoCount"])
+    assert counted == stored, f"{name} counts {counted}, the database holds {stored}"
+    assert len(manifest["files"]) == stored, f"{name} names {len(manifest['files'])}"
+print(f"DOCUMENT_INCLUDED=false ARCHIVE_INCLUDED=true PHOTO_COUNT={stored}")
+PY
+)" || fail "fixture 113 a manifest does not tell the truth about itself: $m8_manifest_counts"
+note "fixture 113 manifests - $m8_manifest_counts"
+note "fixture 113 PASS - the document manifest says the photos are not included and names the archive that carries them, the archive manifest says they are, and both counts are the count the database holds"
 M8_MANIFEST="$(mktemp /tmp/rover-export-manifest.XXXXXX)"
 python3 - "$M8_UNPACKED/rover-import.json" > "$M8_MANIFEST" <<'PY'
 import json

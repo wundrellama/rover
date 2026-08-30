@@ -689,16 +689,47 @@
 ::  M8. Landscape's %storage agent holds the owner's S3 credentials. Rover
 ::  reads them rather than asking a second time, exactly as %boox does.
 ::
-::  `/-storage` is NOT on %base - it lives on the %landscape desk - and
-::  AGENTS.md says the only file Rover copies from another project is
-::  `sur/obelisk-ast.hoon`. So the raw noun is destructured here. Whether Rover
-::  may carry its own copy of a thirty-line storage mold is a DESIGN question,
-::  and it is written to QUESTIONS.md rather than decided here.
+::  The owner ruled on 2026-08-30 that Rover reads %storage through the /json
+::  scry and looks values up BY KEY. It does not copy the /-storage mold and it
+::  does not read the noun by position.
 ::
-::  The shape, read from landscape/sur/storage.hoon:
-::    configuration: [buckets current-bucket region presigned-url service public-url-base]
-::    credentials:   [endpoint access-key-id secret-access-key]
-::  Each scry answers `[%configuration ...]` or `[%credentials ...]`.
+::  A positional read fails silently. `current-bucket` and `region` sit side by
+::  side in Landscape's configuration and both are @t, so a reordering upstream
+::  keeps the arity and the atom-versus-cell shape a `?=` guard tests. Rover
+::  would then sign every request against a bucket named `us-east-1`, and the
+::  server answers 403 - which reads as a bad credential and is not one.
+::
+::  %boox walks the same object by key. The keys, measured on a real pier with
+::  RustFS configured:
+::    credentials:   endpoint, accessKeyId, secretAccessKey
+::    configuration: buckets, currentBucket, region, presignedUrl, service,
+::                   publicUrlBase
+::  Each scry wraps its object in the mark's own `storage-update` envelope.
+::
+::  A renamed key reads as an empty value, and the empty-value guard below then
+::  answers "no S3 configured", which surfaces the human message the attach
+::  path already writes. That is wrong-ish but loud, and it beats signing
+::  against the wrong bucket in silence.
+++  json-value
+  |=  [jon=json key=@t]
+  ^-  json
+  ?.  ?=([%o *] jon)  ~
+  =/  hit  (~(get by p.jon) key)
+  ?~  hit  ~
+  u.hit
+::
+::  Walk an object by key and read the string at the end of the walk. A key
+::  that is absent, or a value that is not a string, answers ''.
+++  json-text
+  |=  [jon=json trail=(list @t)]
+  ^-  @t
+  =/  here=json  jon
+  |-
+  ?~  trail
+    ?.  ?=([%s *] here)  ''
+    p.here
+  $(here (json-value here i.trail), trail t.trail)
+::
 ++  storage-configuration
   |=  [our=@p now=@da]
   ^-  (unit s3-config:rover)
@@ -706,17 +737,13 @@
   ::  to the agent itself and blocks, and a blocked scry is not catchable.
   ?.  .^(? %gu /(scot %p our)/storage/(scot %da now)/$)
     ~
-  =/  raw-config  .^(* %gx /(scot %p our)/storage/(scot %da now)/configuration/noun)
-  =/  raw-credentials  .^(* %gx /(scot %p our)/storage/(scot %da now)/credentials/noun)
-  ?.  ?=([@ * @ @ @ @ @] raw-config)
-    ~
-  ?.  ?=([@ @ @ @] raw-credentials)
-    ~
-  =/  bucket=@t          `@t`-.+.+.raw-config
-  =/  region=@t          `@t`-.+.+.+.raw-config
-  =/  endpoint=@t        `@t`-.+.raw-credentials
-  =/  key-id=@t          `@t`-.+.+.raw-credentials
-  =/  secret=@t          `@t`+.+.+.raw-credentials
+  =/  config=json  .^(json %gx /(scot %p our)/storage/(scot %da now)/configuration/json)
+  =/  credentials=json  .^(json %gx /(scot %p our)/storage/(scot %da now)/credentials/json)
+  =/  bucket=@t    (json-text config ~['storage-update' 'configuration' 'currentBucket'])
+  =/  region=@t    (json-text config ~['storage-update' 'configuration' 'region'])
+  =/  endpoint=@t  (json-text credentials ~['storage-update' 'credentials' 'endpoint'])
+  =/  key-id=@t    (json-text credentials ~['storage-update' 'credentials' 'accessKeyId'])
+  =/  secret=@t    (json-text credentials ~['storage-update' 'credentials' 'secretAccessKey'])
   ?:  ?|  =('' bucket)
           =('' endpoint)
           =('' key-id)
@@ -752,6 +779,99 @@
   ?:  =(0 status)
     'Rover could not reach the S3 storage at all. Check that the endpoint is running and reachable from this ship.'
   'The S3 storage would not complete the request. The photo was not stored.'
+::
+::  M8, second leg, ruling 23. A new surface ships a JSON route, and the HTML
+::  renderer is one client of it. These arms are what those routes answer with,
+::  so a refusal has the same shape a client already parses for a success.
+++  json-give
+  |=  [eyre-id=@ta status=@ud payload=json]
+  ^-  (list card)
+  %:  http-give
+      eyre-id
+      status
+      ['content-type' 'application/json; charset=utf-8']~
+      `(text-octs (en:json:html payload))
+  ==
+::
+++  json-message
+  |=  text=@t
+  ^-  json
+  (pairs:enjs:format ['message' s+text]~)
+::
+::  Why the S3 choice is missing, in the same human words on every surface that
+::  offers it. Ruling 8, and the standing rule that a ship never picks a
+::  backend for the owner: the reason has to be readable, not a flag.
+++  s3-unavailable
+  ^-  @t
+  %^    cat
+    3
+  'This ship has no S3 storage set up yet. '
+  'Open the Landscape storage settings to point it at a bucket. Until then Rover stores photos on the ship itself.'
+::
+::  Which backends this ship can really offer. The entry surface and the import
+::  screen both read this one route, so the two can never disagree about what
+::  is available or about why.
+++  backends-json
+  |=  [our=@p now=@da]
+  ^-  json
+  =/  ready  (s3-configured our now)
+  %-  pairs:enjs:format
+  :~  :-  'backends'
+      :-  %a
+      :~  %-  pairs:enjs:format
+          :~  ['name' s+'clay']
+              ['label' s+'On this ship']
+              ['available' b+%.y]
+              ['reason' s+'Clay is the ship\'s own filesystem. The photo travels with the pier and its backups.']
+          ==
+          %-  pairs:enjs:format
+          :~  ['name' s+'s3']
+              ['label' s+'In your S3 storage']
+              ['available' b+ready]
+              :-  'reason'
+              ?:  ready
+                s+'Rover reads the bucket you already set up in the Landscape storage settings.'
+              s+s3-unavailable
+          ==
+      ==
+  ==
+::
+::  One photo, addressed the way the card that carries it is addressed: the
+::  record family and the moment the record holds. A vehicle photo hangs off no
+::  moment, so it carries none.
+::
+::  Ruling 8: the file name is the whole handle. No attachment id and no record
+::  id crosses this boundary in either direction.
+++  photo-json
+  |=  [owner=@tas timed=? rows=(list vector:ast)]
+  ^-  (list json)
+  %+  turn  rows
+  |=  row=vector:ast
+  =/  name  (cell-text:view %file-name row)
+  %-  pairs:enjs:format
+  :~  ['owner' s+(scot %tas owner)]
+      :-  'observed'
+      ?.  timed  s+''
+      s+(crip (input-da:view `@da`(cell-atom:view %observed-start row)))
+      ['name' s+name]
+      ['mediaType' s+(cell-text:view %media-type row)]
+      ['bytes' n+(scot %ud (cell-atom:view %byte-count row))]
+      ['url' s+(crip (weld "/apps/rover/attachment/" (en-urlt:html (trip name))))]
+  ==
+::
+++  attachment-index-json
+  |=  [label=@t commands=(list cmd-result:ast)]
+  ^-  json
+  %-  pairs:enjs:format
+  :~  ['vehicle' s+label]
+      :-  'photos'
+      :-  %a
+      ;:  weld
+        (photo-json %energy %.y (rows:exp commands 0))
+        (photo-json %event %.y (rows:exp commands 1))
+        (photo-json %vehicle %.n (rows:exp commands 2))
+      ==
+  ==
 ::
 ::  M8. The export container. Every reference the database holds, in the order
 ::  the engine returned them - order is not asserted anywhere, because the
@@ -1743,6 +1863,33 @@
     :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
         [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
     ==
+  ::  M8, second leg, ruling 23. The two JSON routes the entry surface needs.
+  ::  The HTML the browser renders is one client of them. A native client, a
+  ::  phone, or a bridge relaying a device in the vehicle reaches the same
+  ::  photos over the same route, without a renderer in between.
+  ?:  =('/apps/rover/backends.json' (url-base url.request.req))
+    [(json-give eyre-id 200 (backends-json our.bowl now.bowl)) sat]
+  ?:  =('/apps/rover/attachments.json' (url-base url.request.req))
+    ?.  bootstrap-ready.sat
+      :_  sat
+      %^  json-give  eyre-id  503
+      (json-message 'Rover is still loading. Ask for the photos again.')
+    =/  wanted  (~(get by (url-params url.request.req)) 'vehicle')
+    ?:  ?|(?=(~ wanted) =('' u.wanted))
+      :_  sat
+      %^  json-give  eyre-id  400
+      (json-message 'Name the vehicle whose photos you want.')
+    =/  wir=wire  /rover-attachment-index/(scot %da now.bowl)/[eyre-id]
+    =/  jon  !>([%script %rover %vector (attachment-index:act u.wanted)])
+    =/  next
+      %_  sat
+        http-pending  (~(put by http-pending.sat) wir eyre-id)
+        pending       (~(put by pending.sat) wir u.wanted)
+      ==
+    :_  next
+    :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+        [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+    ==
   ::  M8. Serving one photo back. The file name is the address, because it is
   ::  the only handle on an attachment a person ever sees. The reference says
   ::  which backend holds the bytes, and the ship proxies them: no presigned
@@ -2132,6 +2279,33 @@
       `this
     ==
   ::
+      ::  M8, second leg, ruling 23. The photos one vehicle's records carry,
+      ::  answered as JSON. The History cards are one client of this.
+      [%rover-attachment-index *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  label  (~(get by pending) wire)
+      =/  cleared=_this
+        this(http-pending (~(del by http-pending) wire), pending (~(del by pending) wire))
+      ?~  eyre-id
+        `cleared
+      ?:  ?=(%.n -.res)
+        :_  cleared
+        %^  json-give  u.eyre-id  503
+        (json-message 'Rover could not read the photos for that vehicle.')
+      :_  cleared
+      %^  json-give  u.eyre-id  200
+      (attachment-index-json ?~(label '' u.label) p.res)
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       ::  M8. Serving one photo. The reference says which backend and where;
       ::  the ship reads the bytes and hands them to the browser itself.
       [%rover-attachment-serve *]
@@ -2223,7 +2397,7 @@
         :_  this
         (http-give u.eyre-id 503 ['content-type' 'text/plain']~ `(text-octs 'Rover could not read the export facts.'))
       =/  run=export-run:rover
-        [u.eyre-id (document:exp p.res) (export-refs p.res) ~]
+        [u.eyre-id (document:exp p.res %.y) (export-refs p.res) ~]
       =/  continued=[(list card) state-24]
         (continue-export state our.bowl now.bowl run)
       [-.continued this(state +.continued)]
@@ -2250,7 +2424,7 @@
             ['content-type' 'text/plain']~
             `(text-octs 'Rover could not read the export facts.')
         ==
-      =/  payload=@t  (document:exp p.res)
+      =/  payload=@t  (document:exp p.res %.n)
       :_  this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
       %:  http-give
           u.eyre-id

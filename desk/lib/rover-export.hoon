@@ -113,40 +113,63 @@
   ?~  found  s+''
   s+(cell-text:view %file-name u.found)
 ::
-::  Every stored photo, named with its path inside the tar, its digest, and its
-::  size. Ruling 19: nothing is silently absent, and the manifest that T10
-::  promised now describes files that are really there.
+::  Every stored photo, named with its digest and its size. Ruling 19: nothing
+::  is silently absent, and the manifest that T10 promised now describes files
+::  that are really there.
+::
+::  `path` is the member name inside the tar, so it belongs to the ARCHIVE
+::  manifest only. The document served by itself carries no member, and a path
+::  into a container the reader does not hold is a claim, not a fact.
 ++  manifest-json
-  |=  refs=(list vector:ast)
+  |=  [refs=(list vector:ast) carried=?]
   ^-  (list json)
   %+  turn  refs
   |=  row=vector:ast
   =/  name  (cell-text:view %file-name row)
+  =/  tail=(list [@t json])
+    :~  ['hash' s+(cell-text:view %content-hash row)]
+        ::  A plain integer. `scot %ud` groups with dots past four figures, and
+        ::  a byte count that reads 52.428.800 is not a number any reader parses.
+        ['bytes' s+(format-scaled:render (cell-atom:view %byte-count row) 0 %.n)]
+        ['mediaType' s+(cell-text:view %media-type row)]
+    ==
   %-  object
-  :~  ['name' s+name]
-      ['path' s+(crip (weld "attachments/" (trip name)))]
-      ['hash' s+(cell-text:view %content-hash row)]
-      ::  A plain integer. `scot %ud` groups with dots past four figures, and
-      ::  a byte count that reads 52.428.800 is not a number any reader parses.
-      ['bytes' s+(format-scaled:render (cell-atom:view %byte-count row) 0 %.n)]
-      ['mediaType' s+(cell-text:view %media-type row)]
-  ==
+  :-  ['name' s+name]
+  ?.  carried  tail
+  [['path' s+(crip (weld "attachments/" (trip name)))] tail]
 ::
-::  The export used to say `included: false`, `photoCount: '0'`, and name a
-::  manifest file nothing wrote. It now says what is true.
+::  M8, second leg. The two download endpoints share one document and each one
+::  now tells the truth about ITSELF.
+::
+::  `/apps/rover/export` serves this document alone. `/apps/rover/export.tar`
+::  serves the same document plus every photo. One manifest written for the
+::  archive made the document claim to carry photographs it did not hold, and a
+::  false positive claim is worse than silence.
 ++  source-json
-  |=  commands=(list cmd-result:ast)
+  |=  [commands=(list cmd-result:ast) carried=?]
   ^-  json
   =/  refs  (attachment-rows commands)
   =/  count  (lent refs)
-  =/  attachments=json
-    %-  object
-    :~  ['included' b+%.y]
+  =/  head=(list [@t json])
+    :~  ['included' b+carried]
         ['photoCount' n+(scot %ud count)]
         ['container' s+'tar']
         ['directory' s+'attachments/']
-        ['files' [%a (manifest-json refs)]]
     ==
+  =/  says=(list [@t json])
+    ?:  carried  ~
+    :~  ['download' s+'/apps/rover/export.tar']
+        :-  'reason'
+        :-  %s
+        %^    cat
+            3
+          'This file holds the records only. The photographs it names are in '
+        'the complete export, which Rover serves at /apps/rover/export.tar and reads back the same way.'
+    ==
+  =/  tail=(list [@t json])
+    ['files' [%a (manifest-json refs carried)]]~
+  =/  attachments=json
+    (object :(weld head says tail))
   %-  object
   :~  ['app' s+'Rover']
       ['version' s+'1']
@@ -883,13 +906,16 @@
   |=  row=vector:ast
   (vehicle-json row commands)
 ::
+::  `carried` says whether the caller is writing the archive. Everything else
+::  in the document is identical between the two endpoints, byte for byte, and
+::  fixture 102 proves it.
 ++  document
-  |=  commands=(list cmd-result:ast)
+  |=  [commands=(list cmd-result:ast) carried=?]
   ^-  @t
   =/  payload=json
     %-  object
     :~  ['rover-import' n+'1']
-        ['source' (source-json commands)]
+        ['source' (source-json commands carried)]
         ['definitions' (definitions-json commands)]
         ['places' [%a (places-json commands)]]
         ['vehicles' [%a (vehicles-json commands)]]

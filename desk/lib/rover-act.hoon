@@ -3747,6 +3747,35 @@
     link-query
   ==
 ::
+::  M8, second leg, ruling 23. What `/apps/rover/attachments.json` answers:
+::  every photo the records of ONE vehicle carry, addressed the way a person
+::  sees the record - the family and the moment it holds.
+::
+::  Ruling 8: no attachment id and no record id is projected, so none can reach
+::  the boundary. The file name is the handle, exactly as it is on the serve
+::  endpoint, and the join is done by the engine rather than by reading whole
+::  relations into Gall.
+++  attachment-index
+  |=  vehicle-label=@t
+  ^-  tape
+  =/  quoted=tape  (sql-quote vehicle-label)
+  ;:  weld
+    "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id"
+    " JOIN energy-acquisition-attachments L ON A.acquisition-id = L.acquisition-id"
+    " JOIN attachments T ON L.attachment-id = T.attachment-id WHERE V.label = '"
+    quoted
+    "' SELECT A.observed-start, T.file-name, T.media-type, T.byte-count; "
+    "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id"
+    " JOIN vehicle-event-attachments L ON E.event-id = L.event-id"
+    " JOIN attachments T ON L.attachment-id = T.attachment-id WHERE V.label = '"
+    quoted
+    "' SELECT E.observed-start, T.file-name, T.media-type, T.byte-count; "
+    "FROM vehicles V JOIN vehicle-attachments L ON V.vehicle-id = L.vehicle-id"
+    " JOIN attachments T ON L.attachment-id = T.attachment-id WHERE V.label = '"
+    quoted
+    "' SELECT T.file-name, T.media-type, T.byte-count; "
+  ==
+::
 ::  The reference row and its link, in ONE atomic script. A reference with no
 ::  owner would be a photo nothing points at, and a link with no reference
 ::  would break the foreign key, so neither may land without the other.
