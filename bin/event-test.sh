@@ -2116,8 +2116,12 @@ note "fixture 62 PASS - no insurance relation, column, or field exists anywhere 
 # therefore a finding, and every VIN this battery writes contains I and O and
 # so cannot be one.
 #
-# The owner's aCar export holds his real VIN and plate for two vehicles. It is
-# gitignored, this battery never reads it, and T7 does not need it.
+# The owner's aCar export holds a real VIN and a real plate for two vehicles.
+# It is gitignored and no VIN or plate out of it may reach the tree.
+#
+# M8 changed one thing here. Fixture 104 loads the owner's real corpus, so
+# this battery does now open the export. Exactly one file may: the check below
+# names it, and the shipped desk and the probes still may not.
 # ---------------------------------------------------------------------------
 vin_shaped="$(cd "$REPO" && git ls-files \
   | grep -vE '^desk/app/rover/assets/' \
@@ -2137,17 +2141,20 @@ for synthetic in "$SPEC_PLATE" "$SPEC_PLATE_ONLY"; do
   grep -q 'FAKE' <<<"$synthetic" \
     || fail "fixture 63 the plate $synthetic is not marked synthetic"
 done
-# Nothing that runs names the export as a PATH. Naming it in prose - this
-# comment does - is not reading it; a directory to open is, so the check looks
-# for the parent directory that locates the real thing on disk.
+# What names the export as a PATH is named here. A directory to open is a
+# reader; naming it in prose - this comment does - is not.
 # The needle is assembled at run time so this line is not itself a match.
 export_needle="$(printf 'rover/aCar %s' 'export')"
-export_readers="$(grep -rlF "$export_needle" "$REPO/bin" "$REPO/probes" "$REPO/desk" 2>/dev/null | tr '\n' ' ')"
+export_readers="$(grep -rlF "$export_needle" "$REPO/probes" "$REPO/desk" 2>/dev/null | tr '\n' ' ')"
 [ -z "${export_readers// /}" ] \
-  || fail "fixture 63 something in the tree opens the owner's aCar export: $export_readers"
+  || fail "fixture 63 the shipped desk or a probe opens the owner's aCar export: $export_readers"
+export_readers="$(grep -rlF "$export_needle" "$REPO/bin" 2>/dev/null \
+  | grep -v '/event-test\.sh$' | tr '\n' ' ')"
+[ -z "${export_readers// /}" ] \
+  || fail "fixture 63 something other than fixture 104 opens the owner's aCar export: $export_readers"
 grep -q 'aCar export/' "$REPO/.gitignore" \
   || fail "fixture 63 the owner's aCar export is no longer gitignored"
-note "fixture 63 PASS - every VIN in the tree contains a letter the real VIN alphabet excludes, every plate is marked FAKE, and the owner's export is never read"
+note "fixture 63 PASS - every VIN in the tree contains a letter the real VIN alphabet excludes, every plate is marked FAKE, and the only file that opens the owner's export is the one fixture 104 runs from"
 
 # ===========================================================================
 # M7 T8 - the definition lifecycle.
