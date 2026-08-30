@@ -274,13 +274,29 @@
       reminders-already-imported=@ud
       subtype-defaults-created=@ud
       subtype-defaults-reused=@ud
+      ::  M8. The photos the archive carried. A photo the receiving ship
+      ::  already holds counts as already-imported, so the same archive read
+      ::  twice adds nothing.
+      photos-imported=@ud
+      photos-already-imported=@ud
+      photos-failed=@ud
       messages=(list @t)
+  ==
+::  M8. One photo out of an import archive, waiting for the records it hangs
+::  off to exist. The bytes ride here because the tar is read once, at the
+::  boundary, and the archive is gone by the time the record is written.
++$  import-photo
+  $:  entry=attachment-entry
+      bytes=octs
   ==
 +$  import-run
   $:  eyre-id=@ta
       writing=?
       serial=@ud
       remaining=(list import-work)
+      ::  The photo phase. It starts when `remaining` empties: a photo cannot
+      ::  attach to a record that has not been written yet.
+      photos=(list import-photo)
       report=import-report
   ==
 +$  delivered-energy

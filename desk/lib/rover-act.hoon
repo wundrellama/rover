@@ -3743,7 +3743,7 @@
   ::  short row per stored photo, and the same read the export takes anyway.
   ;:  weld
     owner-query
-    "FROM attachments T SELECT T.attachment-id, T.file-name, T.content-hash, T.backend; "
+    "FROM attachments T SELECT T.attachment-id, T.file-name, T.content-hash, T.backend, T.locator; "
     link-query
   ==
 ::

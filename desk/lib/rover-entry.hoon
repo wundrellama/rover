@@ -2683,4 +2683,90 @@
       media-type
       u.backend
   ==
+::  M8. Which record each photo in an import archive belongs to.
+::
+::  The export already names every photo on the record that carries it, and
+::  the manifest already names its media type. So the archive needs no side
+::  file: this reads the same document the import reads, a second time, for
+::  the one thing the typed import document does not carry.
+::
+::  Each record is addressed the way the attach endpoint addresses one - by
+::  vehicle label and the moment the record holds - because that is the only
+::  handle that survives the crossing. The ids on the sending ship mean
+::  nothing on the receiving one.
+++  decode-import-attachments
+  |=  body=@t
+  ^-  (list attachment-entry:rover)
+  =/  object  (json-object body)
+  ?~  object  ~
+  ::  The manifest, so each photo keeps the media type it was stored with.
+  =/  types=(map @t @t)
+    =/  source  (~(get by u.object) 'source')
+    ?~  source  ~
+    ?.  ?=(%o -.u.source)  ~
+    =/  attachments  (~(get by p.u.source) 'attachments')
+    ?~  attachments  ~
+    ?.  ?=(%o -.u.attachments)  ~
+    =/  files  (json-array 'files' p.u.attachments)
+    ?~  files  ~
+    %+  roll  u.files
+    |=  [entry=json out=(map @t @t)]
+    ^-  (map @t @t)
+    =/  row  (json-map entry)
+    ?~  row  out
+    =/  name  (json-string 'name' u.row)
+    =/  kind  (json-string 'mediaType' u.row)
+    ?:  ?|(?=(~ name) ?=(~ kind))  out
+    (~(put by out) u.name u.kind)
+  =/  vehicles  (json-array 'vehicles' u.object)
+  ?~  vehicles  ~
+  ::  One record's photos. `moment` is absent for a vehicle, which is the same
+  ::  shape the attach endpoint takes.
+  =/  gather
+    |=  [owner=attachment-owner:rover label=@t moment=(unit @da) row=(map @t json)]
+    ^-  (list attachment-entry:rover)
+    =/  names  (json-strings 'attachments' row)
+    ?~  names  ~
+    %+  turn  u.names
+    |=  name=@t
+    ^-  attachment-entry:rover
+    =/  kind  (~(get by types) name)
+    [owner label moment name ?~(kind 'application/octet-stream' u.kind) %clay]
+  ::  Every record family the export writes photos onto: the two energy
+  ::  acquisitions, the five event kinds, and the vehicle itself.
+  =/  timed=(list [@tas attachment-owner:rover])
+    :~  ['fills' %energy]
+        ['chargingSessions' %energy]
+        ['serviceEvents' %event]
+        ['expenseEvents' %event]
+        ['noteEvents' %event]
+        ['acquisitionEvents' %event]
+        ['disposalEvents' %event]
+    ==
+  %-  zing
+  %+  turn  u.vehicles
+  |=  vehicle=json
+  ^-  (list attachment-entry:rover)
+  =/  row  (json-map vehicle)
+  ?~  row  ~
+  =/  label  (json-string 'label' u.row)
+  ?~  label  ~
+  %-  zing
+  :-  (gather %vehicle u.label ~ u.row)
+  %+  turn  timed
+  |=  [key=@tas owner=attachment-owner:rover]
+  ^-  (list attachment-entry:rover)
+  =/  records  (json-array `@t`key u.row)
+  ?~  records  ~
+  %-  zing
+  %+  turn  u.records
+  |=  record=json
+  ^-  (list attachment-entry:rover)
+  =/  fields  (json-map record)
+  ?~  fields  ~
+  =/  observed  (json-string 'observed' u.fields)
+  ?~  observed  ~
+  =/  moment  (local-da u.observed)
+  ?~  moment  ~
+  (gather owner u.label moment u.fields)
 --

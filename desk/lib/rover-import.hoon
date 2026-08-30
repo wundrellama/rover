@@ -248,6 +248,12 @@
       (scow %ud subtype-defaults-created.report)
       ", reused "
       (scow %ud subtype-defaults-reused.report)
+      "\0aPhotos: imported "
+      (scow %ud photos-imported.report)
+      ", already-imported "
+      (scow %ud photos-already-imported.report)
+      ", failures "
+      (scow %ud photos-failed.report)
       "\0asourceEfficiency: ignored by the Hoon import path\0a"
     ==
   =/  messages  messages.report

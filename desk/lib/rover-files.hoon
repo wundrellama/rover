@@ -54,10 +54,14 @@
 ::  Read one attachment back out of Clay. Absent means the reference names a
 ::  file the backend does not hold, which is a fault worth reporting rather
 ::  than a zero-length body.
+::
+::  The LOCATOR is the address, not the id. Two references can name the same
+::  stored bytes - the owner filed one photograph under two names - and only
+::  one of them owns the id the path was built from.
 ++  clay-read
-  |=  [our=@p now=@da attachment-id=@ux]
+  |=  [our=@p now=@da locator=@t]
   ^-  (unit octs)
-  =/  =path  (weld /(scot %p our)/[files-desk]/(scot %da now) (clay-path attachment-id))
+  =/  =path  (weld /(scot %p our)/[files-desk]/(scot %da now) (stab locator))
   ?.  .^(? %cu path)
     ~
   `q:.^(mime %cx path)
@@ -264,6 +268,25 @@
   =/  next  (add start ?:(=(0 over) size (add size (sub block-size over))))
   [[name body] $(offset next)]
 ::
+::  Is this body an archive, or the import document by itself? The `ustar`
+::  magic sits at offset 257 of the first header, and no JSON document can
+::  carry it there: byte 0 of a Rover import is always `{`.
+++  tar-body
+  |=  body=octs
+  ^-  ?
+  ?&  (gte p.body block-size)
+      =('ustar' (cut 3 [257 5] q.body))
+  ==
+::
+::  One member out of an unpacked archive, by the name the writer gave it.
+++  member-named
+  |=  [wanted=@t members=(list [name=@t bytes=octs])]
+  ^-  (unit octs)
+  ?~  members  ~
+  ?:  =(wanted name.i.members)
+    `bytes.i.members
+  $(members t.members)
+::
 ::  A NUL-terminated tar field. Everything from the first zero byte on is pad.
 ++  read-field
   |=  [archive=octs offset=@ud from=@ud width=@ud]
@@ -466,7 +489,7 @@
 ++  s3-request
   |=  $:  config=s3-config:rover
           method=@t
-          attachment-id=@ux
+          locator=@t
           media-type=@t
           bytes=(unit octs)
           now=@da
@@ -474,8 +497,8 @@
   ^-  request:http
   =/  stamps  (amz-stamps now)
   =/  host  (endpoint-host endpoint.config)
-  =/  key  (s3-key attachment-id)
-  =/  resource=tape  :(weld "/" (trip bucket.config) "/" (trip key))
+  ::  The locator is already `/bucket/key`, and it is what the database holds.
+  =/  resource=tape  (trip locator)
   =/  payload=@t
     ?~  bytes  (sha-hex '')
     (hash-octs u.bytes)

@@ -4496,6 +4496,29 @@ tar_photos="$(tar -tf "$M8_EXPORT_TAR" | grep -c '^attachments/')"
 note "fixture 102 archive - $(wc -c < "$M8_EXPORT_TAR") bytes, $tar_members members, $tar_photos photos"
 note "fixture 102 PASS - the complete export unpacks with the system tar, its rover-import.json is byte for byte the payload the JSON endpoint serves, and every photo matches the manifest that names it"
 
+# The four attachment relations, counted by primary key. Obelisk returns sets,
+# so both key columns are projected and the count is taken over one of them.
+m8_attachment_counts() {
+  printf '%s %s %s %s\n' \
+    "$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')" \
+    "$(count_rows "$(rover_report 'FROM energy-acquisition-attachments L SELECT L.acquisition-id, L.attachment-id;')" '%attachment-id')" \
+    "$(count_rows "$(rover_report 'FROM vehicle-event-attachments L SELECT L.event-id, L.attachment-id;')" '%attachment-id')" \
+    "$(count_rows "$(rover_report 'FROM vehicle-attachments L SELECT L.vehicle-id, L.attachment-id;')" '%attachment-id')"
+}
+# What the source ship holds, read before fixture 86 puts it aside.
+M8_ATTACHMENT_COUNTS_BEFORE="$(m8_attachment_counts)"
+M8_MANIFEST="$(mktemp /tmp/rover-export-manifest.XXXXXX)"
+python3 - "$M8_UNPACKED/rover-import.json" > "$M8_MANIFEST" <<'PY'
+import json
+import pathlib
+import sys
+
+document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+for photo in document["source"]["attachments"]["files"]:
+    print(photo["name"], photo["hash"], photo["bytes"])
+PY
+[ -s "$M8_MANIFEST" ] || fail "fixture 102 the manifest names no photo to round-trip"
+
 # ---------------------------------------------------------------------------
 # fixture 86 - the deciding round trip. Preserve the populated owner database
 # under a temporary Obelisk name, initialize a fresh Rover database on the same
@@ -4643,8 +4666,67 @@ paste <(printf '%s\n' "${roundtrip_relations[@]}") \
     note "round-trip relation $relation: $before -> $after"
   done
 
+note "fixture 86 PASS - an unchanged export imports into a fresh real database with all 101 primary-key relation counts, rendered history, archive state, and semantic re-export equal"
+
+# ---------------------------------------------------------------------------
+# fixture 103 - the round trip with the bytes. The database fixture 86 just
+# filled from the JSON is still in place and still empty of photos, so the
+# archive goes into it now and every photo has to arrive.
+#
+# This extends fixture 86 rather than replacing it. Fixture 86 counts the 101
+# relations the document carries; this counts the four the photos carry, on
+# the same before-and-after terms, and then reads every photo back through the
+# serving endpoint and compares its digest with the one the source manifest
+# recorded.
+#
+# The archive holds the same `rover-import.json` fixture 86 already imported,
+# so the document half of this import must report nothing new. An import that
+# wrote a second copy of every record would show up right here.
+# ---------------------------------------------------------------------------
+roundtrip_archive="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/x-tar' --data-binary "@$M8_EXPORT_TAR" \
+  "$URL/apps/rover/import")"
+case "$roundtrip_archive" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 103 the archive was not accepted: $roundtrip_archive";;
+esac
+grep -q 'Photos: imported' <<<"$roundtrip_archive" \
+  || fail "fixture 103 the import report says nothing about photos: $roundtrip_archive"
+grep -qE 'Photos: imported [0-9]+, already-imported [0-9]+, failures 0' <<<"$roundtrip_archive" \
+  || fail "fixture 103 a photo failed to import: $roundtrip_archive"
+grep -q 'Fills: imported 0' <<<"$roundtrip_archive" \
+  || fail "fixture 103 the archive imported a second copy of a fill: $roundtrip_archive"
+archive_photos="$(sed -n 's/^Photos: imported \([0-9]*\).*/\1/p' <<<"$roundtrip_archive")"
+archive_known="$(sed -n 's/^Photos: .*already-imported \([0-9]*\).*/\1/p' <<<"$roundtrip_archive")"
+[ "$((archive_photos + archive_known))" = "$(wc -l < "$M8_MANIFEST")" ] \
+  || fail "fixture 103 the archive carried $(wc -l < "$M8_MANIFEST") photos and the import accounted for $((archive_photos + archive_known))"
+# Every photo, read back the way a browser reads one, and compared with the
+# digest the SOURCE ship recorded before any of this started.
+roundtrip_photo="$(mktemp /tmp/rover-roundtrip-photo.XXXXXX)"
+while read -r photo_name photo_hash photo_bytes; do
+  photo_status="$(curl -sS -b "$JAR" -o "$roundtrip_photo" -w '%{http_code}' \
+    "$URL/apps/rover/attachment/$(urlenc "$photo_name")")"
+  [ "$photo_status" = 200 ] \
+    || fail "fixture 103 $photo_name did not serve back on the destination: HTTP $photo_status"
+  [ "$(wc -c < "$roundtrip_photo")" = "$photo_bytes" ] \
+    || fail "fixture 103 $photo_name arrived as $(wc -c < "$roundtrip_photo") bytes, not $photo_bytes"
+  [ "$(digest "$roundtrip_photo")" = "$photo_hash" ] \
+    || fail "fixture 103 $photo_name arrived with a different digest than the source recorded"
+done < "$M8_MANIFEST"
+rm -f "$roundtrip_photo"
+M8_ATTACHMENT_COUNTS_AFTER="$(m8_attachment_counts)"
+[ "$M8_ATTACHMENT_COUNTS_AFTER" = "$M8_ATTACHMENT_COUNTS_BEFORE" ] \
+  || fail "fixture 103 the attachment relations hold [$M8_ATTACHMENT_COUNTS_AFTER] after the round trip and held [$M8_ATTACHMENT_COUNTS_BEFORE] before it"
+# No blob crossed with them. The destination relations are references too.
+blob_probe="$(rover_report 'FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;')"
+[ "$(printf '%s' "$blob_probe" | wc -c)" -lt 200000 ] \
+  || fail "fixture 103 the destination attachments relation reads back blob-sized"
+note "fixture 103 counts - attachments/energy/event/vehicle: $M8_ATTACHMENT_COUNTS_BEFORE -> $M8_ATTACHMENT_COUNTS_AFTER"
+note "fixture 103 PASS - the archive imports into the database fixture 86 filled, every photo arrives with the digest and byte count the source recorded, the four attachment relation counts are equal, and re-reading the same archive writes no second record"
+rm -f "$M8_MANIFEST" "$M8_EXPORT_TAR" "$M8_EXPORT_JSON"
+rm -rf "$M8_UNPACKED"
+
 restore_roundtrip_owner \
   || fail "fixture 86 could not restore the populated pre-round-trip database"
-note "fixture 86 PASS - an unchanged export imports into a fresh real database with all 101 primary-key relation counts, rendered history, archive state, and semantic re-export equal"
 
 . "$(dirname "$0")/event-coverage-gate.sh"
