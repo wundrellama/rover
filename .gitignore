@@ -4,6 +4,12 @@ review-transcripts/
 reviews/
 *.log
 
+# Dispatch working files: frozen briefs, hashes, leg logs, result JSON.
+# These live here and NOT in /tmp, which is tmpfs on this machine and does
+# not survive a reboot. A reboot on 2026-08-29 destroyed an in-flight leg's
+# uncommitted work that was staged under /tmp.
+.scratch/
+
 # Pier / build artifacts
 piers/
 *.pill

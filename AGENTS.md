@@ -109,6 +109,13 @@ fork the database engine and silently break the pin.
 
 ## Development rules
 
+- **Working files never live in `/tmp`.** On this machine `/tmp` is tmpfs and a
+  reboot destroys it. A reboot on 2026-08-29 took an in-flight leg's uncommitted
+  work with it. Frozen briefs, hashes, leg logs, and result JSON go in
+  `.scratch/` (gitignored). Dispatch worktrees are siblings of the repo —
+  `~/workspace/urbit/rover-m8-<slug>` — the way the ERPit repo already does it.
+  Sweep `.scratch/` whenever it suits; nothing in it is load-bearing after a
+  milestone closes.
 - **Disposable fake piers only.** The Rover dev pier is `~/piers/rover-zod`
   (tmux session `rover-zod`). Do **not** touch `~/piers/fakezod` or
   `~/piers/fakenec` — those belong to a different project (erpit) and are live.
