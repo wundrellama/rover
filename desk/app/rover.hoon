@@ -801,6 +801,17 @@
 ::  Why the S3 choice is missing, in the same human words on every surface that
 ::  offers it. Ruling 8, and the standing rule that a ship never picks a
 ::  backend for the owner: the reason has to be readable, not a flag.
+::  The import asks once, for the whole batch. A default that is expensive to
+::  undo is a decision made for the owner: getting a photograph back out of
+::  Clay needs a tombstone, a desk commit that drops the file, and a log
+::  truncation, and doing that 121 times is not a remedy.
+++  import-backend-unchosen
+  ^-  @t
+  %^    cat
+    3
+  'This archive carries photographs. Choose where to keep them - on this ship, or in your S3 storage. '
+  'Rover does not choose for you, because moving them afterwards is slow.'
+::
 ++  s3-unavailable
   ^-  @t
   %^    cat
@@ -1306,7 +1317,11 @@
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
     ::
-    ?:  =('/apps/rover/import' url.request.req)
+    ::  M8, second leg. The import asks WHICH BACKEND, once, for the whole
+    ::  batch. The choice rides in the query string, so the import document
+    ::  keeps the shape ruling 19 gives it: the export format is the import
+    ::  format, and neither ship writes a storage choice into it.
+    ?:  =('/apps/rover/import' (url-base url.request.req))
       ?^  import-run.sat
         [(http-give eyre-id 409 ['content-type' 'text/plain']~ `(text-octs 'An import is already running')) sat]
       ?~  body.request.req
@@ -1330,7 +1345,39 @@
       =/  decoded  (decode-import:entry document)
       ?:  ?=(%| -.decoded)
         [(http-give eyre-id 400 ['content-type' 'text/plain']~ `(text-octs (entry-refusal p.decoded))) sat]
-      =/  carried-photos  (archive-photos members (decode-import-attachments:entry document))
+      =/  backend-text  (~(get by (url-params url.request.req)) 'backend')
+      =/  backend=(unit attachment-backend:rover)
+        ?~  backend-text  ~
+        ?:  =('clay' u.backend-text)  `%clay
+        ?:  =('s3' u.backend-text)  `%s3
+        ~
+      =/  carried-photos
+        %+  archive-photos  members
+        (decode-import-attachments:entry document ?~(backend %clay u.backend))
+      ::  The owner picks, and Rover does not pick for the owner. An import
+      ::  that carries no photograph needs no answer, so the question is only
+      ::  asked where it changes something.
+      ?:  ?&  ?=(^ photos.carried-photos)
+              ?=(~ backend)
+          ==
+        :_  sat
+        %:  http-give
+            eyre-id
+            400
+            ['content-type' 'text/plain']~
+            `(text-octs import-backend-unchosen)
+        ==
+      ?:  ?&  ?=(^ photos.carried-photos)
+              ?=([~ %s3] backend)
+              !(s3-configured our.bowl now.bowl)
+          ==
+        :_  sat
+        %:  http-give
+            eyre-id
+            409
+            ['content-type' 'text/plain']~
+            `(text-octs s3-unavailable)
+        ==
       =/  opening=import-report:rover  (initial-report:imp p.decoded)
       =/  run=import-run:rover
         :*  eyre-id
@@ -4772,19 +4819,55 @@
         %+  step
           report.run
         `(insert-attachment:act ref owner.entry.photo owner-id now.bowl)
+      ::  M8, second leg. The owner answered this question once, for the whole
+      ::  batch, and the answer rides on every photo in it. Rover no longer
+      ::  puts an imported photograph in Clay by default: on an S3-configured
+      ::  ship that put every one of them in the store the owner chose
+      ::  against, and taking them back out again is slow.
+      ::
+      ::  Clay is synchronous, so the file and the reference land in one turn.
+      ::  S3 is a round trip, so the bytes go first and the reference waits
+      ::  for the bucket. A reference to an object that was never stored would
+      ::  be worse than a photograph the report calls failed.
+      ?:  =(%s3 backend.entry.photo)
+        =/  config  (storage-configuration our.bowl now.bowl)
+        ?~  config
+          (fail s3-unavailable)
+        =/  ref=attachment-ref:rover
+          :*  attachment-id
+              %s3
+              (s3-locator:files bucket.u.config attachment-id)
+              content-hash
+              p.bytes.photo
+              media-type.entry.photo
+              name
+          ==
+        =/  put-wire=path  /rover-import-photo-s3-put/(scot %ud serial.run)
+        =/  outbound
+          %:  s3-request:files
+              u.config
+              'PUT'
+              locator.ref
+              media-type.entry.photo
+              `bytes.photo
+              now.bowl
+          ==
+        =/  script=tape
+          (insert-attachment:act ref owner.entry.photo owner-id now.bowl)
+        :_  %=  this
+              import-run  `run(serial +(serial.run), report report.run)
+              pending     (~(put by pending) put-wire (crip script))
+            ==
+        [%pass put-wire %arvo %i %request outbound *outbound-config:iris]~
       =/  ref=attachment-ref:rover
         :*  attachment-id
-            backend.entry.photo
+            %clay
             (clay-locator:files attachment-id)
             content-hash
             p.bytes.photo
             media-type.entry.photo
             name
         ==
-      ::  An imported photo goes to Clay. Clay is on every ship and it is
-      ::  synchronous, so the bytes and the reference land in one turn. The
-      ::  owner moves them to a bucket by re-attaching, never by an import
-      ::  quietly choosing a backend for them.
       =/  script=tape
         (insert-attachment:act ref owner.entry.photo owner-id now.bowl)
       :_  this(import-run `run(serial +(serial.run), report report.run))
@@ -6323,6 +6406,46 @@
     :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
         [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
     ==
+  ::  M8, second leg. The bucket took an IMPORTED photo. The insert script was
+  ::  written before the PUT went out and waited on this wire, so the reference
+  ::  lands only after the bytes really did.
+  ?:  ?=([%rover-import-photo-s3-put *] wire)
+    ?.  ?=([%iris %http-response *] sign-arvo)
+      (on-arvo:def wire sign-arvo)
+    =/  waiting  (~(get by pending) wire)
+    =/  bare=state-24  state(pending (~(del by pending) wire))
+    =/  run-unit  import-run
+    ?~  run-unit
+      `this(state bare)
+    =/  run  u.run-unit
+    ?~  photos.run
+      `this(state bare(import-run ~))
+    ?.  ?=(%finished -.client-response.sign-arvo)
+      `this
+    =/  status  status-code.response-header.client-response.sign-arvo
+    =/  stored=?  ?&(?=(^ waiting) ?|(=(200 status) =(204 status)))
+    ::  A bucket that refuses fails ONE photograph. The rest of the batch
+    ::  still runs, and the report names the one that did not store.
+    ?.  stored
+      =/  report
+        %_  report.run
+          photos-failed  +(photos-failed.report.run)
+          messages
+            :_  messages.report.run
+            %^    cat
+                3
+              (cat 3 'Photo ' file-name.entry.i.photos.run)
+            (cat 3 ': ' (s3-refusal status))
+        ==
+      =/  continued=[(list card) state-24]
+        %:  continue-import
+            bare
+            our.bowl
+            run(serial +(serial.run), photos t.photos.run, report report)
+        ==
+      [-.continued this(state +.continued)]
+    :_  this(state bare(import-run `run(serial +(serial.run))))
+    (import-photo-write-cards our.bowl serial.run (trip (need waiting)))
   ::  M8. The bucket answered an export fetch. One more member, then the walk
   ::  continues where it stopped.
   ?:  ?=([%rover-export-fetch *] wire)

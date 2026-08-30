@@ -2694,8 +2694,11 @@
 ::  vehicle label and the moment the record holds - because that is the only
 ::  handle that survives the crossing. The ids on the sending ship mean
 ::  nothing on the receiving one.
+::  M8, second leg. `backend` is the owner's answer for the whole batch. The
+::  archive names no backend and cannot: the sending ship's choice is the
+::  sending ship's, and the receiving ship may have neither store configured.
 ++  decode-import-attachments
-  |=  body=@t
+  |=  [body=@t backend=attachment-backend:rover]
   ^-  (list attachment-entry:rover)
   =/  object  (json-object body)
   ?~  object  ~
@@ -2731,7 +2734,7 @@
     |=  name=@t
     ^-  attachment-entry:rover
     =/  kind  (~(get by types) name)
-    [owner label moment name ?~(kind 'application/octet-stream' u.kind) %clay]
+    [owner label moment name ?~(kind 'application/octet-stream' u.kind) backend]
   ::  Every record family the export writes photos onto: the two energy
   ::  acquisitions, the five event kinds, and the vehicle itself.
   =/  timed=(list [@tas attachment-owner:rover])

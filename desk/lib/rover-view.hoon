@@ -1349,6 +1349,11 @@
     "<p class=\"field-note\">Rover checks the document in this browser and sends it in batches. A record that is already imported reports already-imported and writes nothing, so a stopped run recovers by uploading the same file again.</p>"
     "<label>Import document<input id=\"import-file\" name=\"document\" type=\"file\" accept=\".json,application/json\" required></label>"
     "<label>Records per batch<input id=\"import-batch-size\" name=\"batchSize\" inputmode=\"numeric\" autocomplete=\"off\" value=\"50\"></label>"
+    ::  M8, second leg. One choice, for the whole import. Rover does not pick
+    ::  the store for the owner, because a photograph in the wrong backend is
+    ::  slow to move. The list comes from `/apps/rover/backends.json`, so a
+    ::  ship with no bucket offers Clay alone and says why.
+    (photo-field 'import')
     "<div class=\"form-actions\"><button type=\"button\" id=\"import-validate\">Validate</button><button type=\"submit\" id=\"import-submit\">Start import</button></div>"
     "<div class=\"preview-row\"><span>Plan</span><output id=\"import-plan\">&mdash;</output><small>Validate reads the document and counts the batches. It sends nothing.</small></div>"
     "<div class=\"preview-row\"><span>Progress</span><output id=\"import-progress\" aria-live=\"polite\">&mdash;</output></div>"

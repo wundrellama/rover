@@ -1525,6 +1525,8 @@
       if (importForm) {
         const importFile = app.querySelector('#import-file');
         const importBatchSize = app.querySelector('#import-batch-size');
+        const importBackendControl =
+          importForm.querySelector('[data-photo-backend]');
         const importValidateControl = app.querySelector('#import-validate');
         const importPlan = app.querySelector('#import-plan');
         const importProgress = app.querySelector('#import-progress');
@@ -1585,6 +1587,8 @@
           const prepared = await readImport();
           if (!prepared) return;
           importRunning = true;
+          const importBackend =
+            encodeURIComponent(importBackendControl?.value || 'clay');
           const total = prepared.batches.length;
           const reports = [];
           let settled = null;
@@ -1595,7 +1599,11 @@
             try {
               //  One batch at a time, never concurrent. The endpoint holds one
               //  run and answers 409 to a second.
-              response = await fetch('/apps/rover/import', {
+              //
+              //  The backend choice rides on every batch, because one answer
+              //  covers the whole import and the endpoint reads one request
+              //  at a time.
+              response = await fetch(`/apps/rover/import?backend=${importBackend}`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {'content-type': 'application/json'},
