@@ -4620,6 +4620,9 @@ PY
 # real substrate, import the unmodified download, and compare relation
 # counts, rendered history, archive state, and an order-independent re-export.
 # The original database is restored after the proof and by the EXIT trap.
+#
+# M8 moved what the download is. The complete export is the archive fixture
+# 102 pulled, and that is what goes back in here.
 # ---------------------------------------------------------------------------
 mapfile -t roundtrip_sql_chunks < <(
   python3 "$REPO/bin/export-semantic.py" count-sql \
@@ -4720,10 +4723,15 @@ database_report="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')
 database_exists "$database_report" rover \
   || fail "fixture 86 the fresh Rover database was not created"
 
+# M8. The download is the archive, so the round trip takes the archive back.
+# The document alone no longer carries everything the export carries, and a
+# round trip that dropped the photos would report itself as equal.
 roundtrip_import="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
-  -H 'content-type: application/json' --data-binary "@$ROUNDTRIP_BEFORE" \
+  -H 'content-type: application/x-tar' --data-binary "@$M8_EXPORT_TAR" \
   "$URL/apps/rover/import")"
 case "$roundtrip_import" in (*$'\n'200) ;; (*) fail "fixture 86 the exported file was not accepted unchanged: $roundtrip_import";; esac
+grep -qE 'Photos: imported [0-9]+, already-imported [0-9]+, failures 0' <<<"$roundtrip_import" \
+  || fail "fixture 86 a photo failed on the way into the fresh database: $roundtrip_import"
 grep -q 'failures 0' <<<"$roundtrip_import" \
   || fail "fixture 86 the empty-database import reported a failed fill: $roundtrip_import"
 grep -q 'conflicts 0' <<<"$roundtrip_import" \
@@ -4761,22 +4769,21 @@ paste <(printf '%s\n' "${roundtrip_relations[@]}") \
     note "round-trip relation $relation: $before -> $after"
   done
 
-note "fixture 86 PASS - an unchanged export imports into a fresh real database with all 101 primary-key relation counts, rendered history, archive state, and semantic re-export equal"
+note "fixture 86 PASS - an unchanged export archive imports into a fresh real database with all 101 primary-key relation counts, rendered history, archive state, and semantic re-export equal"
 
 # ---------------------------------------------------------------------------
-# fixture 103 - the round trip with the bytes. The database fixture 86 just
-# filled from the JSON is still in place and still empty of photos, so the
-# archive goes into it now and every photo has to arrive.
+# fixture 103 - the round trip with the bytes. The database fixture 86 filled
+# from the archive is still in place, so this is where the photos in it are
+# read back and checked against what the source ship recorded.
 #
 # This extends fixture 86 rather than replacing it. Fixture 86 counts the 101
 # relations the document carries; this counts the four the photos carry, on
 # the same before-and-after terms, and then reads every photo back through the
-# serving endpoint and compares its digest with the one the source manifest
-# recorded.
+# serving endpoint and compares its digest with the source manifest's.
 #
-# The archive holds the same `rover-import.json` fixture 86 already imported,
-# so the document half of this import must report nothing new. An import that
-# wrote a second copy of every record would show up right here.
+# The archive goes in a second time first. Nothing may change: no record and
+# no photo is written twice. An import that wrote a second copy of everything
+# would show up right here.
 # ---------------------------------------------------------------------------
 roundtrip_archive="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
   -H 'content-type: application/x-tar' --data-binary "@$M8_EXPORT_TAR" \
@@ -4791,6 +4798,8 @@ grep -qE 'Photos: imported [0-9]+, already-imported [0-9]+, failures 0' <<<"$rou
   || fail "fixture 103 a photo failed to import: $roundtrip_archive"
 grep -q 'Fills: imported 0' <<<"$roundtrip_archive" \
   || fail "fixture 103 the archive imported a second copy of a fill: $roundtrip_archive"
+grep -q 'Photos: imported 0' <<<"$roundtrip_archive" \
+  || fail "fixture 103 the archive stored a second copy of a photo: $roundtrip_archive"
 archive_photos="$(sed -n 's/^Photos: imported \([0-9]*\).*/\1/p' <<<"$roundtrip_archive")"
 archive_known="$(sed -n 's/^Photos: .*already-imported \([0-9]*\).*/\1/p' <<<"$roundtrip_archive")"
 [ "$((archive_photos + archive_known))" = "$(wc -l < "$M8_MANIFEST")" ] \
