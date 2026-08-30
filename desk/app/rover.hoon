@@ -621,11 +621,42 @@
   ^-  (unit [@t @t])
   =/  split  (find "=" pair)
   ?~  split  ~
-  =/  name  (de-urlt:html (scag u.split pair))
-  =/  value  (de-urlt:html (slag +(u.split) pair))
-  ?~  name  ~
-  ?~  value  ~
-  `[(crip u.name) (crip u.value)]
+  `[(percent-decode (scag u.split pair)) (percent-decode (slag +(u.split) pair))]
+::
+::  Percent-decoding that survives the owner's own data.
+::
+::  `de-urlt` answers nothing at all for a value carrying a byte above 127, so
+::  one curly apostrophe in a vehicle label made the whole parameter vanish and
+::  the request read as a missing key. The owner's corpus has exactly that, and
+::  a photo is addressed by the vehicle label, so it refused most of the load.
+::
+::  A query string also writes a space as `+`, which `de-urlt` leaves standing.
+++  percent-decode
+  |=  text=tape
+  ^-  @t
+  =/  out=tape  ~
+  |-  ^-  @t
+  ?~  text
+    (crip (flop out))
+  ?:  =('+' i.text)
+    $(text t.text, out [' ' out])
+  ?.  =('%' i.text)
+    $(text t.text, out [i.text out])
+  ?.  ?=([@ @ *] t.text)
+    $(text t.text, out ['%' out])
+  =/  high  (hex-value i.t.text)
+  =/  low  (hex-value i.t.t.text)
+  ?:  ?|(?=(~ high) ?=(~ low))
+    $(text t.text, out ['%' out])
+  $(text t.t.t.text, out [`@tD`(add (mul 16 u.high) u.low) out])
+::
+++  hex-value
+  |=  digit=@tD
+  ^-  (unit @ud)
+  ?:  ?&((gte digit '0') (lte digit '9'))  `(sub digit '0')
+  ?:  ?&((gte digit 'a') (lte digit 'f'))  `(add 10 (sub digit 'a'))
+  ?:  ?&((gte digit 'A') (lte digit 'F'))  `(add 10 (sub digit 'A'))
+  ~
 ::
 ++  split-on
   |=  [delimiter=@tD text=tape]
@@ -644,10 +675,9 @@
   =/  head  (trip prefix)
   ?.  =(head (scag (lent head) text))
     ~
-  =/  rest  (de-urlt:html (slag (lent head) text))
-  ?~  rest  ~
-  ?~  u.rest  ~
-  `(crip u.rest)
+  =/  rest  (percent-decode (slag (lent head) text))
+  ?:  =('' rest)  ~
+  `rest
 ::
 ++  url-prefix
   |=  [url=@t prefix=@t]

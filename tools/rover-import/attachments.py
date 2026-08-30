@@ -91,6 +91,7 @@ def main():
     root = pathlib.Path(args.photos) if args.photos else manifest.parent
 
     stored = 0
+    already = 0
     refused = 0
     verified = 0
     mismatched = 0
@@ -110,17 +111,26 @@ def main():
             payload,
             "image/jpeg",
         )
-        if status != 201:
+        # A load that is run again answers 200 "Already attached <name>". That
+        # is not a refusal: it is the store saying it already holds this photo
+        # under this name, which is what makes a second load add nothing.
+        if status not in (201, 200):
             refused += 1
             # The reason is Rover's own words and holds no corpus value.
             print(f"refused with HTTP {status}: {body.decode(errors='replace')}",
                   file=sys.stderr)
             continue
-        stored += 1
+        if status == 201:
+            stored += 1
+        else:
+            already += 1
         by_kind[entry["record-kind"]] += 1
-        # Rover answers "Attached <name>", which is the name it kept after
-        # resolving any collision. That is the name to read back.
-        names.append((body.decode().removeprefix("Attached ").strip(), digest))
+        # Rover answers with the name it kept after resolving any collision.
+        # That is the name to read back.
+        answer = body.decode().strip()
+        for prefix in ("Attached ", "Already attached "):
+            answer = answer.removeprefix(prefix)
+        names.append((answer.strip(), digest))
 
     if args.verify:
         for name, digest in names:
@@ -138,6 +148,7 @@ def main():
 
     print(f"ATTACHMENTS_IN_MANIFEST={len(entries)}")
     print(f"ATTACHMENTS_STORED={stored}")
+    print(f"ATTACHMENTS_ALREADY={already}")
     print(f"ATTACHMENTS_REFUSED={refused}")
     print(f"ATTACHMENTS_FILL={by_kind['fill']}")
     print(f"ATTACHMENTS_EVENT={by_kind['event']}")

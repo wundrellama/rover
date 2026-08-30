@@ -52,6 +52,11 @@ URL="http://localhost:$PORT"
 JAR="$(mktemp /tmp/rover-event-test-jar.XXXXXX)"
 ROUNDTRIP_BACKUP='roverexportowner'
 ROUNDTRIP_SWAPPED=0
+# M8. The real corpus loads into a database of its own, so the battery's own
+# data is neither mixed with the owner's history nor changed by it, and the
+# second back-to-back run meets exactly the state the first one did.
+CORPUS_BACKUP='rovercorpusowner'
+CORPUS_SWAPPED=0
 ROUNDTRIP_BEFORE=''
 ROUNDTRIP_AFTER=''
 ROUNDTRIP_COUNTS_BEFORE=''
@@ -63,6 +68,10 @@ cleanup_event_test() {
   if [ "$ROUNDTRIP_SWAPPED" -eq 1 ]; then
     restore_roundtrip_owner >/dev/null 2>&1 ||
       echo "event-test: cleanup could not restore the pre-round-trip database" >&2
+  fi
+  if [ "$CORPUS_SWAPPED" -eq 1 ]; then
+    restore_corpus_owner >/dev/null 2>&1 ||
+      echo "event-test: cleanup could not restore the pre-corpus database" >&2
   fi
   rm -f "$JAR"
   [ -z "$ROUNDTRIP_BEFORE" ] || rm -f "$ROUNDTRIP_BEFORE"
@@ -230,6 +239,18 @@ rover_report() {
 
 database_exists() {
   grep -Fq "[%database %tas %$2]" <<<"$1"
+}
+
+restore_corpus_owner() {
+  local databases
+  [ "$CORPUS_SWAPPED" -eq 1 ] || return 0
+  databases="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+  database_exists "$databases" "$CORPUS_BACKUP" || return 1
+  if database_exists "$databases" rover; then
+    obelisk_report sys 'DROP DATABASE FORCE rover;' >/dev/null || return 1
+  fi
+  obelisk_report sys "ALTER DATABASE $CORPUS_BACKUP RENAME TO rover;" >/dev/null || return 1
+  CORPUS_SWAPPED=0
 }
 
 restore_roundtrip_owner() {
@@ -3783,6 +3804,59 @@ report="$(scoped_rows vehicle-event-cost-totals T total-mills "$FIX_DA" "$FIX_VE
 note "fixture 94 PASS - every correction, removal, addition and derived figure survived a ship restart, and correcting still works after it"
 
 # ---------------------------------------------------------------------------
+# fixture 106 - every M8 fact survived the same real ship restart: the
+# references, the links to all three owner families, the bytes in both
+# backends, and the rule that keeps blobs out of Obelisk.
+#
+# The bytes are the point. A reference that survives while the file behind it
+# does not is worse than losing both, because the database would then promise
+# a photo the ship cannot produce. So each one is read back through the
+# serving endpoint and hashed, not merely counted.
+# ---------------------------------------------------------------------------
+for name in "$fill_photo" "$event_photo" "$vehicle_photo" "$s3_photo"; do
+  [ "$(fetch_file "$name" "$M8_PHOTO_BACK")" = 200 ] \
+    || fail "fixture 106 $name did not serve back after the restart"
+  [ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+    || fail "fixture 106 $name does not hash equal to the source bytes after the restart"
+  cmp -s "$M8_PHOTO" "$M8_PHOTO_BACK" \
+    || fail "fixture 106 $name is no longer byte for byte the source photo"
+done
+# The S3-backed photo came out of the bucket, not out of Clay. Its reference
+# still names the backend it was stored in.
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$s3_photo' SELECT T.attachment-id, T.backend, T.locator;")"
+grep -q '%backend %tas %s3' <<<"$report" \
+  || fail "fixture 106 the S3 reference lost its backend over the restart: $report"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$fill_photo' SELECT T.attachment-id, T.backend, T.locator;")"
+grep -q '%backend %tas %clay' <<<"$report" \
+  || fail "fixture 106 the Clay reference lost its backend over the restart: $report"
+# One link per owner family, each still keyed to its family parent.
+report="$(rover_report "FROM energy-acquisition-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$fill_photo' SELECT L.acquisition-id, L.attachment-id;")"
+grep -q '%acquisition-id' <<<"$report" \
+  || fail "fixture 106 the energy link did not survive the restart: $report"
+report="$(rover_report "FROM vehicle-event-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$event_photo' SELECT L.event-id, L.attachment-id;")"
+grep -q '%event-id' <<<"$report" \
+  || fail "fixture 106 the event link did not survive the restart: $report"
+report="$(rover_report "FROM vehicle-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$vehicle_photo' SELECT L.vehicle-id, L.attachment-id;")"
+grep -q '%vehicle-id' <<<"$report" \
+  || fail "fixture 106 the vehicle link did not survive the restart: $report"
+# Still no blob in Obelisk on the far side of the restart.
+blob_probe="$(rover_report 'FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;')"
+[ "$(printf '%s' "$blob_probe" | wc -c)" -lt 200000 ] \
+  || fail "fixture 106 the attachments relation reads back blob-sized after the restart"
+# And attaching still works, to a record that predates the restart.
+restart_photo="restart-receipt-$STAMP.jpg"
+attach_response="$(attach_file fill "$VEHICLE" "$M8_FILL_AT" "$restart_photo" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 106 a photo would not attach after the restart: $attach_response";;
+esac
+[ "$(fetch_file "$restart_photo" "$M8_PHOTO_BACK")" = 200 ] \
+  || fail "fixture 106 the photo attached after the restart did not serve back"
+[ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 106 the photo attached after the restart does not hash equal to the source"
+note "fixture 106 PASS - every reference, every link, and the bytes in both backends survived a ship restart, no blob is in Obelisk on the far side, and attaching still works after it"
+
+# ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut
 # ---------------------------------------------------------------------------
 arms="$(python3 - "$REPO/desk/sur/rover.hoon" <<'PY'
@@ -4728,5 +4802,126 @@ rm -rf "$M8_UNPACKED"
 
 restore_roundtrip_owner \
   || fail "fixture 86 could not restore the populated pre-round-trip database"
+
+# ---------------------------------------------------------------------------
+# fixture 104 - the owner's real corpus loads. 121 photos against 114 records,
+# stored bytes hashing equal to the source bytes, on a real pier.
+#
+# The corpus is the owner's own data. This fixture reports COUNTS and never a
+# file name, a label, a date, or a digest out of it.
+#
+# It runs in a database of its own, put in place the way fixture 86 puts one
+# in place. Two reasons: the owner's history is not the battery's data, and a
+# battery that ran twice would otherwise meet a different state the second
+# time. Here the second run does exactly what the first one did.
+#
+# The load goes through `/apps/rover/add-attachment`, the same endpoint a
+# browser calls. An import has no privileged path.
+# ---------------------------------------------------------------------------
+CORPUS_SOURCE="${ROVER_CORPUS:-$HOME/workspace/rover/aCar export}"
+CORPUS_OUT="${ROVER_CORPUS_OUT:-$HOME/workspace/rover/converted-m8-battery}"
+[ -d "$CORPUS_SOURCE" ] \
+  || fail "fixture 104 the real corpus is not at $CORPUS_SOURCE - this fixture does not run on synthetic data"
+rm -rf "$CORPUS_OUT"
+python3 "$REPO/tools/acar-import/convert.py" --out "$CORPUS_OUT" "$CORPUS_SOURCE" > /dev/null \
+  || fail "fixture 104 the converter could not read the corpus"
+[ -f "$CORPUS_OUT/rover-import.json" ] && [ -f "$CORPUS_OUT/attachments.json" ] \
+  || fail "fixture 104 the converter wrote no import document or no photo manifest"
+corpus_photos="$(python3 -c '
+import json, sys
+document = json.load(open(sys.argv[1]))
+entries = document["attachments"] if isinstance(document, dict) else document
+print(len(entries))
+' "$CORPUS_OUT/attachments.json")"
+[ "$corpus_photos" = 121 ] \
+  || fail "fixture 104 the corpus holds $corpus_photos photos, and this fixture is written against 121"
+
+database_report="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+database_exists "$database_report" "$CORPUS_BACKUP" \
+  && fail "fixture 104 the temporary database $CORPUS_BACKUP already exists"
+obelisk_report sys "ALTER DATABASE rover RENAME TO $CORPUS_BACKUP;" >/dev/null \
+  || fail "fixture 104 could not put the battery database aside"
+CORPUS_SWAPPED=1
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%init-db ~]))
+;<  ~  bind:m  (sleep ~s8)
+(pure:m !>(~))' >/dev/null
+database_report="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+database_exists "$database_report" rover \
+  || fail "fixture 104 the corpus database was not created"
+
+corpus_import="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-binary "@$CORPUS_OUT/rover-import.json" \
+  "$URL/apps/rover/import")"
+case "$corpus_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 104 the corpus document was refused: $(tail -3 <<<"$corpus_import")";;
+esac
+grep -q 'failures 0' <<<"$corpus_import" \
+  || fail "fixture 104 the corpus document import reported a failure"
+
+# The pier is measured on either side of the PHOTO load alone, so the figure
+# is the cost of the bytes and not the cost of the records they hang off.
+corpus_pier_before="$(du -sb "$PIER" | awk '{print $1}')"
+corpus_cookie_name="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $6; exit}' "$JAR")"
+corpus_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
+[ -n "$corpus_cookie" ] || fail "fixture 104 has no urbauth cookie for the loader"
+corpus_out="$(python3 "$REPO/tools/rover-import/attachments.py" \
+  "$CORPUS_OUT/attachments.json" --url "$URL" \
+  --cookie "$corpus_cookie_name=$corpus_cookie" --backend clay --verify 2>&1)" \
+  || fail "fixture 104 the corpus photo load refused or mismatched: $(grep -c . <<<"$corpus_out") lines reported"
+corpus_pier_after="$(du -sb "$PIER" | awk '{print $1}')"
+for want in ATTACHMENTS_IN_MANIFEST=121 ATTACHMENTS_STORED=121 ATTACHMENTS_ALREADY=0 \
+  ATTACHMENTS_REFUSED=0 ATTACHMENTS_FILL=116 ATTACHMENTS_EVENT=3 ATTACHMENTS_VEHICLE=2 \
+  ATTACHMENTS_VERIFIED=121 ATTACHMENTS_MISMATCHED=0; do
+  grep -qx "$want" <<<"$corpus_out" \
+    || fail "fixture 104 the corpus load did not report $want: $(grep '^ATTACHMENTS_' <<<"$corpus_out" | tr '\n' ' ')"
+done
+# One photo in the corpus is a byte-identical duplicate of another, under its
+# own name. Both names are kept and the bytes are stored once, so the count of
+# distinct digests is one lower than the count of photos.
+grep -qx 'ATTACHMENTS_DISTINCT_DIGESTS=120' <<<"$corpus_out" \
+  || fail "fixture 104 the corpus digests do not show the one known duplicate: $(grep '^ATTACHMENTS_DIST' <<<"$corpus_out")"
+
+# What the database holds: one reference per photo, and the records they hang
+# off counted by distinct owner id across the three link relations.
+corpus_refs="$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')"
+[ "$corpus_refs" = 121 ] \
+  || fail "fixture 104 the corpus left $corpus_refs references, want 121"
+corpus_owners=0
+for pair in 'energy-acquisition-attachments L acquisition-id' \
+  'vehicle-event-attachments L event-id' 'vehicle-attachments L vehicle-id'; do
+  set -- $pair
+  report="$(rover_report "FROM $1 $2 SELECT $2.$3, $2.attachment-id;")"
+  owners="$(grep -oE "%$3 [0-9]+ [0-9a-fx.]+" <<<"$report" | sort -u | wc -l)"
+  corpus_owners=$((corpus_owners + owners))
+done
+[ "$corpus_owners" = 114 ] \
+  || fail "fixture 104 the corpus photos hang off $corpus_owners records, want 114"
+# And no blob went in with them.
+blob_probe="$(rover_report 'FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;')"
+[ "$(printf '%s' "$blob_probe" | wc -c)" -lt 200000 ] \
+  || fail "fixture 104 the corpus attachments relation reads back blob-sized"
+
+# The same load, run again. Ruling 18 applied to photos: it adds nothing.
+corpus_again="$(python3 "$REPO/tools/rover-import/attachments.py" \
+  "$CORPUS_OUT/attachments.json" --url "$URL" \
+  --cookie "$corpus_cookie_name=$corpus_cookie" --backend clay 2>&1)" \
+  || fail "fixture 104 the second corpus load refused a photo"
+grep -qx 'ATTACHMENTS_STORED=0' <<<"$corpus_again" \
+  || fail "fixture 104 the second load stored a photo again: $(grep '^ATTACHMENTS_STORED' <<<"$corpus_again")"
+grep -qx 'ATTACHMENTS_ALREADY=121' <<<"$corpus_again" \
+  || fail "fixture 104 the second load did not recognise all 121 photos: $(grep '^ATTACHMENTS_ALREADY' <<<"$corpus_again")"
+corpus_refs_again="$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')"
+[ "$corpus_refs_again" = 121 ] \
+  || fail "fixture 104 the second load changed the reference count to $corpus_refs_again"
+
+note "fixture 104 corpus - 121 photos, 116 fill, 3 event, 2 vehicle, 120 distinct digests, 114 records"
+note "fixture 104 pier - $corpus_pier_before bytes before the photo load, $corpus_pier_after after, growth $((corpus_pier_after - corpus_pier_before))"
+restore_corpus_owner \
+  || fail "fixture 104 could not restore the battery database"
+rm -rf "$CORPUS_OUT"
+note "fixture 104 PASS - the real corpus loads through the product endpoint: 121 photos against 114 records, every stored photo hashing equal to its source, and a second load adding nothing"
 
 . "$(dirname "$0")/event-coverage-gate.sh"
