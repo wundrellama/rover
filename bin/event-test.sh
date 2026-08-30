@@ -3089,6 +3089,20 @@ fetch_file() {
 
 digest() { sha256sum "$1" | awk '{print $1}'; }
 
+# Which backend a reference names.
+#
+# The pinned engine renders a term that carries a digit as a bare number
+# instead of as `%s3`, so the row reads `%backend %tas 13171`. 13171 is the
+# cord `s3`: 's' is 0x73 in the low byte and '3' is 0x33 above it. The value
+# stored is right and only its printing is not, so both forms are read here.
+backend_named() {
+  local report="$1" want="$2"
+  case "$want" in
+    (s3) grep -qE '%backend %tas (%s3|13171)' <<<"$report" ;;
+    (*) grep -q "%backend %tas %$want" <<<"$report" ;;
+  esac
+}
+
 # The fill this run's vehicle already carries, from fixture 3. An attachment
 # hangs off a record that already exists; it does not need a record of its own.
 M8_FILL_AT='2026-07-20T12:00'
@@ -3229,7 +3243,7 @@ note "fixture 98 PASS - a photo attaches to an event and to a vehicle, three own
 # Clay, at the path the reference names, and they are the source bytes.
 # ---------------------------------------------------------------------------
 report="$(rover_report "FROM attachments T WHERE T.file-name = '$fill_photo' SELECT T.attachment-id, T.backend, T.locator;")"
-grep -q '%backend %tas %clay' <<<"$report" \
+backend_named "$report" clay \
   || fail "fixture 99 the reference does not name the Clay backend: $report"
 # The probe reads the LOCATOR column rather than rebuilding a path from the
 # id. That is what the column is for, and it is also the only correct source:
@@ -3322,7 +3336,7 @@ case "$attach_response" in
   (*) fail "fixture 100 the S3 backend would not store the photo: $attach_response";;
 esac
 report="$(rover_report "FROM attachments T WHERE T.file-name = '$s3_photo' SELECT T.attachment-id, T.backend, T.locator, T.byte-count;")"
-grep -q '%backend %tas %s3' <<<"$report" \
+backend_named "$report" s3 \
   || fail "fixture 100 the reference does not name the S3 backend: $report"
 grep -q "%byte-count 25717 $M8_PHOTO_BYTES" <<<"$report" \
   || fail "fixture 100 the reference does not carry the source byte count: $report"
@@ -3831,10 +3845,10 @@ done
 # The S3-backed photo came out of the bucket, not out of Clay. Its reference
 # still names the backend it was stored in.
 report="$(rover_report "FROM attachments T WHERE T.file-name = '$s3_photo' SELECT T.attachment-id, T.backend, T.locator;")"
-grep -q '%backend %tas %s3' <<<"$report" \
+backend_named "$report" s3 \
   || fail "fixture 106 the S3 reference lost its backend over the restart: $report"
 report="$(rover_report "FROM attachments T WHERE T.file-name = '$fill_photo' SELECT T.attachment-id, T.backend, T.locator;")"
-grep -q '%backend %tas %clay' <<<"$report" \
+backend_named "$report" clay \
   || fail "fixture 106 the Clay reference lost its backend over the restart: $report"
 # One link per owner family, each still keyed to its family parent.
 report="$(rover_report "FROM energy-acquisition-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$fill_photo' SELECT L.acquisition-id, L.attachment-id;")"
