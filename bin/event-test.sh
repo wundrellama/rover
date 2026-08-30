@@ -3592,16 +3592,22 @@ note "fixture 43 PASS - the derived ownership break, the bounded aggregates, and
 # The second half is the point of the T6 design. Rover schedules no wakeup for
 # a reminder, so the restart cannot leave a duplicate wakeup or an orphaned
 # wire behind. That is asserted on the shipping source: every Behn card the
-# agent sends is a one-second sequencing delay, and `on-arvo` answers the four
-# wires it answered before T6 and no fifth.
+# agent sends is a one-second sequencing delay, and `on-arvo` answers a named
+# set of wires that holds no reminder.
+#
+# The wires are named rather than counted. M8 gave `on-arvo` three more of
+# them - one export fetch and the two Clay answers the attachment desk sends -
+# and a bare count cannot tell a new reminder timer from a new photo path.
 # ---------------------------------------------------------------------------
 waits="$(grep -c '%wait' "$REPO/desk/app/rover.hoon")"
 one_shots="$(grep -c '%wait (add now.bowl ~s1)' "$REPO/desk/app/rover.hoon")"
 [ "$waits" = "$one_shots" ] \
   || fail "fixture 53 the agent sends $waits Behn cards and only $one_shots are one-shot sequencing delays"
-arvo_wires="$(grep -oE '\?=\(\[%rover-[a-z-]+ \*\] wire\)' "$REPO/desk/app/rover.hoon" | sort -u | wc -l)"
-[ "$arvo_wires" = 4 ] \
-  || fail "fixture 53 on-arvo answers $arvo_wires wires, want the four that predate T6"
+arvo_wires="$(grep -oE '\?=\(\[%rover-[a-z0-9-]+ \*\] wire\)' "$REPO/desk/app/rover.hoon" |
+  sed -E 's/^.*\[%(rover-[a-z0-9-]+) .*$/\1/' | sort -u | tr '\n' ' ')"
+arvo_wires_want='rover-attachment-s3-get rover-attachment-s3-put rover-bootstrap-delay rover-energy-odometer-drop-delay rover-energy-odometer-precheck-delay rover-export-fetch rover-files-desk rover-files-write rover-install-delay '
+[ "$arvo_wires" = "$arvo_wires_want" ] \
+  || fail "fixture 53 on-arvo answers [$arvo_wires], want [$arvo_wires_want]"
 grep -qE '%rover-reminder[a-z-]*-(delay|wake|timer)' "$REPO/desk/app/rover.hoon" \
   && fail "fixture 53 the agent carries a reminder timer wire"
 set_default_vehicle "$REM_VEHICLE"

@@ -30,3 +30,4 @@ aCar*export*/
 imports/raw/
 tools/acar-import/out/
 __pycache__/
+.scratch/

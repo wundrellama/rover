@@ -5918,6 +5918,16 @@
     :~  [%pass next-wire %agent [our.bowl %obelisk] %watch /server]
         [%pass next-wire %agent [our.bowl %obelisk] %poke %obelisk-action jon]
     ==
+  ::  M8. Clay answered the merge that creates the attachment desk, or the
+  ::  commit that wrote one photo into it. Neither answer carries a decision.
+  ::  The desk exists after the merge and the reference row is what proves the
+  ::  write; a photo Clay refused reads back absent, and the serve path already
+  ::  reports that. Without these two arms the merge answer falls through to
+  ::  the Eyre assertion below and every install prints `%arvo-response`.
+  ?:  ?=([%rover-files-desk *] wire)
+    `this
+  ?:  ?=([%rover-files-write *] wire)
+    `this
   ?>  ?=([%eyre %connect ~] wire)
   ?>  ?=([%eyre %bound *] sign-arvo)
   ~?  !accepted.sign-arvo  [%rover %eyre-bind-refused]
