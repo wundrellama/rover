@@ -660,6 +660,80 @@
       color: var(--rv-ok);
     }
 
+    /*  M8, second leg. The photo control on Add Fill and Add Event, the strip
+        of thumbnails on a card, and the full-size view.
+
+        A record with no photo gets NO strip. The browser creates the strip
+        only when a photo arrives, so absence is stated by absence and there
+        is never an empty frame to explain.
+    */
+    .photo-field {
+      margin: 0;
+      padding: 0.8rem;
+      border: 1px solid var(--rv-olive);
+      display: grid;
+      gap: 0.5rem;
+    }
+
+    .photo-field legend {
+      padding: 0 0.35rem;
+      color: var(--rv-amber-bright);
+      letter-spacing: 0.08em;
+    }
+
+    .photo-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.6rem;
+    }
+
+    .photo-thumb {
+      padding: 0;
+      width: 5rem;
+      height: 5rem;
+      border: 1px solid var(--rv-olive);
+      background: transparent;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .photo-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    #photo-view {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      background: rgba(0, 0, 0, 0.94);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 0.5rem;
+      padding: 0.75rem;
+    }
+
+    #photo-view[hidden] {
+      display: none;
+    }
+
+    #photo-view img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      justify-self: center;
+      align-self: center;
+    }
+
+    #photo-view-name {
+      margin: 0;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+
     #import-batch-reports {
       margin: 0;
       padding: 0.8rem;
@@ -892,6 +966,15 @@
     <p id="status">Loading…</p>
     <div id="app" aria-live="polite"></div>
   </main>
+  <!--  M8. The full-size photo. It lives outside #app because every view
+        reload replaces the contents of #app, and a picture a person opened
+        must not vanish when the log behind it refreshes.
+  -->
+  <div id="photo-view" role="dialog" aria-modal="true" aria-label="Photo" hidden>
+    <button type="button" id="photo-view-close">Close</button>
+    <img id="photo-view-image" alt="">
+    <p id="photo-view-name"></p>
+  </div>
   <footer class="status-strip">
     <span>Rover</span>
     <span id="refresh-time">Awaiting data</span>
@@ -903,6 +986,167 @@
     const glowToggle = document.getElementById('glow-toggle');
     const headerShip = document.getElementById('header-ship');
     const headerVehicle = document.getElementById('header-vehicle');
+    const photoView = document.getElementById('photo-view');
+    const photoViewImage = document.getElementById('photo-view-image');
+    const photoViewName = document.getElementById('photo-view-name');
+
+    //  M8, second leg, ruling 23. Everything below reads a JSON route. The
+    //  markup is one client of those routes, and a native client or a bridge
+    //  relaying a device in the vehicle reaches the same photos the same way.
+    let storageBackends = null;
+
+    async function readBackends() {
+      if (storageBackends) return storageBackends;
+      try {
+        const response = await fetch('/apps/rover/backends.json', {
+          credentials: 'same-origin',
+          headers: {'accept': 'application/json'}
+        });
+        if (!response.ok) return [];
+        const body = await response.json();
+        storageBackends = body.backends || [];
+      } catch (_) {
+        //  The form still works. It offers what the ship always has.
+        storageBackends = [];
+      }
+      return storageBackends;
+    }
+
+    //  Fill one backend selector. A ship with no S3 configuration offers Clay
+    //  alone and says why, in the ship's own words rather than this page's.
+    async function fillBackendControl(field) {
+      const select = field.querySelector('[data-photo-backend]');
+      const note = field.querySelector('[data-photo-note]');
+      if (!select || select.options.length > 0) return;
+      const backends = await readBackends();
+      const offered = backends.filter((backend) => backend.available);
+      const list = offered.length > 0
+        ? offered
+        : [{name: 'clay', label: 'On this ship'}];
+      list.forEach((backend) => {
+        const option = document.createElement('option');
+        option.value = backend.name;
+        option.textContent = backend.label;
+        select.appendChild(option);
+      });
+      const missing = backends.filter((backend) => !backend.available);
+      if (note) {
+        note.textContent = missing.map((backend) => backend.reason).join(' ');
+        note.hidden = note.textContent.length === 0;
+      }
+    }
+
+    //  The photo a person chose on the entry form, sent after the record it
+    //  belongs to exists. A photo cannot attach to a record that is not
+    //  written yet, so this runs on the success of the save and never before.
+    async function attachChosenPhoto(form, owner, vehicle, observed) {
+      const input = form.querySelector('[data-photo-input]');
+      if (!input || input.files.length === 0) return '';
+      const file = input.files[0];
+      const mediaType = file.type || 'application/octet-stream';
+      const params = new URLSearchParams({
+        owner,
+        vehicle,
+        file: file.name,
+        type: mediaType,
+        backend: form.querySelector('[data-photo-backend]')?.value || 'clay'
+      });
+      if (observed) params.set('observed', observed);
+      try {
+        const response = await fetch(`/apps/rover/add-attachment?${params}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'content-type': mediaType},
+          body: file
+        });
+        const message = await response.text();
+        if (response.ok) input.value = '';
+        return message;
+      } catch (error) {
+        return `The photo did not attach · ${error.message}`;
+      }
+    }
+
+    //  The photos each card carries. One request per vehicle on the screen,
+    //  and the strip is CREATED only where a photo really lands, so a record
+    //  with none shows nothing at all.
+    let photoPaintRun = 0;
+
+    async function paintPhotos() {
+      //  Each view reload starts a new run and abandons the one before it. A
+      //  run still waiting on a fetch would otherwise paint the same photo
+      //  into the fresh markup a second time.
+      const run = ++photoPaintRun;
+      const cards = [...app.querySelectorAll('[data-photo-owner]')];
+      if (cards.length === 0) return;
+      const labels = [...new Set(
+        cards.map((card) => card.dataset.photoVehicle).filter(Boolean)
+      )];
+      for (const label of labels) {
+        let body = null;
+        try {
+          const response = await fetch(
+            `/apps/rover/attachments.json?vehicle=${encodeURIComponent(label)}`,
+            {credentials: 'same-origin', headers: {'accept': 'application/json'}}
+          );
+          if (run !== photoPaintRun) return;
+          if (!response.ok) continue;
+          body = await response.json();
+        } catch (_) {
+          continue;
+        }
+        if (run !== photoPaintRun) return;
+        (body.photos || []).forEach((photo) => {
+          const card = cards.find((candidate) =>
+            candidate.dataset.photoVehicle === label &&
+            candidate.dataset.photoOwner === photo.owner &&
+            candidate.dataset.photoObserved === photo.observed);
+          if (!card) return;
+          //  A DIRECT child only. The vehicle panel contains every history
+          //  card, so a plain descendant search would find the first card's
+          //  strip and hang the vehicle's own photos inside it.
+          let strip = card.querySelector(':scope > [data-photo-strip]');
+          if (!strip) {
+            strip = document.createElement('div');
+            strip.className = 'photo-strip';
+            strip.setAttribute('data-photo-strip', '');
+            card.appendChild(strip);
+          }
+          if (strip.querySelector(`[data-photo-name="${CSS.escape(photo.name)}"]`)) {
+            return;
+          }
+          const open = document.createElement('button');
+          open.type = 'button';
+          open.className = 'photo-thumb';
+          open.setAttribute('data-photo-open', photo.url);
+          open.setAttribute('data-photo-name', photo.name);
+          const thumb = document.createElement('img');
+          thumb.src = photo.url;
+          thumb.alt = photo.name;
+          thumb.loading = 'lazy';
+          open.appendChild(thumb);
+          strip.appendChild(open);
+        });
+      }
+    }
+
+    function openPhoto(url, name) {
+      photoViewImage.src = url;
+      photoViewImage.alt = name;
+      photoViewName.textContent = name;
+      photoView.hidden = false;
+    }
+
+    document.getElementById('photo-view-close').addEventListener('click', () => {
+      photoView.hidden = true;
+      photoViewImage.removeAttribute('src');
+    });
+
+    app.addEventListener('click', (event) => {
+      const control = event.target.closest('[data-photo-open]');
+      if (!control) return;
+      openPhoto(control.dataset.photoOpen, control.dataset.photoName || '');
+    });
 
     let glow = false;
     //  32 renders alpha 0.32 under the percentage scale: the same default the
@@ -1241,6 +1485,12 @@
         });
       });
       showGlow();
+      //  M8. The entry forms ask the ship which backends it can offer, and the
+      //  cards ask it which photos each record carries.
+      app.querySelectorAll('[data-photo-field]').forEach((field) => {
+        fillBackendControl(field);
+      });
+      paintPhotos();
       const screens = [...app.querySelectorAll('.app-screen')];
       const defaultVehicle =
         app.querySelector('#app-default-data')?.dataset.vehicle || '';
@@ -1954,6 +2204,10 @@
         payload.missedFill = form.elements.missedFill.checked ? 'yes' : 'no';
         payload.driveBalance =
           driveBalance.dataset.state === 'set' ? driveBalance.value : '';
+        //  The photo controls belong to the attachment request, not to the
+        //  fill. They never reach /apps/rover/add-fill.
+        delete payload.photo;
+        delete payload.photoBackend;
         form.querySelectorAll('[data-custom-field]').forEach((field) => {
           payload[field.name] =
             field.dataset.customType === 'boolean'
@@ -1968,8 +2222,18 @@
             body: JSON.stringify(payload)
           });
           const message = await response.text();
-          verdict.value = message;
-          if (response.ok) await loadView();
+          if (!response.ok) {
+            verdict.value = message;
+          } else {
+            //  The photo goes after the fill, because it attaches to the
+            //  record the fill just wrote. The verdict is written once, so it
+            //  never reads finished while the photo is still in flight.
+            const photo = await attachChosenPhoto(
+              form, 'fill', payload.vehicle, payload.observed
+            );
+            verdict.value = photo ? `${message} · ${photo}` : message;
+            await loadView();
+          }
         } catch (error) {
           verdict.value = `%unavailable: fill · ${error.message}`;
         }
@@ -2279,6 +2543,9 @@
             // Checkboxes repeat one name, and fromEntries keeps only the last.
             payload.tags = formData.getAll('tags');
             payload.subtypes = formData.getAll('subtypes');
+            //  The photo controls belong to the attachment request.
+            delete payload.photo;
+            delete payload.photoBackend;
             // On the add path the kind selects the route, and the server reads
             // it from the route so the two cannot disagree. A correction has
             // one route for every kind, so the kind rides in the body and the
@@ -2295,8 +2562,18 @@
               headers: {'content-type': 'application/json'},
               body: JSON.stringify(payload)
             });
-            verdict.value = await response.text();
-            if (response.ok) await loadView();
+            const message = await response.text();
+            if (!response.ok) {
+              verdict.value = message;
+            } else {
+              //  The moment the person typed is the moment the record now
+              //  holds, on the add path and on a correction alike.
+              const photo = await attachChosenPhoto(
+                eventForm, 'event', payload.vehicle, payload.observed
+              );
+              verdict.value = photo ? `${message} · ${photo}` : message;
+              await loadView();
+            }
           } catch (error) {
             verdict.value = `%unavailable: event · ${error.message}`;
           }

@@ -855,7 +855,9 @@
       s+(crip (input-da:view `@da`(cell-atom:view %observed-start row)))
       ['name' s+name]
       ['mediaType' s+(cell-text:view %media-type row)]
-      ['bytes' n+(scot %ud (cell-atom:view %byte-count row))]
+      ::  A plain integer. `scot %ud` groups with dots past four figures, and
+      ::  a byte count that reads 16.422 is not a number any reader parses.
+      ['bytes' n+(format-scaled:render (cell-atom:view %byte-count row) 0 %.n)]
       ['url' s+(crip (weld "/apps/rover/attachment/" (en-urlt:html (trip name))))]
   ==
 ::

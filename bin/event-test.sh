@@ -3415,6 +3415,159 @@ case "$clay_offer" in
 esac
 note "fixture 101 PASS - a ship with no %storage configuration says so in human words, stores nothing, and the Clay it offers works"
 
+# ---------------------------------------------------------------------------
+# fixtures 107, 108, 109, 110 - the entry surface.
+#
+# Everything above this point moves the bytes with `curl`. These four prove a
+# PERSON can move them: a file input on Add Fill and on Add Event, a photo on
+# the card afterwards, a way to open it full size, and all of it at 390px.
+#
+# One browser run drives all four, because they are one journey. Splitting it
+# into four browsers would prove four disconnected things and cost four
+# logins.
+#
+# The photos are real PNG images with real pixels. The full-size view is
+# checked by the decoded size the browser reports, so a broken link or a
+# placeholder cannot pass as a photograph.
+# ---------------------------------------------------------------------------
+M8_BROWSER_FILL_PHOTO="/tmp/rover-m8-browser-fill-$STAMP.png"
+M8_BROWSER_EVENT_PHOTO="/tmp/rover-m8-browser-event-$STAMP.png"
+python3 - "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_EVENT_PHOTO" <<'PNG'
+import struct
+import sys
+import zlib
+
+
+def png(path, red):
+    width = height = 24
+    raw = b"".join(
+        b"\x00" + bytes([red, (row * 9) % 256, 40] * width) for row in range(height)
+    )
+
+    def chunk(tag, body):
+        return (
+            struct.pack(">I", len(body))
+            + tag
+            + body
+            + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+        )
+
+    open(path, "wb").write(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+png(sys.argv[1], 220)
+png(sys.argv[2], 60)
+PNG
+# The entry surface gets a vehicle of its own. It writes two NEW records, and
+# a record this run's other fixtures count must not arrive from a browser.
+M8_BROWSER_VEHICLE="Photo Vehicle $STAMP"
+own_add_vehicle "$M8_BROWSER_VEHICLE" Gasoline
+M8_BROWSER_FILL_HASH="$(digest "$M8_BROWSER_FILL_PHOTO")"
+M8_BROWSER_EVENT_HASH="$(digest "$M8_BROWSER_EVENT_PHOTO")"
+M8_BROWSER_FILL_BYTES="$(wc -c < "$M8_BROWSER_FILL_PHOTO")"
+M8_BROWSER_NOTE="Browser attachment $STAMP"
+attachment_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/attachment-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$M8_BROWSER_VEHICLE" \
+      "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_EVENT_PHOTO" \
+      "$M8_BROWSER_NOTE" clay
+} 2>&1)" || fail "fixture 107 the browser could not drive the entry surface: $attachment_out"
+
+# --- fixture 107 - a photo attaches to a fill FROM THE BROWSER --------------
+grep -q '^FILL_VERDICT=Saved fill' <<<"$attachment_out" \
+  || fail "fixture 107 the browser could not save the fill: $attachment_out"
+grep -q '^FILL_VERDICT=.*Attached ' <<<"$attachment_out" \
+  || fail "fixture 107 the fill form did not report the photo: $attachment_out"
+m8_browser_fill_photo_name="$(sed -n 's/^FILL_CARD_PHOTO_NAME=//p' <<<"$attachment_out")"
+[ -n "$m8_browser_fill_photo_name" ] \
+  || fail "fixture 107 the browser named no stored photo: $attachment_out"
+M8_BROWSER_FILL_BACK="/tmp/rover-m8-browser-fill-back-$STAMP.png"
+[ "$(fetch_file "$m8_browser_fill_photo_name" "$M8_BROWSER_FILL_BACK")" = 200 ] \
+  || fail "fixture 107 the photo the browser attached did not serve back"
+[ "$(digest "$M8_BROWSER_FILL_BACK")" = "$M8_BROWSER_FILL_HASH" ] \
+  || fail "fixture 107 the stored bytes do not hash equal to the source bytes"
+cmp -s "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_FILL_BACK" \
+  || fail "fixture 107 the served photo is not byte for byte the file the person chose"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$m8_browser_fill_photo_name' SELECT T.attachment-id, T.byte-count, T.media-type;")"
+grep -q "%byte-count 25717 $M8_BROWSER_FILL_BYTES" <<<"$report" \
+  || fail "fixture 107 the reference does not carry the source byte count: $report"
+grep -q "image/png" <<<"$report" \
+  || fail "fixture 107 the reference does not carry the media type the browser sent: $report"
+# The link keys to the energy family parent, exactly as the endpoint path does.
+report="$(rover_report "FROM energy-acquisition-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$m8_browser_fill_photo_name' SELECT L.acquisition-id, L.attachment-id;")"
+grep -q '%acquisition-id' <<<"$report" \
+  || fail "fixture 107 the browser attachment has no link to the energy acquisition: $report"
+note "fixture 107 browser - $(grep '^FILL_BACKENDS=' <<<"$attachment_out"), $(grep '^FILL_OBSERVED=' <<<"$attachment_out")"
+note "fixture 107 PASS - a person attaches a photo to a fill from the browser through the file input on the existing Add Fill form, and the stored bytes hash equal to the source bytes"
+
+# --- fixture 108 - the same for an event -----------------------------------
+grep -q '^EVENT_VERDICT=Saved note event' <<<"$attachment_out" \
+  || fail "fixture 108 the browser could not save the event: $attachment_out"
+grep -q '^EVENT_VERDICT=.*Attached ' <<<"$attachment_out" \
+  || fail "fixture 108 the event form did not report the photo: $attachment_out"
+m8_browser_event_photo_name="$(sed -n 's/^EVENT_CARD_PHOTO_NAME=//p' <<<"$attachment_out")"
+[ -n "$m8_browser_event_photo_name" ] \
+  || fail "fixture 108 the browser named no stored event photo: $attachment_out"
+M8_BROWSER_EVENT_BACK="/tmp/rover-m8-browser-event-back-$STAMP.png"
+[ "$(fetch_file "$m8_browser_event_photo_name" "$M8_BROWSER_EVENT_BACK")" = 200 ] \
+  || fail "fixture 108 the photo the browser attached to the event did not serve back"
+[ "$(digest "$M8_BROWSER_EVENT_BACK")" = "$M8_BROWSER_EVENT_HASH" ] \
+  || fail "fixture 108 the stored event photo does not hash equal to the source bytes"
+cmp -s "$M8_BROWSER_EVENT_PHOTO" "$M8_BROWSER_EVENT_BACK" \
+  || fail "fixture 108 the served event photo is not byte for byte the file the person chose"
+[ "$M8_BROWSER_FILL_HASH" != "$M8_BROWSER_EVENT_HASH" ] \
+  || fail "fixture 108 the two photos are the same bytes, so this proves nothing"
+report="$(rover_report "FROM vehicle-event-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$m8_browser_event_photo_name' SELECT L.event-id, L.attachment-id;")"
+grep -q '%event-id' <<<"$report" \
+  || fail "fixture 108 the browser event attachment has no link to the event: $report"
+note "fixture 108 PASS - a person attaches a photo to an event from the browser through the file input on the existing Add Event form, and the stored bytes hash equal to the source bytes"
+
+# --- fixture 109 - the photo on the card, and no empty frame ---------------
+m8_fill_card_photos="$(sed -n 's/^FILL_CARD_PHOTOS=//p' <<<"$attachment_out")"
+m8_event_card_photos="$(sed -n 's/^EVENT_CARD_PHOTOS=//p' <<<"$attachment_out")"
+[ "$m8_fill_card_photos" = 1 ] \
+  || fail "fixture 109 the fill card shows $m8_fill_card_photos photos, want 1: $attachment_out"
+[ "$m8_event_card_photos" = 1 ] \
+  || fail "fixture 109 the event card shows $m8_event_card_photos photos, want 1: $attachment_out"
+grep -qx "PHOTO_VIEW_NAME=$m8_browser_fill_photo_name" <<<"$attachment_out" \
+  || fail "fixture 109 the full-size view names the wrong photo: $attachment_out"
+grep -q "^PHOTO_VIEW_SRC=/apps/rover/attachment/" <<<"$attachment_out" \
+  || fail "fixture 109 the full-size view does not read the photo off this ship: $attachment_out"
+grep -qx 'PHOTO_VIEW_NATURAL=24x24' <<<"$attachment_out" \
+  || fail "fixture 109 the browser did not decode the full-size photo: $attachment_out"
+m8_rendered="$(sed -n 's/^PHOTO_VIEW_RENDERED=//p' <<<"$attachment_out")"
+[ -n "$m8_rendered" ] && [ "$m8_rendered" -gt 0 ] \
+  || fail "fixture 109 the full-size photo rendered no pixels: $attachment_out"
+grep -qx 'PHOTO_VIEW_CLOSED=yes' <<<"$attachment_out" \
+  || fail "fixture 109 the full-size view would not close: $attachment_out"
+# A record with no photo shows NOTHING. Not an empty frame.
+grep -qx 'EMPTY_PHOTO_STRIPS=0' <<<"$attachment_out" \
+  || fail "fixture 109 a record with no photo rendered an empty frame: $attachment_out"
+m8_bare_cards="$(sed -n 's/^CARDS_WITHOUT_PHOTOS=//p' <<<"$attachment_out")"
+[ -n "$m8_bare_cards" ] && [ "$m8_bare_cards" -gt 0 ] \
+  || fail "fixture 109 no card without a photo was on the screen, so absence proves nothing"
+note "fixture 109 cards - fill $m8_fill_card_photos, event $m8_event_card_photos, $m8_bare_cards cards carrying no photo and no frame"
+note "fixture 109 PASS - the photo appears on the record's card in History and opens full size, and a record with no photo shows no empty frame"
+
+# --- fixture 110 - 390px ----------------------------------------------------
+m8_page_overflow="$(sed -n 's/^PAGE_OVERFLOW=//p' <<<"$attachment_out")"
+m8_field_overflow="$(sed -n 's/^FILL_FIELD_OVERFLOW=//p' <<<"$attachment_out")"
+[ -n "$m8_page_overflow" ] && [ "$m8_page_overflow" -le 0 ] \
+  || fail "fixture 110 the entry surface overflows 390px by ${m8_page_overflow}px: $attachment_out"
+[ -n "$m8_field_overflow" ] && [ "$m8_field_overflow" -le 0 ] \
+  || fail "fixture 110 the photo control overflows 390px by ${m8_field_overflow}px: $attachment_out"
+[ "$m8_rendered" -le 390 ] \
+  || fail "fixture 110 the full-size photo is ${m8_rendered}px wide, past 390"
+note "fixture 110 PASS - the entry surface and the full-size photo view fit 390px, with no horizontal overflow"
+rm -f "$M8_BROWSER_FILL_BACK" "$M8_BROWSER_EVENT_BACK"
+
 
 # ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
