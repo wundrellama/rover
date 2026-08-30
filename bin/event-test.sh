@@ -4316,9 +4316,21 @@ import sys
 document = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert document["rover-import"] == 1
 assert document["source"]["app"] == "Rover"
-assert document["source"]["attachments"]["included"] is False
-assert "photoCount" in document["source"]["attachments"]
-assert document["source"]["attachments"]["manifest"]
+# M8. The notice used to say the photos were left behind. They are not, and
+# the manifest names each one instead of naming a file nothing wrote.
+attachments = document["source"]["attachments"]
+assert attachments["included"] is True
+assert attachments["container"] == "tar"
+assert attachments["directory"] == "attachments/"
+assert int(attachments["photoCount"]) == len(attachments["files"])
+assert int(attachments["photoCount"]) > 0
+assert "manifest" not in attachments
+for photo in attachments["files"]:
+    assert photo["path"] == f"attachments/{photo['name']}"
+    assert len(photo["hash"]) == 64
+    assert int(photo["bytes"]) > 0
+    assert photo["mediaType"]
+assert document["source"]["omissions"] == []
 PY
 view="$(eyre_view)"
 grep -q 'data-rover-export-download' <<<"$view" \
@@ -4329,16 +4341,24 @@ export_browser_out="$({
     node "$REPO/bin/export-browser-fixture.cjs" \
       "$URL" "$auth_cookie_name" "$auth_cookie"
 } 2>&1)" || fail "fixture 84 the browser could not download the export: $export_browser_out"
-grep -q '^EXPORT_FILENAME=rover-export-complete.json$' <<<"$export_browser_out" \
+grep -q '^EXPORT_FILENAME=rover-export-complete.tar$' <<<"$export_browser_out" \
   || fail "fixture 84 the browser received the wrong filename: $export_browser_out"
+grep -q '^EXPORT_FIRST_MEMBER=rover-import.json$' <<<"$export_browser_out" \
+  || fail "fixture 84 the archive does not lead with the import document: $export_browser_out"
 grep -q '^EXPORT_FORMAT=1$' <<<"$export_browser_out" \
   || fail "fixture 84 the browser download is not a Rover import: $export_browser_out"
 grep -q '^EXPORT_SOURCE=Rover$' <<<"$export_browser_out" \
   || fail "fixture 84 the browser download does not name Rover: $export_browser_out"
-grep -q '^EXPORT_ATTACHMENTS_INCLUDED=false$' <<<"$export_browser_out" \
-  || fail "fixture 84 the browser download does not name the attachment omission: $export_browser_out"
+grep -q '^EXPORT_ATTACHMENTS_INCLUDED=true$' <<<"$export_browser_out" \
+  || fail "fixture 84 the browser download still says the photos were left behind: $export_browser_out"
+browser_photo_count="$(sed -n 's/^EXPORT_PHOTO_COUNT=//p' <<<"$export_browser_out")"
+browser_photo_members="$(sed -n 's/^EXPORT_PHOTO_MEMBERS=//p' <<<"$export_browser_out")"
+[ -n "$browser_photo_count" ] && [ "$browser_photo_count" -gt 0 ] \
+  || fail "fixture 84 the browser download names no photos: $export_browser_out"
+[ "$browser_photo_count" = "$browser_photo_members" ] \
+  || fail "fixture 84 the manifest names $browser_photo_count photos and the archive holds $browser_photo_members"
 rm -f "$export_headers" "$export_document"
-note "fixture 84 PASS - an authenticated owner presses the browser control and gets the named Rover import file, while unauthenticated requests redirect to login"
+note "fixture 84 PASS - an authenticated owner presses the browser control and gets the named Rover archive, whose manifest names every photo it really carries, while unauthenticated requests redirect to login"
 
 # ---------------------------------------------------------------------------
 # fixture 85 - the export carries each stored record family and no derived
@@ -4405,6 +4425,76 @@ def check(value):
 check(document)
 PY
 note "fixture 85 PASS - the export carries every product record family, keeps an archived definition and a custom value, and carries no derived value"
+
+# ---------------------------------------------------------------------------
+# fixture 102 - the complete export is a tar the system `tar` command unpacks,
+# and the `rover-import.json` inside it is the same payload the JSON endpoint
+# serves, byte for byte.
+#
+# The second half is what makes the container honest. A reader who wants only
+# the facts takes one member out and stops; nothing is re-serialized on the
+# way into the archive, so the two cannot drift apart. The tar is fetched
+# first and the JSON second, with no write between them.
+#
+# Every photo in the archive is checked against the manifest that names it:
+# the member is at the path the manifest gives, it is the size the manifest
+# gives, and it hashes to the digest the manifest gives.
+# ---------------------------------------------------------------------------
+M8_EXPORT_TAR="$(mktemp /tmp/rover-export-complete.XXXXXX.tar)"
+M8_EXPORT_JSON="$(mktemp /tmp/rover-export-member.XXXXXX.json)"
+M8_UNPACKED="$(mktemp -d /tmp/rover-export-unpacked.XXXXXX)"
+tar_headers="$(mktemp /tmp/rover-export-tar-headers.XXXXXX)"
+tar_status="$(curl -sS -b "$JAR" -D "$tar_headers" -o "$M8_EXPORT_TAR" -w '%{http_code}' \
+  "$URL/apps/rover/export.tar")"
+[ "$tar_status" = 200 ] \
+  || fail "fixture 102 the archive endpoint returned HTTP $tar_status"
+json_status="$(curl -sS -b "$JAR" -o "$M8_EXPORT_JSON" -w '%{http_code}' \
+  "$URL/apps/rover/export")"
+[ "$json_status" = 200 ] \
+  || fail "fixture 102 the JSON endpoint returned HTTP $json_status"
+grep -qi '^content-type: application/x-tar' "$tar_headers" \
+  || fail "fixture 102 the archive is not served as a tar: $(cat "$tar_headers")"
+grep -qi '^content-disposition: attachment; filename="rover-export-complete.tar"' "$tar_headers" \
+  || fail "fixture 102 the archive has no Rover download name: $(cat "$tar_headers")"
+rm -f "$tar_headers"
+# The system tar, not a reader Rover wrote. If the headers are wrong this is
+# where it shows.
+tar -tf "$M8_EXPORT_TAR" > /dev/null \
+  || fail "fixture 102 the system tar cannot list the archive"
+tar -xf "$M8_EXPORT_TAR" -C "$M8_UNPACKED" \
+  || fail "fixture 102 the system tar cannot unpack the archive"
+[ -f "$M8_UNPACKED/rover-import.json" ] \
+  || fail "fixture 102 the archive holds no rover-import.json"
+cmp -s "$M8_UNPACKED/rover-import.json" "$M8_EXPORT_JSON" \
+  || fail "fixture 102 the member in the archive is not the payload the JSON endpoint serves"
+python3 - "$M8_UNPACKED" <<'PY' \
+  || fail "fixture 102 the archive and its manifest disagree"
+import hashlib
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+document = json.loads((root / "rover-import.json").read_text())
+manifest = document["source"]["attachments"]
+assert manifest["included"] is True
+assert manifest["container"] == "tar"
+photos = manifest["files"]
+assert int(manifest["photoCount"]) == len(photos)
+assert photos, "the manifest names no photo"
+unpacked = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+assert unpacked == sorted(["rover-import.json"] + [p["path"] for p in photos]), unpacked
+for photo in photos:
+    member = root / photo["path"]
+    body = member.read_bytes()
+    assert len(body) == int(photo["bytes"]), photo["name"]
+    assert hashlib.sha256(body).hexdigest() == photo["hash"], photo["name"]
+print(f"MEMBERS={len(unpacked)} PHOTOS={len(photos)}")
+PY
+tar_members="$(tar -tf "$M8_EXPORT_TAR" | wc -l)"
+tar_photos="$(tar -tf "$M8_EXPORT_TAR" | grep -c '^attachments/')"
+note "fixture 102 archive - $(wc -c < "$M8_EXPORT_TAR") bytes, $tar_members members, $tar_photos photos"
+note "fixture 102 PASS - the complete export unpacks with the system tar, its rover-import.json is byte for byte the payload the JSON endpoint serves, and every photo matches the manifest that names it"
 
 # ---------------------------------------------------------------------------
 # fixture 86 - the deciding round trip. Preserve the populated owner database
