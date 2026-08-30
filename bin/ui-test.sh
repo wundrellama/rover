@@ -1338,7 +1338,10 @@ row = re.search(
     re.S,
 )
 card = re.search(
-    r"<article class=\"history-card fill\">"
+    # M8. The card now says which record it is, so the browser can ask for the
+    # photographs it carries. The class is still the handle; the attributes
+    # that follow it are not asserted here.
+    r"<article class=\"history-card fill\"[^>]*>"
     r"(?:(?!</article>).)*2026-07-04 12:00:00"
     r"(?:(?!</article>).)*</article>",
     document,
