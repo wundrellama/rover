@@ -4874,8 +4874,17 @@
       :-  (clay-write-card:files attachment-id media-type.entry.photo bytes.photo)
       (import-photo-write-cards our.bowl serial.run script)
     ::
+    ::  M8, fix leg. Obelisk closes every `/server` subscription as soon as it
+    ::  has answered, so a kick on this wire is the ordinary end of one query
+    ::  and carries no news. Dropping the run on it threw away the eyre-id of
+    ::  the person waiting, and with it the remaining photos and the report.
+    ::
+    ::  A Clay import never noticed, because it finishes inside the same move
+    ::  cascade that the kick unwinds behind. An S3 import parks on the bucket,
+    ::  the kick lands first, and the answer had nowhere to go. Every other
+    ::  import arm already ignores the kick; these two did not.
         %kick
-      `this(import-run ~)
+      `this
     ::
         %watch-ack
       `this
@@ -4909,8 +4918,9 @@
         (continue-import state our.bowl next)
       [-.continued this(state +.continued)]
     ::
+    ::  The same routine close, on the write wire. See the note above.
         %kick
-      `this(import-run ~)
+      `this
     ::
         %watch-ack
       `this
@@ -6420,9 +6430,15 @@
     =/  run  u.run-unit
     ?~  photos.run
       `this(state bare(import-run ~))
-    ?.  ?=(%finished -.client-response.sign-arvo)
+    ::  More bytes are still on the way. Wait for the end of the answer.
+    ?:  ?=(%progress -.client-response.sign-arvo)
       `this
-    =/  status  status-code.response-header.client-response.sign-arvo
+    ::  A request the runtime gave up on reads as status zero, which
+    ::  `s3-refusal` says in words. Treating it as one refused photograph is
+    ::  what keeps the person from watching a browser tab that never returns.
+    =/  status=@ud
+      ?.  ?=(%finished -.client-response.sign-arvo)  0
+      status-code.response-header.client-response.sign-arvo
     =/  stored=?  ?&(?=(^ waiting) ?|(=(200 status) =(204 status)))
     ::  A bucket that refuses fails ONE photograph. The rest of the batch
     ::  still runs, and the report names the one that did not store.
