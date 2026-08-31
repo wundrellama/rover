@@ -4882,7 +4882,7 @@
     ::  A Clay import never noticed, because it finishes inside the same move
     ::  cascade that the kick unwinds behind. An S3 import parks on the bucket,
     ::  the kick lands first, and the answer had nowhere to go. Every other
-    ::  import arm already ignores the kick; these two did not.
+    ::  import arm already ignores the kick. These two did not.
         %kick
       `this
     ::

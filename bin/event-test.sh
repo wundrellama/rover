@@ -3572,6 +3572,15 @@ rm -f "$M8_BROWSER_FILL_BACK" "$M8_BROWSER_EVENT_BACK"
 # ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
+# Stop the pier, start it again, and log back in. Fixture 12 proves the event
+# families survive one restart. Fixture 114 proves what M8 added survives a
+# SECOND one, after the imports and the archive endpoints have run. One
+# restart is one piece of code, so the two fixtures cannot drift apart.
+#
+# PORT and URL are deliberately global: the restarted pier may bind a
+# different one, and every fixture after this reads them.
+restart_pier() {
+  local fx="$1"
 # The pier may be the pane's own process or a child of it. Which one it is
 # depends on how the session was started, and this fixture restarts the pier
 # itself, so the second run of the battery can meet a different shape than the
@@ -3589,26 +3598,26 @@ while read -r session pane_pid; do
   done
   [ -n "$pier_session" ] && break
 done < <(tmux list-panes -a -F '#{session_name} #{pane_pid}')
-[ -n "$pier_session" ] || fail "fixture 12 cannot find the tmux session running $PIER"
+[ -n "$pier_session" ] || fail "fixture $fx cannot find the tmux session running $PIER"
 # The boot command is not the run command. `-B <pill>` and `-c` create a pier
 # and fail against one that exists, so only the Ames port carries over. The
 # port is explicit because a second pier's mesa layer binds port+1, and two
 # neighbouring piers otherwise refuse to start.
 ames_port="$(sed -n 's/.*-p \([0-9]\{1,\}\).*/\1/p' <<<"$pier_args")"
-[ -n "$ames_port" ] || fail "fixture 12 cannot read the Ames port for $PIER: $pier_args"
+[ -n "$ames_port" ] || fail "fixture $fx cannot read the Ames port for $PIER: $pier_args"
 # The binary comes from the running command, not from PATH. A pier booted with
 # a full path runs under a tmux server whose PATH may hold no `urbit` at all,
 # and a restart that cannot find the binary reports a dead pier instead. The
 # first argument is NOT the binary: the pane runs `script -c <binary> ...`, so
 # the match is on the argument that names urbit itself.
 pier_binary="$(grep -oE '(^| )[^ ]*urbit( |$)' <<<"$pier_args" | head -1 | tr -d ' ')"
-[ -n "$pier_binary" ] || fail "fixture 12 cannot read the urbit binary for $PIER: $pier_args"
+[ -n "$pier_binary" ] || fail "fixture $fx cannot read the urbit binary for $PIER: $pier_args"
 tmux send-keys -t "$pier_session" '|exit' Enter
 for attempt in $(seq 1 60); do
   pgrep -f "snap-dir $PIER" >/dev/null || break
   sleep 1
 done
-pgrep -f "snap-dir $PIER" >/dev/null && fail "fixture 12 the pier did not stop"
+pgrep -f "snap-dir $PIER" >/dev/null && fail "fixture $fx the pier did not stop"
 tmux kill-session -t "$pier_session" 2>/dev/null
 # The serf exits first and the king outlives it, holding the pier lock on its
 # way out. Starting the next pier while the king still holds it makes the new
@@ -3634,7 +3643,7 @@ for attempt in $(seq 1 120); do
   sleep 1
 done
 [ -z "$(pier_holders)" ] \
-  || fail "fixture 12 urbit still holds $PIER: $(pier_holders)"
+  || fail "fixture $fx urbit still holds $PIER: $(pier_holders)"
 # script(1) gives the run a pty; without one vere refuses to start interactive.
 tmux new-session -d -s "$pier_session" \
   "exec script -q -f -e -O /dev/null -c $(printf '%q' "$pier_binary -p $ames_port $PIER")"
@@ -3650,9 +3659,12 @@ done
 # A pier that will not come back says why. Without the pane text the failure
 # reads as "the pier did not restart" and the reason is gone with the session.
 [ "$ready" = 1 ] \
-  || fail "fixture 12 the pier did not restart: $(tmux capture-pane -pt "$pier_session" -S -40 2>&1 | tail -20)"
+  || fail "fixture $fx the pier did not restart: $(tmux capture-pane -pt "$pier_session" -S -40 2>&1 | tail -20)"
 URL="http://localhost:$PORT"
 eyre_login
+}
+
+restart_pier 12
 view="$(eyre_view)"
 card="$(event_card service "$SERVICE_NOTE")"
 [ -n "$card" ] || fail "fixture 12 the service event did not survive the restart"
@@ -5391,6 +5403,312 @@ grep -qx 'IMPORT_REQUEST_COUNT=0' <<<"$import_clay_only" \
   || fail "fixture 112 the screen sent an import it was only asked to read: $import_clay_only"
 note "fixture 112 reason - $m8_backend_state"
 note "fixture 112 PASS - a ship with no %storage configuration offers Clay only on the import screen, says why in human words, and the endpoint refuses the S3 choice the same way"
+# ---------------------------------------------------------------------------
+# fixture 115 - a batch of photographs into S3, and a bucket that refuses.
+#
+# Fixture 111 imports ONE photograph, so it cannot tell an import that answers
+# after the last photograph from one that answers after the first. This one
+# carries three, and the count in the answer is what proves the request waited
+# for all of them.
+#
+# Then the same import meets a bucket that refuses. The rule is that one
+# photograph which will not store never stops the rest, and the person still
+# gets an answer. Two photographs go in and BOTH are named as failures, which
+# is what proves the loop ran past the first refusal.
+# ---------------------------------------------------------------------------
+m8_png() {
+  python3 - "$1" "$2" <<'PNG'
+import struct
+import sys
+import zlib
+
+path, red = sys.argv[1], int(sys.argv[2])
+width = height = 16
+raw = b"".join(
+    b"\x00" + bytes([red, (row * 13) % 256, 90] * width) for row in range(height)
+)
+
+
+def chunk(tag, body):
+    return (
+        struct.pack(">I", len(body))
+        + tag
+        + body
+        + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+    )
+
+
+open(path, "wb").write(
+    b"\x89PNG\r\n\x1a\n"
+    + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    + chunk(b"IDAT", zlib.compress(raw, 9))
+    + chunk(b"IEND", b"")
+)
+PNG
+}
+
+# One archive carrying SEVERAL photographs, all on the first vehicle. Every
+# other record in it is already imported, so the photographs are the only work
+# the run has left to do.
+m8_batch_archive() {
+  local target="$1"
+  shift
+  python3 - "$M8_UNPACKED/rover-import.json" "$target" "$@" <<'BATCHTAR'
+import hashlib
+import io
+import json
+import pathlib
+import sys
+import tarfile
+
+document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+target = sys.argv[2]
+pairs = sys.argv[3:]
+
+
+def strip(node):
+    if isinstance(node, dict):
+        node.pop("attachments", None)
+        for value in node.values():
+            strip(value)
+    elif isinstance(node, list):
+        for value in node:
+            strip(value)
+
+
+for vehicle in document["vehicles"]:
+    strip(vehicle)
+
+names = []
+bodies = {}
+for pair in pairs:
+    name, path = pair.split("=", 1)
+    names.append(name)
+    bodies[name] = pathlib.Path(path).read_bytes()
+
+document["vehicles"][0]["attachments"] = names
+document["source"]["attachments"]["files"] = [
+    {
+        "name": name,
+        "path": "attachments/" + name,
+        "hash": hashlib.sha256(bodies[name]).hexdigest(),
+        "bytes": str(len(bodies[name])),
+        "mediaType": "image/png",
+    }
+    for name in names
+]
+document["source"]["attachments"]["photoCount"] = len(names)
+payload = json.dumps(document).encode()
+
+with tarfile.open(target, "w", format=tarfile.USTAR_FORMAT) as archive:
+    members = [("rover-import.json", payload)]
+    members += [("attachments/" + name, bodies[name]) for name in names]
+    for member, content in members:
+        info = tarfile.TarInfo(member)
+        info.size = len(content)
+        archive.addfile(info, io.BytesIO(content))
+BATCHTAR
+}
+
+# Read one object out of the bucket with a client that is not Rover.
+m8_bucket_object() {
+  python3 - "$S3_ENDPOINT" "$1" <<'BUCKET'
+import sys, hashlib, boto3, botocore
+endpoint, locator = sys.argv[1], sys.argv[2]
+bucket, key = locator.lstrip("/").split("/", 1)
+s3 = boto3.client("s3", endpoint_url=endpoint,
+                  aws_access_key_id="roverm8key",
+                  aws_secret_access_key="roverm8secret123",
+                  region_name="us-east-1",
+                  config=botocore.config.Config(s3={"addressing_style": "path"}))
+body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+print(hashlib.sha256(body).hexdigest(), len(body))
+BUCKET
+}
+
+M8_BATCH_TAR="/tmp/rover-m8-batch-$STAMP.tar"
+M8_BATCH_PAIRS=''
+m8_batch_names=''
+for m8_shade in 31 97 163; do
+  m8_batch_photo="/tmp/rover-m8-batch-$m8_shade-$STAMP.png"
+  m8_batch_name="batch-$m8_shade-$STAMP.png"
+  m8_png "$m8_batch_photo" "$m8_shade"
+  M8_BATCH_PAIRS="$M8_BATCH_PAIRS $m8_batch_name=$m8_batch_photo"
+  m8_batch_names="$m8_batch_names $m8_batch_name"
+done
+m8_batch_archive "$M8_BATCH_TAR" $M8_BATCH_PAIRS \
+  || fail "fixture 115 could not build the three-photo archive"
+m8_batch_import="$(m8_import_backend "$M8_BATCH_TAR" s3)"
+case "$m8_batch_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 115 the three-photo S3 import was refused: $m8_batch_import";;
+esac
+# The count is the proof. An import that answered after the first photograph
+# could not report three, and one that answered twice could not report any
+# number at all, because the second answer has no request left to carry it.
+grep -q 'Photos: imported 3, already-imported 0, failures 0' <<<"$m8_batch_import" \
+  || fail "fixture 115 the batch did not answer after the last photograph: $m8_batch_import"
+m8_batch_checked=0
+for m8_batch_name in $m8_batch_names; do
+  m8_shade="$(sed 's/^batch-\([0-9]*\)-.*/\1/' <<<"$m8_batch_name")"
+  report="$(rover_report "FROM attachments T WHERE T.file-name = '$m8_batch_name' SELECT T.attachment-id, T.backend, T.locator;")"
+  backend_named "$report" s3 \
+    || fail "fixture 115 the batch photo $m8_batch_name did not land in S3: $report"
+  m8_batch_locator="$(grep -oE "%locator 116 '[^']*'" <<<"$report" | head -1 | sed "s/^.*'\(.*\)'$/\1/")"
+  [ -n "$m8_batch_locator" ] || fail "fixture 115 a batch reference carries no locator: $report"
+  m8_batch_read="$(m8_bucket_object "$m8_batch_locator")" \
+    || fail "fixture 115 could not read $m8_batch_name out of the bucket"
+  [ "$(awk '{print $1}' <<<"$m8_batch_read")" \
+    = "$(digest "/tmp/rover-m8-batch-$m8_shade-$STAMP.png")" ] \
+    || fail "fixture 115 the object in the bucket is not $m8_batch_name: $m8_batch_read"
+  m8_batch_checked=$((m8_batch_checked + 1))
+done
+[ "$m8_batch_checked" = 3 ] \
+  || fail "fixture 115 checked $m8_batch_checked of the three batch photos"
+
+# The refusal. The secret key is made wrong, so the bucket answers 403 for
+# every PUT. The endpoint still accepts the import, because the ship IS
+# configured for S3, and the report is where the failure is named.
+#
+# Every shade here is its own, and no other fixture generates it. Bytes this
+# ship already holds take the reuse path and never reach the bucket, so a
+# repeated shade would silently import instead of being refused.
+M8_REFUSED_TAR="/tmp/rover-m8-refused-$STAMP.tar"
+M8_REFUSED_PAIRS=''
+m8_refused_names=''
+for m8_shade in 43 149; do
+  m8_refused_photo="/tmp/rover-m8-refused-$m8_shade-$STAMP.png"
+  m8_refused_name="refused-$m8_shade-$STAMP.png"
+  m8_png "$m8_refused_photo" "$m8_shade"
+  M8_REFUSED_PAIRS="$M8_REFUSED_PAIRS $m8_refused_name=$m8_refused_photo"
+  m8_refused_names="$m8_refused_names $m8_refused_name"
+done
+m8_batch_archive "$M8_REFUSED_TAR" $M8_REFUSED_PAIRS \
+  || fail "fixture 115 could not build the refused archive"
+storage_poke "[%set-secret-access-key 'wrong-secret-$STAMP']"
+m8_refused_import="$(m8_import_backend "$M8_REFUSED_TAR" s3)"
+storage_poke "[%set-secret-access-key 'roverm8secret123']"
+case "$m8_refused_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 115 a refusing bucket left the request unanswered: $m8_refused_import";;
+esac
+grep -q 'Photos: imported 0, already-imported 0, failures 2' <<<"$m8_refused_import" \
+  || fail "fixture 115 the refusal did not fail exactly the two photographs: $m8_refused_import"
+for m8_refused_name in $m8_refused_names; do
+  grep -qF "Photo $m8_refused_name" <<<"$m8_refused_import" \
+    || fail "fixture 115 the report does not name $m8_refused_name: $m8_refused_import"
+  report="$(rover_report "FROM attachments T WHERE T.file-name = '$m8_refused_name' SELECT T.attachment-id;")"
+  grep -q '%attachment-id' <<<"$report" \
+    && fail "fixture 115 a refused photograph left a reference behind: $report"
+done
+grep -q 'S3 storage' <<<"$m8_refused_import" \
+  || fail "fixture 115 the refusal is not in human words: $m8_refused_import"
+# And the ship is not stuck. The next import runs, on the same records.
+m8_after_refusal="$(m8_import_backend "$M8_BATCH_TAR" s3)"
+case "$m8_after_refusal" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 115 the ship refused the next import after a bucket refusal: $m8_after_refusal";;
+esac
+grep -q 'Photos: imported 0, already-imported 3, failures 0' <<<"$m8_after_refusal" \
+  || fail "fixture 115 reading the same batch twice did not add nothing: $m8_after_refusal"
+note "fixture 115 batch - three imported and read back out of the bucket, two refused and named"
+note "fixture 115 PASS - a three-photograph S3 import answers once, after the last one, a bucket that refuses fails every photograph it refuses and still answers the request, and the run that follows a refusal still works"
+
+# ---------------------------------------------------------------------------
+# fixture 114 - everything M8 added survives a ship restart.
+#
+# Fixture 106 proves the ATTACH path across the first restart. Everything M8
+# built after it - the import that carries photographs, the choice of backend,
+# the complete archive and its manifest - had never met one. This is a SECOND
+# restart, taken after those fixtures have run, so the state it reads is the
+# state they left.
+#
+# The S3 half matters most. A reference the import wrote names bytes that are
+# not on this ship, and reading it back after a restart is what proves the
+# reference, the locator, and the credential path all survived together.
+# ---------------------------------------------------------------------------
+m8_restart_refs_before="$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')"
+[ -n "$m8_restart_refs_before" ] && [ "$m8_restart_refs_before" -gt 0 ] \
+  || fail "fixture 114 the database holds no reference to carry across the restart"
+restart_pier 114
+auth_cookie_name="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $6; exit}' "$JAR")"
+auth_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
+[ -n "$auth_cookie" ] || fail "fixture 114 has no urbauth cookie after the restart"
+m8_restart_refs_after="$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')"
+[ "$m8_restart_refs_after" = "$m8_restart_refs_before" ] \
+  || fail "fixture 114 the reference count moved from $m8_restart_refs_before to $m8_restart_refs_after over the restart"
+
+# Both imported photographs serve back, byte for byte, out of the store the
+# owner named for each.
+M8_RESTART_BACK="/tmp/rover-m8-restart-back-$STAMP.png"
+[ "$(fetch_file "$M8_IMPORT_CLAY_NAME" "$M8_RESTART_BACK")" = 200 ] \
+  || fail "fixture 114 the Clay-imported photo did not serve back after the restart"
+cmp -s "$M8_IMPORT_CLAY_PHOTO" "$M8_RESTART_BACK" \
+  || fail "fixture 114 the Clay-imported photo is not byte for byte the source after the restart"
+[ "$(fetch_file "$M8_IMPORT_S3_NAME" "$M8_RESTART_BACK")" = 200 ] \
+  || fail "fixture 114 the S3-imported photo did not serve back after the restart"
+cmp -s "$M8_IMPORT_S3_PHOTO" "$M8_RESTART_BACK" \
+  || fail "fixture 114 the S3-imported photo is not byte for byte the source after the restart"
+rm -f "$M8_RESTART_BACK"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$M8_IMPORT_S3_NAME' SELECT T.attachment-id, T.backend, T.locator;")"
+backend_named "$report" s3 \
+  || fail "fixture 114 the imported S3 reference no longer names its backend: $report"
+
+# The backend question the import asks is still answered the same way.
+M8_RESTART_BACKENDS="/tmp/rover-m8-restart-backends-$STAMP.json"
+curl -sS -b "$JAR" -o "$M8_RESTART_BACKENDS" "$URL/apps/rover/backends.json"
+m8_restart_offers="$(python3 - "$M8_RESTART_BACKENDS" 2>&1 <<'PY'
+import json
+import sys
+
+backends = {b["name"]: b for b in json.load(open(sys.argv[1]))["backends"]}
+assert backends["clay"]["available"] is True, "Clay is not offered after the restart"
+assert backends["s3"]["available"] is True, "S3 is not offered after the restart"
+print("BACKENDS=clay,s3")
+PY
+)" || fail "fixture 114 the backend route changed over the restart: $m8_restart_offers"
+rm -f "$M8_RESTART_BACKENDS"
+
+# The complete archive still serves, and its manifest still tells the truth
+# about the photographs the database holds.
+M8_RESTART_TAR="/tmp/rover-m8-restart-export-$STAMP.tar"
+m8_restart_status="$(curl -sS -b "$JAR" -o "$M8_RESTART_TAR" -w '%{http_code}' "$URL/apps/rover/export.tar")"
+[ "$m8_restart_status" = 200 ] \
+  || fail "fixture 114 the archive endpoint answered $m8_restart_status after the restart"
+m8_restart_manifest="$(python3 - "$M8_RESTART_TAR" "$m8_restart_refs_after" <<'PY'
+import json
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1]) as archive:
+    names = archive.getnames()
+    document = json.loads(archive.extractfile("rover-import.json").read())
+
+manifest = document["source"]["attachments"]
+stored = int(sys.argv[2])
+assert manifest["included"] is True, "the archive disowns the photos it carries"
+assert int(manifest["photoCount"]) == stored, f'{manifest["photoCount"]} against {stored}'
+carried = [name for name in names if name.startswith("attachments/")]
+assert len(carried) == stored, f"{len(carried)} members against {stored} references"
+print(f"MEMBERS={len(names)} PHOTOS={len(carried)}")
+PY
+)" || fail "fixture 114 the archive manifest is not true after the restart: $m8_restart_manifest"
+rm -f "$M8_RESTART_TAR"
+
+# And an import with photographs still works on the far side. Re-reading the
+# batch adds nothing, which is the same rule ruling 18 gives every record.
+m8_restart_import="$(m8_import_backend "$M8_BATCH_TAR" s3)"
+case "$m8_restart_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 114 an S3 import was refused after the restart: $m8_restart_import";;
+esac
+grep -q 'Photos: imported 0, already-imported 3, failures 0' <<<"$m8_restart_import" \
+  || fail "fixture 114 the batch was not recognised after the restart: $m8_restart_import"
+note "fixture 114 restart - $m8_restart_refs_after references, $m8_restart_manifest"
+note "fixture 114 PASS - every imported photograph, both backends, the archive and its manifest survived a second ship restart, and an S3 import still answers after it"
+rm -f "$M8_BATCH_TAR" "$M8_REFUSED_TAR"
+rm -f /tmp/rover-m8-batch-*-"$STAMP".png /tmp/rover-m8-refused-*-"$STAMP".png
+
 rm -f "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_S3_PHOTO" "$M8_IMPORT_CLAY_TAR" "$M8_IMPORT_S3_TAR"
 rm -f "$M8_BROWSER_IMPORT_DOC"
 
