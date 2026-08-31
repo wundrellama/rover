@@ -225,9 +225,12 @@ async function testItemizedChargeEntry(page, vehicle) {
 async function testImportUpload(page, documentPath, batchSize) {
   let posts = 0;
   page.on('request', (request) => {
+    // The import screen names the backend in the query string, so the match
+    // is on the PATH. `endsWith` stopped counting the moment that query
+    // string arrived, and a counter that reads zero proves nothing.
     if (
       request.method() === 'POST' &&
-      request.url().endsWith('/apps/rover/import')
+      new URL(request.url()).pathname === '/apps/rover/import'
     ) {
       posts += 1;
     }
@@ -282,9 +285,12 @@ async function testImportUpload(page, documentPath, batchSize) {
 async function testImportPrepare(page, documentPath, batchSize) {
   let posts = 0;
   page.on('request', (request) => {
+    // The import screen names the backend in the query string, so the match
+    // is on the PATH. `endsWith` stopped counting the moment that query
+    // string arrived, and a counter that reads zero proves nothing.
     if (
       request.method() === 'POST' &&
-      request.url().endsWith('/apps/rover/import')
+      new URL(request.url()).pathname === '/apps/rover/import'
     ) {
       posts += 1;
     }
