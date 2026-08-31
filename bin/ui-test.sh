@@ -1338,7 +1338,10 @@ row = re.search(
     re.S,
 )
 card = re.search(
-    r"<article class=\"history-card fill\">"
+    # M8. The card now says which record it is, so the browser can ask for the
+    # photographs it carries. The class is still the handle; the attributes
+    # that follow it are not asserted here.
+    r"<article class=\"history-card fill\"[^>]*>"
     r"(?:(?!</article>).)*2026-07-04 12:00:00"
     r"(?:(?!</article>).)*</article>",
     document,
@@ -2802,8 +2805,11 @@ grep -q 'data-settings-section="export"' <<<"$view" \
   || fail "Settings lacks the export section"
 grep -q 'data-rover-export-download' <<<"$view" \
   || fail "Settings export section lacks the download anchor"
-grep -q 'href="/apps/rover/export"' <<<"$view" \
-  || fail "Settings export download does not address /apps/rover/export"
+# M8. The complete export is the archive: it holds the same import document
+# plus every photo. The JSON endpoint is still served for a reader that wants
+# the facts alone, but it is not what the download control offers.
+grep -q 'href="/apps/rover/export.tar"' <<<"$view" \
+  || fail "Settings export download does not address /apps/rover/export.tar"
 if grep -q 'EXPORT.*COMING LATER' <<<"$view"; then
   fail "Settings still shows the export placeholder"
 fi

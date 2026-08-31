@@ -274,13 +274,29 @@
       reminders-already-imported=@ud
       subtype-defaults-created=@ud
       subtype-defaults-reused=@ud
+      ::  M8. The photos the archive carried. A photo the receiving ship
+      ::  already holds counts as already-imported, so the same archive read
+      ::  twice adds nothing.
+      photos-imported=@ud
+      photos-already-imported=@ud
+      photos-failed=@ud
       messages=(list @t)
+  ==
+::  M8. One photo out of an import archive, waiting for the records it hangs
+::  off to exist. The bytes ride here because the tar is read once, at the
+::  boundary, and the archive is gone by the time the record is written.
++$  import-photo
+  $:  entry=attachment-entry
+      bytes=octs
   ==
 +$  import-run
   $:  eyre-id=@ta
       writing=?
       serial=@ud
       remaining=(list import-work)
+      ::  The photo phase. It starts when `remaining` empties: a photo cannot
+      ::  attach to a record that has not been written yet.
+      photos=(list import-photo)
       report=import-report
   ==
 +$  delivered-energy
@@ -533,6 +549,69 @@
   $:  scenario=integrity-kind
       rejected=?
       message=@t
+  ==
+::  M8. An attachment is a photo or a receipt the owner keeps beside a record.
+::  The BYTES never enter Obelisk. A reference row names where they are, and
+::  these shapes carry the request that creates one.
+::
+::  The owner term names the event FAMILY, not the typed child, per ruling 11.
+::  A fill and a charge share `%energy`, because both are energy acquisitions
+::  and the link keys to that parent.
++$  attachment-owner  ?(%energy %event %vehicle)
+::  What Rover needs to reach an S3-compatible bucket, read from Landscape's
+::  %storage agent so a NativePlanet owner who already pointed %storage at
+::  RustFS never configures the same bucket twice.
++$  s3-config
+  $:  endpoint=@t
+      region=@t
+      bucket=@t
+      access-key-id=@t
+      secret-access-key=@t
+  ==
++$  attachment-backend  ?(%clay %s3)
+::  What the Eyre boundary supplies. No machine id: the record is addressed the
+::  way every other correction addresses one, by vehicle label and the moment it
+::  holds. A vehicle attachment carries no moment, so `observed` is absent.
++$  attachment-entry
+  $:  owner=attachment-owner
+      vehicle-label=@t
+      observed=(unit @da)
+      file-name=@t
+      media-type=@t
+      backend=attachment-backend
+  ==
+::  The stored reference, as Rover reads it back out of the database.
++$  attachment-ref
+  $:  attachment-id=@ux
+      backend=attachment-backend
+      locator=@t
+      content-hash=@t
+      byte-count=@ud
+      media-type=@t
+      file-name=@t
+  ==
+::  An attachment write in flight. The bytes wait here while Obelisk resolves
+::  the owning record, so a request naming a vehicle that does not exist is
+::  refused before anything reaches a storage backend.
++$  attachment-write
+  $:  entry=attachment-entry
+      bytes=octs
+      content-hash=@t
+      attachment-id=@ux
+      ::  Filled in once Obelisk has resolved the owning record and the free
+      ::  file name. Both are zero until then.
+      owner-id=@ux
+      stored-name=@t
+  ==
+::  M8. An export in flight. The JSON payload is finished before the first
+::  photo is read, and the members accumulate until every reference has given
+::  up its bytes. A Clay reference is read on the spot; an S3 one costs a round
+::  trip to the bucket, and that is what this run exists to survive.
++$  export-run
+  $:  eyre-id=@ta
+      payload=@t
+      remaining=(list attachment-ref)
+      members=(list [name=@t bytes=octs])
   ==
 +$  action
   $%  [%init-db ~]

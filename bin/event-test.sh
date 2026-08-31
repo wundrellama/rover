@@ -52,6 +52,11 @@ URL="http://localhost:$PORT"
 JAR="$(mktemp /tmp/rover-event-test-jar.XXXXXX)"
 ROUNDTRIP_BACKUP='roverexportowner'
 ROUNDTRIP_SWAPPED=0
+# M8. The real corpus loads into a database of its own, so the battery's own
+# data is neither mixed with the owner's history nor changed by it, and the
+# second back-to-back run meets exactly the state the first one did.
+CORPUS_BACKUP='rovercorpusowner'
+CORPUS_SWAPPED=0
 ROUNDTRIP_BEFORE=''
 ROUNDTRIP_AFTER=''
 ROUNDTRIP_COUNTS_BEFORE=''
@@ -63,6 +68,10 @@ cleanup_event_test() {
   if [ "$ROUNDTRIP_SWAPPED" -eq 1 ]; then
     restore_roundtrip_owner >/dev/null 2>&1 ||
       echo "event-test: cleanup could not restore the pre-round-trip database" >&2
+  fi
+  if [ "$CORPUS_SWAPPED" -eq 1 ]; then
+    restore_corpus_owner >/dev/null 2>&1 ||
+      echo "event-test: cleanup could not restore the pre-corpus database" >&2
   fi
   rm -f "$JAR"
   [ -z "$ROUNDTRIP_BEFORE" ] || rm -f "$ROUNDTRIP_BEFORE"
@@ -230,6 +239,18 @@ rover_report() {
 
 database_exists() {
   grep -Fq "[%database %tas %$2]" <<<"$1"
+}
+
+restore_corpus_owner() {
+  local databases
+  [ "$CORPUS_SWAPPED" -eq 1 ] || return 0
+  databases="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+  database_exists "$databases" "$CORPUS_BACKUP" || return 1
+  if database_exists "$databases" rover; then
+    obelisk_report sys 'DROP DATABASE FORCE rover;' >/dev/null || return 1
+  fi
+  obelisk_report sys "ALTER DATABASE $CORPUS_BACKUP RENAME TO rover;" >/dev/null || return 1
+  CORPUS_SWAPPED=0
 }
 
 restore_roundtrip_owner() {
@@ -2095,8 +2116,12 @@ note "fixture 62 PASS - no insurance relation, column, or field exists anywhere 
 # therefore a finding, and every VIN this battery writes contains I and O and
 # so cannot be one.
 #
-# The owner's aCar export holds his real VIN and plate for two vehicles. It is
-# gitignored, this battery never reads it, and T7 does not need it.
+# The owner's aCar export holds a real VIN and a real plate for two vehicles.
+# It is gitignored and no VIN or plate out of it may reach the tree.
+#
+# M8 changed one thing here. Fixture 104 loads the owner's real corpus, so
+# this battery does now open the export. Exactly one file may: the check below
+# names it, and the shipped desk and the probes still may not.
 # ---------------------------------------------------------------------------
 vin_shaped="$(cd "$REPO" && git ls-files \
   | grep -vE '^desk/app/rover/assets/' \
@@ -2116,17 +2141,20 @@ for synthetic in "$SPEC_PLATE" "$SPEC_PLATE_ONLY"; do
   grep -q 'FAKE' <<<"$synthetic" \
     || fail "fixture 63 the plate $synthetic is not marked synthetic"
 done
-# Nothing that runs names the export as a PATH. Naming it in prose - this
-# comment does - is not reading it; a directory to open is, so the check looks
-# for the parent directory that locates the real thing on disk.
+# What names the export as a PATH is named here. A directory to open is a
+# reader; naming it in prose - this comment does - is not.
 # The needle is assembled at run time so this line is not itself a match.
 export_needle="$(printf 'rover/aCar %s' 'export')"
-export_readers="$(grep -rlF "$export_needle" "$REPO/bin" "$REPO/probes" "$REPO/desk" 2>/dev/null | tr '\n' ' ')"
+export_readers="$(grep -rlF "$export_needle" "$REPO/probes" "$REPO/desk" 2>/dev/null | tr '\n' ' ')"
 [ -z "${export_readers// /}" ] \
-  || fail "fixture 63 something in the tree opens the owner's aCar export: $export_readers"
+  || fail "fixture 63 the shipped desk or a probe opens the owner's aCar export: $export_readers"
+export_readers="$(grep -rlF "$export_needle" "$REPO/bin" 2>/dev/null \
+  | grep -v '/event-test\.sh$' | tr '\n' ' ')"
+[ -z "${export_readers// /}" ] \
+  || fail "fixture 63 something other than fixture 104 opens the owner's aCar export: $export_readers"
 grep -q 'aCar export/' "$REPO/.gitignore" \
   || fail "fixture 63 the owner's aCar export is no longer gitignored"
-note "fixture 63 PASS - every VIN in the tree contains a letter the real VIN alphabet excludes, every plate is marked FAKE, and the owner's export is never read"
+note "fixture 63 PASS - every VIN in the tree contains a letter the real VIN alphabet excludes, every plate is marked FAKE, and the only file that opens the owner's export is the one fixture 104 runs from"
 
 # ===========================================================================
 # M7 T8 - the definition lifecycle.
@@ -3036,8 +3064,523 @@ note "fixture 95 PASS - a person corrects an event from the card in a real brows
 
 
 # ---------------------------------------------------------------------------
+# M8 - attachments. The blobs never enter Obelisk. The database holds a
+# reference; the bytes live in Clay or in an S3 bucket, and the ship proxies
+# them both ways.
+# ---------------------------------------------------------------------------
+urlenc() { python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$1"; }
+
+# Attach one file through the product endpoint a browser calls.
+#   attach_file <owner> <vehicle> <observed> <file> <media-type> <path> <backend>
+attach_file() {
+  local owner="$1" vehicle="$2" observed="$3" file="$4" type="$5" src="$6" backend="${7:-clay}"
+  local query
+  query="owner=$owner&vehicle=$(urlenc "$vehicle")&file=$(urlenc "$file")&type=$(urlenc "$type")&backend=$backend"
+  [ -n "$observed" ] && query="$query&observed=$(urlenc "$observed")"
+  curl -sS -b "$JAR" -w $'\n%{http_code}' -H "content-type: $type" \
+    --data-binary "@$src" "$URL/apps/rover/add-attachment?$query"
+}
+
+fetch_file() {
+  local file="$1" target="$2"
+  curl -sS -b "$JAR" -o "$target" -w '%{http_code}' \
+    "$URL/apps/rover/attachment/$(urlenc "$file")"
+}
+
+digest() { sha256sum "$1" | awk '{print $1}'; }
+
+# Which backend a reference names.
+#
+# The pinned engine renders a term that carries a digit as a bare number
+# instead of as `%s3`, so the row reads `%backend %tas 13171`. 13171 is the
+# cord `s3`: 's' is 0x73 in the low byte and '3' is 0x33 above it. The value
+# stored is right and only its printing is not, so both forms are read here.
+backend_named() {
+  local report="$1" want="$2"
+  case "$want" in
+    (s3) grep -qE '%backend %tas (%s3|13171)' <<<"$report" ;;
+    (*) grep -q "%backend %tas %$want" <<<"$report" ;;
+  esac
+}
+
+# The fill this run's vehicle already carries, from fixture 3. An attachment
+# hangs off a record that already exists; it does not need a record of its own.
+M8_FILL_AT='2026-07-20T12:00'
+M8_TRANSPORT="/tmp/rover-m8-transport-$STAMP.bin"
+M8_TRANSPORT_BACK="/tmp/rover-m8-transport-back-$STAMP.bin"
+M8_PHOTO="/tmp/rover-m8-photo-$STAMP.jpg"
+M8_PHOTO_BACK="/tmp/rover-m8-photo-back-$STAMP.jpg"
+
+# ---------------------------------------------------------------------------
+# fixture 96 - outbound transport, measured before anything is built on it.
+#
+# Inbound was already proven at 64 MB. Nobody had served a corpus-sized
+# response OUT of Gall through Eyre in one piece, and the whole export design
+# rests on whether that works. So this fixture runs first and it uses the real
+# product path: a photo goes in through the attach endpoint and comes back out
+# through the serve endpoint, at the size the owner's real corpus reaches.
+#
+# If this fails, chunked download is the fallback and the tar format does not
+# change.
+# ---------------------------------------------------------------------------
+python3 - "$M8_TRANSPORT" <<'TRANSPORT'
+import sys
+target = 50 * 1024 * 1024
+chunk = bytes(range(256))
+data = bytearray(b"\xff\xd8\xff\xe1")
+while len(data) < target:
+    data += chunk
+open(sys.argv[1], "wb").write(bytes(data[:target]))
+TRANSPORT
+M8_TRANSPORT_BYTES="$(wc -c < "$M8_TRANSPORT")"
+[ "$M8_TRANSPORT_BYTES" -ge 49000000 ] \
+  || fail "fixture 96 the transport payload is smaller than the real corpus"
+M8_TRANSPORT_HASH="$(digest "$M8_TRANSPORT")"
+attach_response="$(attach_file vehicle "$VEHICLE" '' "transport-$STAMP.bin" 'image/jpeg' "$M8_TRANSPORT" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 96 the ship would not accept a corpus-sized upload: $attach_response";;
+esac
+transport_status="$(fetch_file "transport-$STAMP.bin" "$M8_TRANSPORT_BACK")"
+[ "$transport_status" = 200 ] \
+  || fail "fixture 96 the corpus-sized response did not serve: HTTP $transport_status"
+transport_back_bytes="$(wc -c < "$M8_TRANSPORT_BACK")"
+[ "$transport_back_bytes" = "$M8_TRANSPORT_BYTES" ] \
+  || fail "fixture 96 sent $M8_TRANSPORT_BYTES bytes and received $transport_back_bytes"
+[ "$(digest "$M8_TRANSPORT_BACK")" = "$M8_TRANSPORT_HASH" ] \
+  || fail "fixture 96 the received bytes hash differently from the sent bytes"
+note "fixture 96 outbound - $transport_back_bytes bytes, sha256 $M8_TRANSPORT_HASH"
+note "fixture 96 PASS - a corpus-sized response leaves Gall through Eyre in one piece, with the received byte count and hash equal to what was sent"
+rm -f "$M8_TRANSPORT" "$M8_TRANSPORT_BACK"
+
+# ---------------------------------------------------------------------------
+# fixture 97 - a photo attaches to a fill, and the stored bytes hash EQUAL to
+# the source bytes. EXIF intact, no re-encode. The photo carries a real APP1
+# marker with a GPS-shaped payload, so a silent strip or re-encode changes the
+# digest and fails here.
+# ---------------------------------------------------------------------------
+python3 - "$M8_PHOTO" <<'PHOTO'
+import sys
+# A minimal JPEG carrying an APP1/Exif segment. Nothing here is decoded by
+# Rover - the point is that these exact bytes come back.
+exif = b"Exif\x00\x00MM\x00\x2a\x00\x00\x00\x08\x00\x01\x87\x69\x00\x04\x00\x00\x00\x01\x00\x00\x00\x1a"
+app1 = b"\xff\xe1" + (len(exif) + 2).to_bytes(2, "big") + exif
+body = bytes(range(256)) * 64
+open(sys.argv[1], "wb").write(b"\xff\xd8" + app1 + b"\xff\xdb" + body + b"\xff\xd9")
+PHOTO
+M8_PHOTO_HASH="$(digest "$M8_PHOTO")"
+M8_PHOTO_BYTES="$(wc -c < "$M8_PHOTO")"
+fill_photo="fill-receipt-$STAMP.jpg"
+attach_response="$(attach_file fill "$VEHICLE" "$M8_FILL_AT" "$fill_photo" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 97 the fill would not take a photo: $attach_response";;
+esac
+[ "$(fetch_file "$fill_photo" "$M8_PHOTO_BACK")" = 200 ] \
+  || fail "fixture 97 the fill photo did not serve back"
+[ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 97 the stored bytes do not hash equal to the source bytes"
+cmp -s "$M8_PHOTO" "$M8_PHOTO_BACK" \
+  || fail "fixture 97 the served photo is not byte-for-byte the source photo"
+grep -aq 'Exif' "$M8_PHOTO_BACK" \
+  || fail "fixture 97 the APP1 Exif segment did not survive storage"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$fill_photo' SELECT T.attachment-id, T.content-hash, T.byte-count;")"
+grep -q "%content-hash 116 %$M8_PHOTO_HASH" <<<"$report" \
+  || grep -q "%content-hash 116 '$M8_PHOTO_HASH'" <<<"$report" \
+  || fail "fixture 97 the reference does not carry the source digest: $report"
+grep -q "%byte-count 25717 $M8_PHOTO_BYTES" <<<"$report" \
+  || fail "fixture 97 the reference does not carry the source byte count: $report"
+# The link keys to the energy family PARENT, never to the fuel-fills child.
+report="$(rover_report "FROM energy-acquisition-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$fill_photo' SELECT L.acquisition-id, L.attachment-id;")"
+grep -q '%acquisition-id' <<<"$report" \
+  || fail "fixture 97 no link row keyed to the energy acquisition: $report"
+note "fixture 97 PASS - a photo attaches to a fill through the product endpoint, the stored bytes hash equal to the source bytes, and the link keys to the family parent"
+
+# ---------------------------------------------------------------------------
+# fixture 98 - the same photo path to an event and to a vehicle. Three owners,
+# one reference relation, each link keyed to its family parent.
+# ---------------------------------------------------------------------------
+event_photo="event-receipt-$STAMP.jpg"
+vehicle_photo="vehicle-plate-$STAMP.jpg"
+attach_response="$(attach_file event "$VEHICLE" "$SERVICE_AT" "$event_photo" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 98 the service event would not take a photo: $attach_response";;
+esac
+attach_response="$(attach_file vehicle "$VEHICLE" '' "$vehicle_photo" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 98 the vehicle would not take a photo: $attach_response";;
+esac
+report="$(rover_report "FROM vehicle-event-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$event_photo' SELECT L.event-id, L.attachment-id;")"
+grep -q '%event-id' <<<"$report" \
+  || fail "fixture 98 no link row keyed to the vehicle event: $report"
+report="$(rover_report "FROM vehicle-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$vehicle_photo' SELECT L.vehicle-id, L.attachment-id;")"
+grep -q '%vehicle-id' <<<"$report" \
+  || fail "fixture 98 no link row keyed to the vehicle: $report"
+for name in "$event_photo" "$vehicle_photo"; do
+  [ "$(fetch_file "$name" "$M8_PHOTO_BACK")" = 200 ] \
+    || fail "fixture 98 $name did not serve back"
+  [ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+    || fail "fixture 98 $name did not hash equal to the source bytes"
+done
+# One relation, three owners: all three references live in `attachments`.
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$event_photo' SELECT T.attachment-id;")"
+grep -q '%attachment-id' <<<"$report" \
+  || fail "fixture 98 the event photo is not in the one reference relation"
+# A record that does not exist is refused in human words, not with a raw error.
+missing="$(attach_file event "$VEHICLE" '2001-01-01T00:00' "ghost-$STAMP.jpg" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$missing" in
+  (*$'\n'404) ;;
+  (*) fail "fixture 98 a photo attached to a record that does not exist: $missing";;
+esac
+grep -q 'No record on that vehicle at that moment' <<<"$missing" \
+  || fail "fixture 98 the refusal is not in human words: $missing"
+note "fixture 98 PASS - a photo attaches to an event and to a vehicle, three owners share one reference relation, and each link keys to its family parent"
+
+# ---------------------------------------------------------------------------
+# fixture 99 - the Clay backend end to end on a real pier. The bytes are in
+# Clay, at the path the reference names, and they are the source bytes.
+# ---------------------------------------------------------------------------
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$fill_photo' SELECT T.attachment-id, T.backend, T.locator;")"
+backend_named "$report" clay \
+  || fail "fixture 99 the reference does not name the Clay backend: $report"
+# The probe reads the LOCATOR column rather than rebuilding a path from the
+# id. That is what the column is for, and it is also the only correct source:
+# Obelisk renders a @ux with no dot separators, so an id read back and pasted
+# into a Hoon path is not a Hoon path at all.
+clay_locator="$(grep -oE "%locator 116 '[^']*'" <<<"$report" | head -1 | sed "s/^.*'\(.*\)'\$/\1/")"
+[ -n "$clay_locator" ] || fail "fixture 99 could not read the locator: $report"
+clay_probe="$(click_file "=/  m  (strand ,vase)
+;<  =bowl:strand  bind:m  get-bowl
+=/  pax  (weld /(scot %p our.bowl)/rover-files/(scot %da now.bowl) (stab '$clay_locator'))
+=/  got  .^(mime %cx pax)
+(pure:m !>([p.q.got (scot %ux (rev 3 32 (shay p.q.got q.q.got)))]))")"
+grep -q " $M8_PHOTO_BYTES " <<<"$clay_probe" \
+  || fail "fixture 99 Clay does not hold $M8_PHOTO_BYTES bytes at the reference path: $clay_probe"
+clay_raw="$(grep -oE "'0x[0-9a-f.]+'" <<<"$clay_probe" | head -1 | tr -d "'")"
+[ -n "$clay_raw" ] || fail "fixture 99 the Clay probe returned no digest: $clay_probe"
+# `scot %ux` drops leading zeros and groups in fours, so the digest is
+# normalised before it is compared with the one `sha256sum` printed.
+clay_hash="$(python3 -c 'import sys;print(sys.argv[1][2:].replace(".","").rjust(64,"0"))' "$clay_raw")"
+[ "$clay_hash" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 99 the bytes in Clay hash to $clay_hash, not $M8_PHOTO_HASH"
+# The attachments are NOT on the published %rover desk.
+rover_desk_probe="$(click_file '=/  m  (strand ,vase)
+;<  =bowl:strand  bind:m  get-bowl
+=/  arch  .^(arch %cy /(scot %p our.bowl)/rover/(scot %da now.bowl)/attachments)
+(pure:m !>(?=(~ fil.arch)))')"
+grep -q '%noun 0' <<<"$rover_desk_probe" \
+  || fail "fixture 99 an attachment reached the published %rover desk: $rover_desk_probe"
+note "fixture 99 PASS - the Clay backend stores and serves a photo end to end on a real pier, and nothing lands on the published desk"
+
+# ---------------------------------------------------------------------------
+# fixture 105 - no blob reaches Obelisk. Proved by READING the relations, not
+# by reading the code: every column of every attachment relation is checked
+# against the size of the photo it refers to.
+# ---------------------------------------------------------------------------
+blob_probe="$(rover_report 'FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;')"
+blob_size="$(printf '%s' "$blob_probe" | wc -c)"
+[ "$blob_size" -lt 200000 ] \
+  || fail "fixture 105 the attachments relation reads back $blob_size bytes, which is blob-sized"
+grep -q "$(head -c 32 "$M8_PHOTO" | od -An -tx1 | tr -d ' \n')" <<<"$blob_probe" \
+  && fail "fixture 105 photo bytes appear inside the attachments relation"
+# Every column, by name, across all four relations. A blob could only hide in
+# a text or binary column, and this reads all of them.
+for relation in attachments energy-acquisition-attachments vehicle-event-attachments vehicle-attachments; do
+  case "$relation" in
+    attachments) projection='T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name';;
+    energy-acquisition-attachments) projection='T.acquisition-id, T.attachment-id';;
+    vehicle-event-attachments) projection='T.event-id, T.attachment-id';;
+    vehicle-attachments) projection='T.vehicle-id, T.attachment-id';;
+  esac
+  report="$(rover_report "FROM $relation T SELECT $projection;")"
+  widest="$(printf '%s' "$report" | grep -oE "'[^']*'" | awk '{ print length($0) }' | sort -rn | head -1)"
+  [ -z "$widest" ] || [ "$widest" -lt 4096 ] \
+    || fail "fixture 105 $relation holds a $widest-character value, which is not a reference"
+done
+# And the whole database is smaller than one photo's worth of blob columns.
+note "fixture 105 PASS - no blob reaches Obelisk, proved by reading every column of all four attachment relations"
+
+# ---------------------------------------------------------------------------
+# fixture 100 - the S3 backend end to end against a REAL S3-compatible
+# endpoint. Not a mock. The standing rule on configuration is that both
+# backends are real and tested or neither ships, so this fixture needs a
+# server and says so plainly when it cannot find one.
+#
+#   podman run -d --name rover-m8-rustfs -p 9200:9000 \
+#     -e RUSTFS_ACCESS_KEY=roverm8key -e RUSTFS_SECRET_KEY=roverm8secret123 \
+#     docker.io/rustfs/rustfs:latest
+#
+# The bucket `rover-attachments` must exist, and %storage on the pier must
+# point at the endpoint with those credentials.
+# ---------------------------------------------------------------------------
+S3_ENDPOINT="${ROVER_S3_ENDPOINT:-http://localhost:9200}"
+curl -sS -o /dev/null --max-time 5 "$S3_ENDPOINT/" 2>/dev/null
+s3_reachable=$?
+[ "$s3_reachable" = 0 ] \
+  || fail "fixture 100 no S3-compatible endpoint answered at $S3_ENDPOINT - start one and create the rover-attachments bucket; a mocked backend does not count"
+storage_configured() {
+  click_file '=/  m  (strand ,vase)
+;<  =bowl:strand  bind:m  get-bowl
+=/  c  .^(* %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/credentials/noun)
+=/  f  .^(* %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/noun)
+(pure:m !>([-.+.c -.+.+.f]))'
+}
+grep -q "''" <<<"$(storage_configured)" \
+  && fail "fixture 100 %storage carries no endpoint or bucket on this pier - point it at $S3_ENDPOINT before running the battery"
+s3_photo="s3-receipt-$STAMP.jpg"
+attach_response="$(attach_file fill "$VEHICLE" "$M8_FILL_AT" "$s3_photo" 'image/jpeg' "$M8_PHOTO" s3)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 100 the S3 backend would not store the photo: $attach_response";;
+esac
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$s3_photo' SELECT T.attachment-id, T.backend, T.locator, T.byte-count;")"
+backend_named "$report" s3 \
+  || fail "fixture 100 the reference does not name the S3 backend: $report"
+grep -q "%byte-count 25717 $M8_PHOTO_BYTES" <<<"$report" \
+  || fail "fixture 100 the reference does not carry the source byte count: $report"
+# The ship proxies the bytes back. No presigned URL reaches the browser: the
+# response is the image itself, served from this ship's own origin.
+s3_headers="$(mktemp /tmp/rover-m8-s3-headers.XXXXXX)"
+s3_status="$(curl -sS -b "$JAR" -D "$s3_headers" -o "$M8_PHOTO_BACK" -w '%{http_code}' \
+  "$URL/apps/rover/attachment/$(urlenc "$s3_photo")")"
+[ "$s3_status" = 200 ] \
+  || fail "fixture 100 the S3-backed photo did not serve back: HTTP $s3_status"
+grep -qiE '^location:|X-Amz-Signature|X-Amz-Credential' "$s3_headers" \
+  && fail "fixture 100 the ship handed the browser a redirect or a presigned URL"
+rm -f "$s3_headers"
+[ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 100 the S3 round trip did not return the source bytes"
+# And the bytes really are in the bucket, read with a client that is not Rover.
+s3_locator="$(grep -oE "%locator 116 '[^']*'" <<<"$report" | head -1 | sed "s/^.*'\(.*\)'$/\1/")"
+[ -n "$s3_locator" ] || fail "fixture 100 the reference carries no locator: $report"
+bucket_digest="$(python3 - "$S3_ENDPOINT" "$s3_locator" <<'BUCKET'
+import sys, hashlib, boto3, botocore
+endpoint, locator = sys.argv[1], sys.argv[2]
+bucket, key = locator.lstrip("/").split("/", 1)
+s3 = boto3.client("s3", endpoint_url=endpoint,
+                  aws_access_key_id="roverm8key",
+                  aws_secret_access_key="roverm8secret123",
+                  region_name="us-east-1",
+                  config=botocore.config.Config(s3={"addressing_style": "path"}))
+body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+print(hashlib.sha256(body).hexdigest(), len(body))
+BUCKET
+)" || fail "fixture 100 could not read the object back out of the bucket"
+[ "$(awk '{print $1}' <<<"$bucket_digest")" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 100 the object in the bucket does not hash equal to the source: $bucket_digest"
+[ "$(awk '{print $2}' <<<"$bucket_digest")" = "$M8_PHOTO_BYTES" ] \
+  || fail "fixture 100 the object in the bucket is not $M8_PHOTO_BYTES bytes: $bucket_digest"
+note "fixture 100 bucket - $s3_locator holds $bucket_digest"
+note "fixture 100 PASS - the S3 backend stores and serves a photo end to end against a real S3-compatible endpoint, and the ship proxies the bytes rather than handing out a presigned URL"
+
+# ---------------------------------------------------------------------------
+# fixture 101 - a ship with no %storage configuration says so in human words
+# and offers Clay. It does not fail with a raw error and it does not silently
+# pick a backend for the owner.
+#
+# The configuration is removed and put back, so this proves the refusal on a
+# ship that is otherwise identical to the one fixture 100 just used.
+# ---------------------------------------------------------------------------
+storage_poke() {
+  click_file "=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %storage] %storage-action !>($1))
+;<  ~  bind:m  (sleep ~s2)
+(pure:m !>(~))" > /dev/null
+}
+S3_SAVED_KEY='roverm8key'
+storage_poke "[%set-access-key-id '']"
+s3_response="$(attach_file vehicle "$VEHICLE" '' "s3-refused-$STAMP.jpg" 'image/jpeg' "$M8_PHOTO" s3)"
+storage_poke "[%set-access-key-id '$S3_SAVED_KEY']"
+s3_code="$(tail -1 <<<"$s3_response")"
+[ "$s3_code" = 409 ] \
+  || fail "fixture 101 an unconfigured ship did not refuse the S3 request: $s3_response"
+grep -q 'no S3 storage set up yet' <<<"$s3_response" \
+  || fail "fixture 101 the refusal is not in human words: $s3_response"
+grep -qi 'clay' <<<"$s3_response" \
+  || fail "fixture 101 the refusal does not offer Clay: $s3_response"
+grep -qE 'nest-fail|%bad-shape|%database-refused|\[%|0x[0-9a-f]{8}' <<<"$s3_response" \
+  && fail "fixture 101 the refusal leaks a raw error or a machine id: $s3_response"
+# Nothing was stored, and no backend was picked on the owner's behalf.
+report="$(rover_report "FROM attachments T WHERE T.file-name = 's3-refused-$STAMP.jpg' SELECT T.attachment-id;")"
+grep -q '%attachment-id' <<<"$report" \
+  && fail "fixture 101 the refused request stored something anyway: $report"
+# The same photo goes in when the owner takes the offer.
+clay_offer="$(attach_file vehicle "$VEHICLE" '' "s3-refused-$STAMP.jpg" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$clay_offer" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 101 Clay was offered but would not take the photo: $clay_offer";;
+esac
+note "fixture 101 PASS - a ship with no %storage configuration says so in human words, stores nothing, and the Clay it offers works"
+
+# ---------------------------------------------------------------------------
+# fixtures 107, 108, 109, 110 - the entry surface.
+#
+# Everything above this point moves the bytes with `curl`. These four prove a
+# PERSON can move them: a file input on Add Fill and on Add Event, a photo on
+# the card afterwards, a way to open it full size, and all of it at 390px.
+#
+# One browser run drives all four, because they are one journey. Splitting it
+# into four browsers would prove four disconnected things and cost four
+# logins.
+#
+# The photos are real PNG images with real pixels. The full-size view is
+# checked by the decoded size the browser reports, so a broken link or a
+# placeholder cannot pass as a photograph.
+# ---------------------------------------------------------------------------
+M8_BROWSER_FILL_PHOTO="/tmp/rover-m8-browser-fill-$STAMP.png"
+M8_BROWSER_EVENT_PHOTO="/tmp/rover-m8-browser-event-$STAMP.png"
+python3 - "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_EVENT_PHOTO" <<'PNG'
+import struct
+import sys
+import zlib
+
+
+def png(path, red):
+    width = height = 24
+    raw = b"".join(
+        b"\x00" + bytes([red, (row * 9) % 256, 40] * width) for row in range(height)
+    )
+
+    def chunk(tag, body):
+        return (
+            struct.pack(">I", len(body))
+            + tag
+            + body
+            + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+        )
+
+    open(path, "wb").write(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+png(sys.argv[1], 220)
+png(sys.argv[2], 60)
+PNG
+# The entry surface gets a vehicle of its own. It writes two NEW records, and
+# a record this run's other fixtures count must not arrive from a browser.
+M8_BROWSER_VEHICLE="Photo Vehicle $STAMP"
+own_add_vehicle "$M8_BROWSER_VEHICLE" Gasoline
+M8_BROWSER_FILL_HASH="$(digest "$M8_BROWSER_FILL_PHOTO")"
+M8_BROWSER_EVENT_HASH="$(digest "$M8_BROWSER_EVENT_PHOTO")"
+M8_BROWSER_FILL_BYTES="$(wc -c < "$M8_BROWSER_FILL_PHOTO")"
+M8_BROWSER_NOTE="Browser attachment $STAMP"
+attachment_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/attachment-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$M8_BROWSER_VEHICLE" \
+      "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_EVENT_PHOTO" \
+      "$M8_BROWSER_NOTE" clay
+} 2>&1)" || fail "fixture 107 the browser could not drive the entry surface: $attachment_out"
+
+# --- fixture 107 - a photo attaches to a fill FROM THE BROWSER --------------
+grep -q '^FILL_VERDICT=Saved fill' <<<"$attachment_out" \
+  || fail "fixture 107 the browser could not save the fill: $attachment_out"
+grep -q '^FILL_VERDICT=.*Attached ' <<<"$attachment_out" \
+  || fail "fixture 107 the fill form did not report the photo: $attachment_out"
+m8_browser_fill_photo_name="$(sed -n 's/^FILL_CARD_PHOTO_NAME=//p' <<<"$attachment_out")"
+[ -n "$m8_browser_fill_photo_name" ] \
+  || fail "fixture 107 the browser named no stored photo: $attachment_out"
+M8_BROWSER_FILL_BACK="/tmp/rover-m8-browser-fill-back-$STAMP.png"
+[ "$(fetch_file "$m8_browser_fill_photo_name" "$M8_BROWSER_FILL_BACK")" = 200 ] \
+  || fail "fixture 107 the photo the browser attached did not serve back"
+[ "$(digest "$M8_BROWSER_FILL_BACK")" = "$M8_BROWSER_FILL_HASH" ] \
+  || fail "fixture 107 the stored bytes do not hash equal to the source bytes"
+cmp -s "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_FILL_BACK" \
+  || fail "fixture 107 the served photo is not byte for byte the file the person chose"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$m8_browser_fill_photo_name' SELECT T.attachment-id, T.byte-count, T.media-type;")"
+grep -q "%byte-count 25717 $M8_BROWSER_FILL_BYTES" <<<"$report" \
+  || fail "fixture 107 the reference does not carry the source byte count: $report"
+grep -q "image/png" <<<"$report" \
+  || fail "fixture 107 the reference does not carry the media type the browser sent: $report"
+# The link keys to the energy family parent, exactly as the endpoint path does.
+report="$(rover_report "FROM energy-acquisition-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$m8_browser_fill_photo_name' SELECT L.acquisition-id, L.attachment-id;")"
+grep -q '%acquisition-id' <<<"$report" \
+  || fail "fixture 107 the browser attachment has no link to the energy acquisition: $report"
+note "fixture 107 browser - $(grep '^FILL_BACKENDS=' <<<"$attachment_out"), $(grep '^FILL_OBSERVED=' <<<"$attachment_out")"
+note "fixture 107 PASS - a person attaches a photo to a fill from the browser through the file input on the existing Add Fill form, and the stored bytes hash equal to the source bytes"
+
+# --- fixture 108 - the same for an event -----------------------------------
+grep -q '^EVENT_VERDICT=Saved note event' <<<"$attachment_out" \
+  || fail "fixture 108 the browser could not save the event: $attachment_out"
+grep -q '^EVENT_VERDICT=.*Attached ' <<<"$attachment_out" \
+  || fail "fixture 108 the event form did not report the photo: $attachment_out"
+m8_browser_event_photo_name="$(sed -n 's/^EVENT_CARD_PHOTO_NAME=//p' <<<"$attachment_out")"
+[ -n "$m8_browser_event_photo_name" ] \
+  || fail "fixture 108 the browser named no stored event photo: $attachment_out"
+M8_BROWSER_EVENT_BACK="/tmp/rover-m8-browser-event-back-$STAMP.png"
+[ "$(fetch_file "$m8_browser_event_photo_name" "$M8_BROWSER_EVENT_BACK")" = 200 ] \
+  || fail "fixture 108 the photo the browser attached to the event did not serve back"
+[ "$(digest "$M8_BROWSER_EVENT_BACK")" = "$M8_BROWSER_EVENT_HASH" ] \
+  || fail "fixture 108 the stored event photo does not hash equal to the source bytes"
+cmp -s "$M8_BROWSER_EVENT_PHOTO" "$M8_BROWSER_EVENT_BACK" \
+  || fail "fixture 108 the served event photo is not byte for byte the file the person chose"
+[ "$M8_BROWSER_FILL_HASH" != "$M8_BROWSER_EVENT_HASH" ] \
+  || fail "fixture 108 the two photos are the same bytes, so this proves nothing"
+report="$(rover_report "FROM vehicle-event-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$m8_browser_event_photo_name' SELECT L.event-id, L.attachment-id;")"
+grep -q '%event-id' <<<"$report" \
+  || fail "fixture 108 the browser event attachment has no link to the event: $report"
+note "fixture 108 PASS - a person attaches a photo to an event from the browser through the file input on the existing Add Event form, and the stored bytes hash equal to the source bytes"
+
+# --- fixture 109 - the photo on the card, and no empty frame ---------------
+m8_fill_card_photos="$(sed -n 's/^FILL_CARD_PHOTOS=//p' <<<"$attachment_out")"
+m8_event_card_photos="$(sed -n 's/^EVENT_CARD_PHOTOS=//p' <<<"$attachment_out")"
+[ "$m8_fill_card_photos" = 1 ] \
+  || fail "fixture 109 the fill card shows $m8_fill_card_photos photos, want 1: $attachment_out"
+[ "$m8_event_card_photos" = 1 ] \
+  || fail "fixture 109 the event card shows $m8_event_card_photos photos, want 1: $attachment_out"
+grep -qx "PHOTO_VIEW_NAME=$m8_browser_fill_photo_name" <<<"$attachment_out" \
+  || fail "fixture 109 the full-size view names the wrong photo: $attachment_out"
+grep -q "^PHOTO_VIEW_SRC=/apps/rover/attachment/" <<<"$attachment_out" \
+  || fail "fixture 109 the full-size view does not read the photo off this ship: $attachment_out"
+grep -qx 'PHOTO_VIEW_NATURAL=24x24' <<<"$attachment_out" \
+  || fail "fixture 109 the browser did not decode the full-size photo: $attachment_out"
+m8_rendered="$(sed -n 's/^PHOTO_VIEW_RENDERED=//p' <<<"$attachment_out")"
+[ -n "$m8_rendered" ] && [ "$m8_rendered" -gt 0 ] \
+  || fail "fixture 109 the full-size photo rendered no pixels: $attachment_out"
+grep -qx 'PHOTO_VIEW_CLOSED=yes' <<<"$attachment_out" \
+  || fail "fixture 109 the full-size view would not close: $attachment_out"
+# A record with no photo shows NOTHING. Not an empty frame.
+grep -qx 'EMPTY_PHOTO_STRIPS=0' <<<"$attachment_out" \
+  || fail "fixture 109 a record with no photo rendered an empty frame: $attachment_out"
+m8_bare_cards="$(sed -n 's/^CARDS_WITHOUT_PHOTOS=//p' <<<"$attachment_out")"
+[ -n "$m8_bare_cards" ] && [ "$m8_bare_cards" -gt 0 ] \
+  || fail "fixture 109 no card without a photo was on the screen, so absence proves nothing"
+note "fixture 109 cards - fill $m8_fill_card_photos, event $m8_event_card_photos, $m8_bare_cards cards carrying no photo and no frame"
+note "fixture 109 PASS - the photo appears on the record's card in History and opens full size, and a record with no photo shows no empty frame"
+
+# --- fixture 110 - 390px ----------------------------------------------------
+m8_page_overflow="$(sed -n 's/^PAGE_OVERFLOW=//p' <<<"$attachment_out")"
+m8_field_overflow="$(sed -n 's/^FILL_FIELD_OVERFLOW=//p' <<<"$attachment_out")"
+[ -n "$m8_page_overflow" ] && [ "$m8_page_overflow" -le 0 ] \
+  || fail "fixture 110 the entry surface overflows 390px by ${m8_page_overflow}px: $attachment_out"
+[ -n "$m8_field_overflow" ] && [ "$m8_field_overflow" -le 0 ] \
+  || fail "fixture 110 the photo control overflows 390px by ${m8_field_overflow}px: $attachment_out"
+[ "$m8_rendered" -le 390 ] \
+  || fail "fixture 110 the full-size photo is ${m8_rendered}px wide, past 390"
+note "fixture 110 PASS - the entry surface and the full-size photo view fit 390px, with no horizontal overflow"
+rm -f "$M8_BROWSER_FILL_BACK" "$M8_BROWSER_EVENT_BACK"
+
+
+# ---------------------------------------------------------------------------
 # fixture 12 - everything above survives a ship restart
 # ---------------------------------------------------------------------------
+# Stop the pier, start it again, and log back in. Fixture 12 proves the event
+# families survive one restart. Fixture 114 proves what M8 added survives a
+# SECOND one, after the imports and the archive endpoints have run. One
+# restart is one piece of code, so the two fixtures cannot drift apart.
+#
+# PORT and URL are deliberately global: the restarted pier may bind a
+# different one, and every fixture after this reads them.
+restart_pier() {
+  local fx="$1"
 # The pier may be the pane's own process or a child of it. Which one it is
 # depends on how the session was started, and this fixture restarts the pier
 # itself, so the second run of the battery can meet a different shape than the
@@ -3055,26 +3598,26 @@ while read -r session pane_pid; do
   done
   [ -n "$pier_session" ] && break
 done < <(tmux list-panes -a -F '#{session_name} #{pane_pid}')
-[ -n "$pier_session" ] || fail "fixture 12 cannot find the tmux session running $PIER"
+[ -n "$pier_session" ] || fail "fixture $fx cannot find the tmux session running $PIER"
 # The boot command is not the run command. `-B <pill>` and `-c` create a pier
 # and fail against one that exists, so only the Ames port carries over. The
 # port is explicit because a second pier's mesa layer binds port+1, and two
 # neighbouring piers otherwise refuse to start.
 ames_port="$(sed -n 's/.*-p \([0-9]\{1,\}\).*/\1/p' <<<"$pier_args")"
-[ -n "$ames_port" ] || fail "fixture 12 cannot read the Ames port for $PIER: $pier_args"
+[ -n "$ames_port" ] || fail "fixture $fx cannot read the Ames port for $PIER: $pier_args"
 # The binary comes from the running command, not from PATH. A pier booted with
 # a full path runs under a tmux server whose PATH may hold no `urbit` at all,
 # and a restart that cannot find the binary reports a dead pier instead. The
 # first argument is NOT the binary: the pane runs `script -c <binary> ...`, so
 # the match is on the argument that names urbit itself.
 pier_binary="$(grep -oE '(^| )[^ ]*urbit( |$)' <<<"$pier_args" | head -1 | tr -d ' ')"
-[ -n "$pier_binary" ] || fail "fixture 12 cannot read the urbit binary for $PIER: $pier_args"
+[ -n "$pier_binary" ] || fail "fixture $fx cannot read the urbit binary for $PIER: $pier_args"
 tmux send-keys -t "$pier_session" '|exit' Enter
 for attempt in $(seq 1 60); do
   pgrep -f "snap-dir $PIER" >/dev/null || break
   sleep 1
 done
-pgrep -f "snap-dir $PIER" >/dev/null && fail "fixture 12 the pier did not stop"
+pgrep -f "snap-dir $PIER" >/dev/null && fail "fixture $fx the pier did not stop"
 tmux kill-session -t "$pier_session" 2>/dev/null
 # The serf exits first and the king outlives it, holding the pier lock on its
 # way out. Starting the next pier while the king still holds it makes the new
@@ -3100,7 +3643,7 @@ for attempt in $(seq 1 120); do
   sleep 1
 done
 [ -z "$(pier_holders)" ] \
-  || fail "fixture 12 urbit still holds $PIER: $(pier_holders)"
+  || fail "fixture $fx urbit still holds $PIER: $(pier_holders)"
 # script(1) gives the run a pty; without one vere refuses to start interactive.
 tmux new-session -d -s "$pier_session" \
   "exec script -q -f -e -O /dev/null -c $(printf '%q' "$pier_binary -p $ames_port $PIER")"
@@ -3116,9 +3659,12 @@ done
 # A pier that will not come back says why. Without the pane text the failure
 # reads as "the pier did not restart" and the reason is gone with the session.
 [ "$ready" = 1 ] \
-  || fail "fixture 12 the pier did not restart: $(tmux capture-pane -pt "$pier_session" -S -40 2>&1 | tail -20)"
+  || fail "fixture $fx the pier did not restart: $(tmux capture-pane -pt "$pier_session" -S -40 2>&1 | tail -20)"
 URL="http://localhost:$PORT"
 eyre_login
+}
+
+restart_pier 12
 view="$(eyre_view)"
 card="$(event_card service "$SERVICE_NOTE")"
 [ -n "$card" ] || fail "fixture 12 the service event did not survive the restart"
@@ -3253,16 +3799,23 @@ note "fixture 43 PASS - the derived ownership break, the bounded aggregates, and
 # The second half is the point of the T6 design. Rover schedules no wakeup for
 # a reminder, so the restart cannot leave a duplicate wakeup or an orphaned
 # wire behind. That is asserted on the shipping source: every Behn card the
-# agent sends is a one-second sequencing delay, and `on-arvo` answers the four
-# wires it answered before T6 and no fifth.
+# agent sends is a one-second sequencing delay, and `on-arvo` answers a named
+# set of wires that holds no reminder.
+#
+# The wires are named rather than counted. M8 gave `on-arvo` four more of
+# them - one export fetch, the two Clay answers the attachment desk sends, and
+# the bucket's answer to an imported photo - and a bare count cannot tell a
+# new reminder timer from a new photo path.
 # ---------------------------------------------------------------------------
 waits="$(grep -c '%wait' "$REPO/desk/app/rover.hoon")"
 one_shots="$(grep -c '%wait (add now.bowl ~s1)' "$REPO/desk/app/rover.hoon")"
 [ "$waits" = "$one_shots" ] \
   || fail "fixture 53 the agent sends $waits Behn cards and only $one_shots are one-shot sequencing delays"
-arvo_wires="$(grep -oE '\?=\(\[%rover-[a-z-]+ \*\] wire\)' "$REPO/desk/app/rover.hoon" | sort -u | wc -l)"
-[ "$arvo_wires" = 4 ] \
-  || fail "fixture 53 on-arvo answers $arvo_wires wires, want the four that predate T6"
+arvo_wires="$(grep -oE '\?=\(\[%rover-[a-z0-9-]+ \*\] wire\)' "$REPO/desk/app/rover.hoon" |
+  sed -E 's/^.*\[%(rover-[a-z0-9-]+) .*$/\1/' | sort -u | tr '\n' ' ')"
+arvo_wires_want='rover-attachment-s3-get rover-attachment-s3-put rover-bootstrap-delay rover-energy-odometer-drop-delay rover-energy-odometer-precheck-delay rover-export-fetch rover-files-desk rover-files-write rover-import-photo-s3-put rover-install-delay '
+[ "$arvo_wires" = "$arvo_wires_want" ] \
+  || fail "fixture 53 on-arvo answers [$arvo_wires], want [$arvo_wires_want]"
 grep -qE '%rover-reminder[a-z-]*-(delay|wake|timer)' "$REPO/desk/app/rover.hoon" \
   && fail "fixture 53 the agent carries a reminder timer wire"
 set_default_vehicle "$REM_VEHICLE"
@@ -3436,6 +3989,59 @@ report="$(scoped_rows vehicle-event-cost-totals T total-mills "$FIX_DA" "$FIX_VE
 [ "$(cell_number "$report" total-mills)" = 401000 ] \
   || fail "fixture 94 a correction after the restart did not store: $report"
 note "fixture 94 PASS - every correction, removal, addition and derived figure survived a ship restart, and correcting still works after it"
+
+# ---------------------------------------------------------------------------
+# fixture 106 - every M8 fact survived the same real ship restart: the
+# references, the links to all three owner families, the bytes in both
+# backends, and the rule that keeps blobs out of Obelisk.
+#
+# The bytes are the point. A reference that survives while the file behind it
+# does not is worse than losing both, because the database would then promise
+# a photo the ship cannot produce. So each one is read back through the
+# serving endpoint and hashed, not merely counted.
+# ---------------------------------------------------------------------------
+for name in "$fill_photo" "$event_photo" "$vehicle_photo" "$s3_photo"; do
+  [ "$(fetch_file "$name" "$M8_PHOTO_BACK")" = 200 ] \
+    || fail "fixture 106 $name did not serve back after the restart"
+  [ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+    || fail "fixture 106 $name does not hash equal to the source bytes after the restart"
+  cmp -s "$M8_PHOTO" "$M8_PHOTO_BACK" \
+    || fail "fixture 106 $name is no longer byte for byte the source photo"
+done
+# The S3-backed photo came out of the bucket, not out of Clay. Its reference
+# still names the backend it was stored in.
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$s3_photo' SELECT T.attachment-id, T.backend, T.locator;")"
+backend_named "$report" s3 \
+  || fail "fixture 106 the S3 reference lost its backend over the restart: $report"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$fill_photo' SELECT T.attachment-id, T.backend, T.locator;")"
+backend_named "$report" clay \
+  || fail "fixture 106 the Clay reference lost its backend over the restart: $report"
+# One link per owner family, each still keyed to its family parent.
+report="$(rover_report "FROM energy-acquisition-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$fill_photo' SELECT L.acquisition-id, L.attachment-id;")"
+grep -q '%acquisition-id' <<<"$report" \
+  || fail "fixture 106 the energy link did not survive the restart: $report"
+report="$(rover_report "FROM vehicle-event-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$event_photo' SELECT L.event-id, L.attachment-id;")"
+grep -q '%event-id' <<<"$report" \
+  || fail "fixture 106 the event link did not survive the restart: $report"
+report="$(rover_report "FROM vehicle-attachments L JOIN attachments T ON L.attachment-id = T.attachment-id WHERE T.file-name = '$vehicle_photo' SELECT L.vehicle-id, L.attachment-id;")"
+grep -q '%vehicle-id' <<<"$report" \
+  || fail "fixture 106 the vehicle link did not survive the restart: $report"
+# Still no blob in Obelisk on the far side of the restart.
+blob_probe="$(rover_report 'FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;')"
+[ "$(printf '%s' "$blob_probe" | wc -c)" -lt 200000 ] \
+  || fail "fixture 106 the attachments relation reads back blob-sized after the restart"
+# And attaching still works, to a record that predates the restart.
+restart_photo="restart-receipt-$STAMP.jpg"
+attach_response="$(attach_file fill "$VEHICLE" "$M8_FILL_AT" "$restart_photo" 'image/jpeg' "$M8_PHOTO" clay)"
+case "$attach_response" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 106 a photo would not attach after the restart: $attach_response";;
+esac
+[ "$(fetch_file "$restart_photo" "$M8_PHOTO_BACK")" = 200 ] \
+  || fail "fixture 106 the photo attached after the restart did not serve back"
+[ "$(digest "$M8_PHOTO_BACK")" = "$M8_PHOTO_HASH" ] \
+  || fail "fixture 106 the photo attached after the restart does not hash equal to the source"
+note "fixture 106 PASS - every reference, every link, and the bytes in both backends survived a ship restart, no blob is in Obelisk on the far side, and attaching still works after it"
 
 # ---------------------------------------------------------------------------
 # fixture 13 - the Gate 7 fence stays shut
@@ -3971,9 +4577,26 @@ import sys
 document = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert document["rover-import"] == 1
 assert document["source"]["app"] == "Rover"
-assert document["source"]["attachments"]["included"] is False
-assert "photoCount" in document["source"]["attachments"]
-assert document["source"]["attachments"]["manifest"]
+# M8, second leg. This endpoint serves the DOCUMENT alone, so its manifest
+# says the photos are not in this file, counts them anyway, and names the
+# download that does carry them. A false positive claim is worse than silence.
+attachments = document["source"]["attachments"]
+assert attachments["included"] is False
+assert attachments["container"] == "tar"
+assert attachments["directory"] == "attachments/"
+assert attachments["download"] == "/apps/rover/export.tar"
+assert "export.tar" in attachments["reason"]
+assert int(attachments["photoCount"]) == len(attachments["files"])
+assert int(attachments["photoCount"]) > 0
+assert "manifest" not in attachments
+for photo in attachments["files"]:
+    # No path: this file holds no member for the path to name.
+    assert "path" not in photo
+    assert photo["name"]
+    assert len(photo["hash"]) == 64
+    assert int(photo["bytes"]) > 0
+    assert photo["mediaType"]
+assert document["source"]["omissions"] == []
 PY
 view="$(eyre_view)"
 grep -q 'data-rover-export-download' <<<"$view" \
@@ -3984,16 +4607,24 @@ export_browser_out="$({
     node "$REPO/bin/export-browser-fixture.cjs" \
       "$URL" "$auth_cookie_name" "$auth_cookie"
 } 2>&1)" || fail "fixture 84 the browser could not download the export: $export_browser_out"
-grep -q '^EXPORT_FILENAME=rover-export-complete.json$' <<<"$export_browser_out" \
+grep -q '^EXPORT_FILENAME=rover-export-complete.tar$' <<<"$export_browser_out" \
   || fail "fixture 84 the browser received the wrong filename: $export_browser_out"
+grep -q '^EXPORT_FIRST_MEMBER=rover-import.json$' <<<"$export_browser_out" \
+  || fail "fixture 84 the archive does not lead with the import document: $export_browser_out"
 grep -q '^EXPORT_FORMAT=1$' <<<"$export_browser_out" \
   || fail "fixture 84 the browser download is not a Rover import: $export_browser_out"
 grep -q '^EXPORT_SOURCE=Rover$' <<<"$export_browser_out" \
   || fail "fixture 84 the browser download does not name Rover: $export_browser_out"
-grep -q '^EXPORT_ATTACHMENTS_INCLUDED=false$' <<<"$export_browser_out" \
-  || fail "fixture 84 the browser download does not name the attachment omission: $export_browser_out"
+grep -q '^EXPORT_ATTACHMENTS_INCLUDED=true$' <<<"$export_browser_out" \
+  || fail "fixture 84 the browser download still says the photos were left behind: $export_browser_out"
+browser_photo_count="$(sed -n 's/^EXPORT_PHOTO_COUNT=//p' <<<"$export_browser_out")"
+browser_photo_members="$(sed -n 's/^EXPORT_PHOTO_MEMBERS=//p' <<<"$export_browser_out")"
+[ -n "$browser_photo_count" ] && [ "$browser_photo_count" -gt 0 ] \
+  || fail "fixture 84 the browser download names no photos: $export_browser_out"
+[ "$browser_photo_count" = "$browser_photo_members" ] \
+  || fail "fixture 84 the manifest names $browser_photo_count photos and the archive holds $browser_photo_members"
 rm -f "$export_headers" "$export_document"
-note "fixture 84 PASS - an authenticated owner presses the browser control and gets the named Rover import file, while unauthenticated requests redirect to login"
+note "fixture 84 PASS - an authenticated owner presses the browser control and gets the named Rover archive, whose manifest names every photo it really carries, while unauthenticated requests redirect to login"
 
 # ---------------------------------------------------------------------------
 # fixture 85 - the export carries each stored record family and no derived
@@ -4062,11 +4693,215 @@ PY
 note "fixture 85 PASS - the export carries every product record family, keeps an archived definition and a custom value, and carries no derived value"
 
 # ---------------------------------------------------------------------------
+# fixture 102 - the complete export is a tar the system `tar` command unpacks,
+# and the `rover-import.json` inside it is the payload the JSON endpoint
+# serves, byte for byte everywhere except the manifest.
+#
+# The second half is what makes the container honest. A reader who wants only
+# the facts takes one member out and stops; nothing is re-serialized on the
+# way into the archive, so the two cannot drift apart. The tar is fetched
+# first and the JSON second, with no write between them.
+#
+# The two manifests differ ON PURPOSE and the difference is asserted exactly:
+# the document says the photos are NOT included and names the archive that
+# carries them. Everything else - every record, every definition, every field
+# order and every separator - is still compared byte for byte, because a
+# semantic comparison of the whole document would drop the formatting check
+# this fixture exists for.
+#
+# Every photo in the archive is checked against the manifest that names it:
+# the member is at the path the manifest gives, it is the size the manifest
+# gives, and it hashes to the digest the manifest gives.
+# ---------------------------------------------------------------------------
+M8_EXPORT_TAR="$(mktemp /tmp/rover-export-complete.XXXXXX.tar)"
+M8_EXPORT_JSON="$(mktemp /tmp/rover-export-member.XXXXXX.json)"
+M8_UNPACKED="$(mktemp -d /tmp/rover-export-unpacked.XXXXXX)"
+tar_headers="$(mktemp /tmp/rover-export-tar-headers.XXXXXX)"
+tar_status="$(curl -sS -b "$JAR" -D "$tar_headers" -o "$M8_EXPORT_TAR" -w '%{http_code}' \
+  "$URL/apps/rover/export.tar")"
+[ "$tar_status" = 200 ] \
+  || fail "fixture 102 the archive endpoint returned HTTP $tar_status"
+json_status="$(curl -sS -b "$JAR" -o "$M8_EXPORT_JSON" -w '%{http_code}' \
+  "$URL/apps/rover/export")"
+[ "$json_status" = 200 ] \
+  || fail "fixture 102 the JSON endpoint returned HTTP $json_status"
+grep -qi '^content-type: application/x-tar' "$tar_headers" \
+  || fail "fixture 102 the archive is not served as a tar: $(cat "$tar_headers")"
+grep -qi '^content-disposition: attachment; filename="rover-export-complete.tar"' "$tar_headers" \
+  || fail "fixture 102 the archive has no Rover download name: $(cat "$tar_headers")"
+rm -f "$tar_headers"
+# The system tar, not a reader Rover wrote. If the headers are wrong this is
+# where it shows.
+tar -tf "$M8_EXPORT_TAR" > /dev/null \
+  || fail "fixture 102 the system tar cannot list the archive"
+tar -xf "$M8_EXPORT_TAR" -C "$M8_UNPACKED" \
+  || fail "fixture 102 the system tar cannot unpack the archive"
+[ -f "$M8_UNPACKED/rover-import.json" ] \
+  || fail "fixture 102 the archive holds no rover-import.json"
+m8_manifest_diff="$(python3 - "$M8_UNPACKED/rover-import.json" "$M8_EXPORT_JSON" 2>&1 <<'PY'
+# Excise the attachment manifest from each document by BYTE SPAN, compare
+# everything that is left byte for byte, and then compare the two manifests
+# field by field. A re-serialization that reorders a key anywhere else still
+# fails the byte comparison.
+import json
+import sys
+
+def source_manifest_span(raw):
+    anchor = raw.index(b'"source":')
+    start = raw.index(b'"attachments":', anchor) + len(b'"attachments":')
+    assert raw[start:start + 1] == b"{", "the source manifest is not an object"
+    depth, index, in_string, escaped = 0, start, False, False
+    while index < len(raw):
+        byte = raw[index:index + 1]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == b"\\":
+                escaped = True
+            elif byte == b'"':
+                in_string = False
+        elif byte == b'"':
+            in_string = True
+        elif byte == b"{":
+            depth += 1
+        elif byte == b"}":
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+        index += 1
+    raise AssertionError("the source manifest never closes")
+
+archive_raw = open(sys.argv[1], "rb").read()
+document_raw = open(sys.argv[2], "rb").read()
+archive_span = source_manifest_span(archive_raw)
+document_span = source_manifest_span(document_raw)
+archive_rest = archive_raw[:archive_span[0]] + archive_raw[archive_span[1]:]
+document_rest = document_raw[:document_span[0]] + document_raw[document_span[1]:]
+assert archive_rest == document_rest, "the two documents differ outside the manifest"
+
+archive = json.loads(archive_raw[archive_span[0]:archive_span[1]])
+document = json.loads(document_raw[document_span[0]:document_span[1]])
+assert archive["included"] is True, "the archive manifest does not claim the photos"
+assert document["included"] is False, "the document manifest claims photos it does not carry"
+assert document["download"] == "/apps/rover/export.tar", document.get("download")
+assert "export.tar" in document["reason"], document.get("reason")
+assert "download" not in archive and "reason" not in archive, sorted(archive)
+assert int(archive["photoCount"]) == int(document["photoCount"])
+assert int(archive["photoCount"]) == len(archive["files"]) == len(document["files"])
+# Every difference between the two manifests, named. Nothing else may differ.
+changed = {key for key in set(archive) | set(document)
+           if archive.get(key) != document.get(key)}
+assert changed == {"included", "download", "reason", "files"}, sorted(changed)
+by_name = {photo["name"]: photo for photo in document["files"]}
+for photo in archive["files"]:
+    twin = by_name[photo["name"]]
+    assert photo["path"] == f"attachments/{photo['name']}", photo["name"]
+    assert "path" not in twin, photo["name"]
+    assert {key: photo[key] for key in ("name", "hash", "bytes", "mediaType")} == twin
+print(f"PHOTOS={len(archive['files'])} BYTES_COMPARED={len(archive_rest)}")
+PY
+)" || fail "fixture 102 the archive member and the document endpoint disagree beyond the manifest: $m8_manifest_diff"
+note "fixture 102 manifests - $m8_manifest_diff"
+python3 - "$M8_UNPACKED" <<'PY' \
+  || fail "fixture 102 the archive and its manifest disagree"
+import hashlib
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+document = json.loads((root / "rover-import.json").read_text())
+manifest = document["source"]["attachments"]
+assert manifest["included"] is True
+assert manifest["container"] == "tar"
+photos = manifest["files"]
+assert int(manifest["photoCount"]) == len(photos)
+assert photos, "the manifest names no photo"
+unpacked = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+assert unpacked == sorted(["rover-import.json"] + [p["path"] for p in photos]), unpacked
+for photo in photos:
+    member = root / photo["path"]
+    body = member.read_bytes()
+    assert len(body) == int(photo["bytes"]), photo["name"]
+    assert hashlib.sha256(body).hexdigest() == photo["hash"], photo["name"]
+print(f"MEMBERS={len(unpacked)} PHOTOS={len(photos)}")
+PY
+tar_members="$(tar -tf "$M8_EXPORT_TAR" | wc -l)"
+tar_photos="$(tar -tf "$M8_EXPORT_TAR" | grep -c '^attachments/')"
+note "fixture 102 archive - $(wc -c < "$M8_EXPORT_TAR") bytes, $tar_members members, $tar_photos photos"
+note "fixture 102 PASS - the complete export unpacks with the system tar, its rover-import.json is byte for byte the payload the JSON endpoint serves, and every photo matches the manifest that names it"
+
+# The four attachment relations, counted by primary key. Obelisk returns sets,
+# so both key columns are projected and the count is taken over one of them.
+m8_attachment_counts() {
+  printf '%s %s %s %s\n' \
+    "$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')" \
+    "$(count_rows "$(rover_report 'FROM energy-acquisition-attachments L SELECT L.acquisition-id, L.attachment-id;')" '%attachment-id')" \
+    "$(count_rows "$(rover_report 'FROM vehicle-event-attachments L SELECT L.event-id, L.attachment-id;')" '%attachment-id')" \
+    "$(count_rows "$(rover_report 'FROM vehicle-attachments L SELECT L.vehicle-id, L.attachment-id;')" '%attachment-id')"
+}
+# What the source ship holds, read before fixture 86 puts it aside.
+M8_ATTACHMENT_COUNTS_BEFORE="$(m8_attachment_counts)"
+
+# ---------------------------------------------------------------------------
+# fixture 113 - both download endpoints tell the truth about themselves.
+#
+# `/apps/rover/export` serves the document alone, so its manifest says the
+# photos are NOT in this file and names the archive that carries them.
+# `/apps/rover/export.tar` serves the archive, so its manifest says they are.
+# Both counts are the count the database really holds, read from the relation
+# by primary key rather than from either document.
+#
+# Ruling 19 says nothing is silently absent. A claim to carry photographs a
+# file does not hold is worse than silence, because a reader who believes it
+# stops looking for them.
+# ---------------------------------------------------------------------------
+m8_reference_count="$(awk '{print $1}' <<<"$M8_ATTACHMENT_COUNTS_BEFORE")"
+[ -n "$m8_reference_count" ] && [ "$m8_reference_count" -gt 0 ] \
+  || fail "fixture 113 the database holds no attachment reference to count"
+m8_manifest_counts="$(python3 - "$M8_EXPORT_JSON" "$M8_UNPACKED/rover-import.json" "$m8_reference_count" 2>&1 <<'PY'
+import json
+import sys
+
+document = json.loads(open(sys.argv[1], "rb").read())["source"]["attachments"]
+archive = json.loads(open(sys.argv[2], "rb").read())["source"]["attachments"]
+stored = int(sys.argv[3])
+
+assert document["included"] is False, "the document claims to carry the photos"
+assert document["download"] == "/apps/rover/export.tar", document.get("download")
+assert "export.tar" in document["reason"], document.get("reason")
+assert archive["included"] is True, "the archive disowns the photos it carries"
+
+for name, manifest in (("document", document), ("archive", archive)):
+    counted = int(manifest["photoCount"])
+    assert counted == stored, f"{name} counts {counted}, the database holds {stored}"
+    assert len(manifest["files"]) == stored, f"{name} names {len(manifest['files'])}"
+print(f"DOCUMENT_INCLUDED=false ARCHIVE_INCLUDED=true PHOTO_COUNT={stored}")
+PY
+)" || fail "fixture 113 a manifest does not tell the truth about itself: $m8_manifest_counts"
+note "fixture 113 manifests - $m8_manifest_counts"
+note "fixture 113 PASS - the document manifest says the photos are not included and names the archive that carries them, the archive manifest says they are, and both counts are the count the database holds"
+M8_MANIFEST="$(mktemp /tmp/rover-export-manifest.XXXXXX)"
+python3 - "$M8_UNPACKED/rover-import.json" > "$M8_MANIFEST" <<'PY'
+import json
+import pathlib
+import sys
+
+document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+for photo in document["source"]["attachments"]["files"]:
+    print(photo["name"], photo["hash"], photo["bytes"])
+PY
+[ -s "$M8_MANIFEST" ] || fail "fixture 102 the manifest names no photo to round-trip"
+
+# ---------------------------------------------------------------------------
 # fixture 86 - the deciding round trip. Preserve the populated owner database
 # under a temporary Obelisk name, initialize a fresh Rover database on the same
 # real substrate, import the unmodified download, and compare relation
 # counts, rendered history, archive state, and an order-independent re-export.
 # The original database is restored after the proof and by the EXIT trap.
+#
+# M8 moved what the download is. The complete export is the archive fixture
+# 102 pulled, and that is what goes back in here.
 # ---------------------------------------------------------------------------
 mapfile -t roundtrip_sql_chunks < <(
   python3 "$REPO/bin/export-semantic.py" count-sql \
@@ -4167,10 +5002,19 @@ database_report="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')
 database_exists "$database_report" rover \
   || fail "fixture 86 the fresh Rover database was not created"
 
+# M8. The download is the archive, so the round trip takes the archive back.
+# The document alone no longer carries everything the export carries, and a
+# round trip that dropped the photos would report itself as equal.
+#
+# The request names a backend. M8's second leg stopped the import from
+# choosing one: an archive that carries photographs is refused until the owner
+# says where to keep them.
 roundtrip_import="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
-  -H 'content-type: application/json' --data-binary "@$ROUNDTRIP_BEFORE" \
-  "$URL/apps/rover/import")"
+  -H 'content-type: application/x-tar' --data-binary "@$M8_EXPORT_TAR" \
+  "$URL/apps/rover/import?backend=clay")"
 case "$roundtrip_import" in (*$'\n'200) ;; (*) fail "fixture 86 the exported file was not accepted unchanged: $roundtrip_import";; esac
+grep -qE 'Photos: imported [0-9]+, already-imported [0-9]+, failures 0' <<<"$roundtrip_import" \
+  || fail "fixture 86 a photo failed on the way into the fresh database: $roundtrip_import"
 grep -q 'failures 0' <<<"$roundtrip_import" \
   || fail "fixture 86 the empty-database import reported a failed fill: $roundtrip_import"
 grep -q 'conflicts 0' <<<"$roundtrip_import" \
@@ -4208,8 +5052,791 @@ paste <(printf '%s\n' "${roundtrip_relations[@]}") \
     note "round-trip relation $relation: $before -> $after"
   done
 
+note "fixture 86 PASS - an unchanged export archive imports into a fresh real database with all 101 primary-key relation counts, rendered history, archive state, and semantic re-export equal"
+
+# ---------------------------------------------------------------------------
+# fixture 103 - the round trip with the bytes. The database fixture 86 filled
+# from the archive is still in place, so this is where the photos in it are
+# read back and checked against what the source ship recorded.
+#
+# This extends fixture 86 rather than replacing it. Fixture 86 counts the 101
+# relations the document carries; this counts the four the photos carry, on
+# the same before-and-after terms, and then reads every photo back through the
+# serving endpoint and compares its digest with the source manifest's.
+#
+# The archive goes in a second time first. Nothing may change: no record and
+# no photo is written twice. An import that wrote a second copy of everything
+# would show up right here.
+# ---------------------------------------------------------------------------
+roundtrip_archive="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/x-tar' --data-binary "@$M8_EXPORT_TAR" \
+  "$URL/apps/rover/import?backend=clay")"
+case "$roundtrip_archive" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 103 the archive was not accepted: $roundtrip_archive";;
+esac
+grep -q 'Photos: imported' <<<"$roundtrip_archive" \
+  || fail "fixture 103 the import report says nothing about photos: $roundtrip_archive"
+grep -qE 'Photos: imported [0-9]+, already-imported [0-9]+, failures 0' <<<"$roundtrip_archive" \
+  || fail "fixture 103 a photo failed to import: $roundtrip_archive"
+grep -q 'Fills: imported 0' <<<"$roundtrip_archive" \
+  || fail "fixture 103 the archive imported a second copy of a fill: $roundtrip_archive"
+grep -q 'Photos: imported 0' <<<"$roundtrip_archive" \
+  || fail "fixture 103 the archive stored a second copy of a photo: $roundtrip_archive"
+archive_photos="$(sed -n 's/^Photos: imported \([0-9]*\).*/\1/p' <<<"$roundtrip_archive")"
+archive_known="$(sed -n 's/^Photos: .*already-imported \([0-9]*\).*/\1/p' <<<"$roundtrip_archive")"
+[ "$((archive_photos + archive_known))" = "$(wc -l < "$M8_MANIFEST")" ] \
+  || fail "fixture 103 the archive carried $(wc -l < "$M8_MANIFEST") photos and the import accounted for $((archive_photos + archive_known))"
+# Every photo, read back the way a browser reads one, and compared with the
+# digest the SOURCE ship recorded before any of this started.
+roundtrip_photo="$(mktemp /tmp/rover-roundtrip-photo.XXXXXX)"
+while read -r photo_name photo_hash photo_bytes; do
+  photo_status="$(curl -sS -b "$JAR" -o "$roundtrip_photo" -w '%{http_code}' \
+    "$URL/apps/rover/attachment/$(urlenc "$photo_name")")"
+  [ "$photo_status" = 200 ] \
+    || fail "fixture 103 $photo_name did not serve back on the destination: HTTP $photo_status"
+  [ "$(wc -c < "$roundtrip_photo")" = "$photo_bytes" ] \
+    || fail "fixture 103 $photo_name arrived as $(wc -c < "$roundtrip_photo") bytes, not $photo_bytes"
+  [ "$(digest "$roundtrip_photo")" = "$photo_hash" ] \
+    || fail "fixture 103 $photo_name arrived with a different digest than the source recorded"
+done < "$M8_MANIFEST"
+rm -f "$roundtrip_photo"
+M8_ATTACHMENT_COUNTS_AFTER="$(m8_attachment_counts)"
+[ "$M8_ATTACHMENT_COUNTS_AFTER" = "$M8_ATTACHMENT_COUNTS_BEFORE" ] \
+  || fail "fixture 103 the attachment relations hold [$M8_ATTACHMENT_COUNTS_AFTER] after the round trip and held [$M8_ATTACHMENT_COUNTS_BEFORE] before it"
+# No blob crossed with them. The destination relations are references too.
+blob_probe="$(rover_report 'FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;')"
+[ "$(printf '%s' "$blob_probe" | wc -c)" -lt 200000 ] \
+  || fail "fixture 103 the destination attachments relation reads back blob-sized"
+note "fixture 103 counts - attachments/energy/event/vehicle: $M8_ATTACHMENT_COUNTS_BEFORE -> $M8_ATTACHMENT_COUNTS_AFTER"
+note "fixture 103 PASS - the archive imports into the database fixture 86 filled, every photo arrives with the digest and byte count the source recorded, the four attachment relation counts are equal, and re-reading the same archive writes no second record"
+
+# ---------------------------------------------------------------------------
+# fixture 111 - the import asks which backend, and honors the answer.
+#
+# It used to put every imported photograph in Clay. On an S3-configured ship
+# that is the store the owner chose against, and the stated remedy was to
+# attach all of them again by hand. For the real corpus that is 121
+# photographs. A default that is expensive to undo is a decision made for the
+# owner.
+#
+# BOTH choices are proved, and each one is read back out of the store it named
+# rather than out of the reference row alone. The S3 half is read with a
+# client that is not Rover.
+#
+# The archive is the export this run already made, with one photograph added
+# to one vehicle. Every record in it is already imported, so the document
+# phase writes nothing and the photo phase is what this fixture measures.
+# ---------------------------------------------------------------------------
+m8_backend_archive() {
+  local target="$1" photo="$2" name="$3"
+  python3 - "$M8_UNPACKED/rover-import.json" "$photo" "$name" "$target" <<'PHOTOTAR'
+import hashlib
+import io
+import json
+import pathlib
+import sys
+import tarfile
+
+document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+body = pathlib.Path(sys.argv[2]).read_bytes()
+name = sys.argv[3]
+
+
+def strip(node):
+    # Every photograph the source ship holds is already on the destination.
+    # The archive names ONE and carries it, so the report reads plainly.
+    if isinstance(node, dict):
+        node.pop("attachments", None)
+        for value in node.values():
+            strip(value)
+    elif isinstance(node, list):
+        for value in node:
+            strip(value)
+
+
+for vehicle in document["vehicles"]:
+    strip(vehicle)
+
+# A photo OF THE VEHICLE. It hangs off no moment, which is the shortest
+# address the import understands.
+document["vehicles"][0]["attachments"] = [name]
+document["source"]["attachments"]["files"] = [
+    {
+        "name": name,
+        "path": "attachments/" + name,
+        "hash": hashlib.sha256(body).hexdigest(),
+        "bytes": str(len(body)),
+        "mediaType": "image/png",
+    }
+]
+document["source"]["attachments"]["photoCount"] = 1
+payload = json.dumps(document).encode()
+
+with tarfile.open(sys.argv[4], "w", format=tarfile.USTAR_FORMAT) as archive:
+    for member, content in (
+        ("rover-import.json", payload),
+        ("attachments/" + name, body),
+    ):
+        info = tarfile.TarInfo(member)
+        info.size = len(content)
+        archive.addfile(info, io.BytesIO(content))
+print(document["vehicles"][0]["label"])
+PHOTOTAR
+}
+
+# The document the browser uploads. It names no photograph, so pressing Start
+# import proves what the CONTROL sends without storing anything.
+m8_photoless_document() {
+  python3 - "$M8_EXPORT_JSON" "$1" <<'PHOTOLESS'
+import json
+import pathlib
+import sys
+
+document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+
+
+def strip(node):
+    if isinstance(node, dict):
+        node.pop("attachments", None)
+        for value in node.values():
+            strip(value)
+    elif isinstance(node, list):
+        for value in node:
+            strip(value)
+
+
+for vehicle in document["vehicles"]:
+    strip(vehicle)
+document["source"]["attachments"]["files"] = []
+document["source"]["attachments"]["photoCount"] = 0
+pathlib.Path(sys.argv[2]).write_text(json.dumps(document))
+PHOTOLESS
+}
+
+m8_import_backend() {
+  local archive="$1" backend="$2"
+  curl -sS -b "$JAR" -w $'\n%{http_code}' \
+    -H 'content-type: application/x-tar' --data-binary "@$archive" \
+    "$URL/apps/rover/import?backend=$backend"
+}
+
+M8_IMPORT_CLAY_PHOTO="/tmp/rover-m8-import-clay-$STAMP.png"
+M8_IMPORT_S3_PHOTO="/tmp/rover-m8-import-s3-$STAMP.png"
+python3 - "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_S3_PHOTO" <<'PNG'
+import struct
+import sys
+import zlib
+
+
+def png(path, red):
+    width = height = 16
+    raw = b"".join(
+        b"\x00" + bytes([red, (row * 13) % 256, 90] * width) for row in range(height)
+    )
+
+    def chunk(tag, body):
+        return (
+            struct.pack(">I", len(body))
+            + tag
+            + body
+            + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+        )
+
+    open(path, "wb").write(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+png(sys.argv[1], 17)
+png(sys.argv[2], 211)
+PNG
+M8_IMPORT_CLAY_NAME="import-clay-$STAMP.png"
+M8_IMPORT_S3_NAME="import-s3-$STAMP.png"
+M8_IMPORT_CLAY_HASH="$(digest "$M8_IMPORT_CLAY_PHOTO")"
+M8_IMPORT_S3_HASH="$(digest "$M8_IMPORT_S3_PHOTO")"
+[ "$M8_IMPORT_CLAY_HASH" != "$M8_IMPORT_S3_HASH" ] \
+  || fail "fixture 111 the two photos are the same bytes, so the store cannot be told apart"
+
+# An archive that carries a photograph and names no backend is refused, in
+# human words, and it writes nothing.
+M8_IMPORT_CLAY_TAR="/tmp/rover-m8-import-clay-$STAMP.tar"
+M8_IMPORT_S3_TAR="/tmp/rover-m8-import-s3-$STAMP.tar"
+m8_backend_archive "$M8_IMPORT_CLAY_TAR" "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_CLAY_NAME" >/dev/null \
+  || fail "fixture 111 could not build the Clay import archive"
+m8_backend_archive "$M8_IMPORT_S3_TAR" "$M8_IMPORT_S3_PHOTO" "$M8_IMPORT_S3_NAME" >/dev/null \
+  || fail "fixture 111 could not build the S3 import archive"
+unchosen="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/x-tar' --data-binary "@$M8_IMPORT_CLAY_TAR" \
+  "$URL/apps/rover/import")"
+case "$unchosen" in
+  (*$'\n'400) ;;
+  (*) fail "fixture 111 an archive with photos and no backend was not refused: $unchosen";;
+esac
+grep -q 'Choose where to keep them' <<<"$unchosen" \
+  || fail "fixture 111 the refusal is not in human words: $unchosen"
+grep -qE 'nest-fail|%bad-shape|%missing-key|0x[0-9a-f]{8}' <<<"$unchosen" \
+  && fail "fixture 111 the refusal leaks a raw error or a machine id: $unchosen"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$M8_IMPORT_CLAY_NAME' SELECT T.attachment-id;")"
+grep -q '%attachment-id' <<<"$report" \
+  && fail "fixture 111 the refused import stored a photo anyway: $report"
+
+# Choice one: Clay.
+clay_import="$(m8_import_backend "$M8_IMPORT_CLAY_TAR" clay)"
+case "$clay_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 111 the Clay import was refused: $clay_import";;
+esac
+grep -q 'Photos: imported 1,' <<<"$clay_import" \
+  || fail "fixture 111 the Clay import did not store exactly one photo: $clay_import"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$M8_IMPORT_CLAY_NAME' SELECT T.attachment-id, T.backend, T.locator;")"
+backend_named "$report" clay \
+  || fail "fixture 111 the imported photo did not land in Clay: $report"
+
+# Choice two: S3, on the same archive shape and the same records.
+s3_import="$(m8_import_backend "$M8_IMPORT_S3_TAR" s3)"
+case "$s3_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 111 the S3 import was refused: $s3_import";;
+esac
+grep -q 'Photos: imported 1,' <<<"$s3_import" \
+  || fail "fixture 111 the S3 import did not store exactly one photo: $s3_import"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$M8_IMPORT_S3_NAME' SELECT T.attachment-id, T.backend, T.locator;")"
+backend_named "$report" s3 \
+  || fail "fixture 111 the imported photo did not land in S3: $report"
+m8_s3_locator="$(grep -oE "%locator 116 '[^']*'" <<<"$report" | head -1 | sed "s/^.*'\(.*\)'$/\1/")"
+[ -n "$m8_s3_locator" ] || fail "fixture 111 the S3 reference carries no locator: $report"
+# Read it out of the bucket with a client that is not Rover.
+m8_import_bucket="$(python3 - "$S3_ENDPOINT" "$m8_s3_locator" <<'BUCKET'
+import sys, hashlib, boto3, botocore
+endpoint, locator = sys.argv[1], sys.argv[2]
+bucket, key = locator.lstrip("/").split("/", 1)
+s3 = boto3.client("s3", endpoint_url=endpoint,
+                  aws_access_key_id="roverm8key",
+                  aws_secret_access_key="roverm8secret123",
+                  region_name="us-east-1",
+                  config=botocore.config.Config(s3={"addressing_style": "path"}))
+body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+print(hashlib.sha256(body).hexdigest(), len(body))
+BUCKET
+)" || fail "fixture 111 could not read the imported object out of the bucket"
+[ "$(awk '{print $1}' <<<"$m8_import_bucket")" = "$M8_IMPORT_S3_HASH" ] \
+  || fail "fixture 111 the object in the bucket is not the imported photo: $m8_import_bucket"
+# Both serve back, byte for byte, whichever store holds them.
+M8_IMPORT_BACK="/tmp/rover-m8-import-back-$STAMP.png"
+[ "$(fetch_file "$M8_IMPORT_CLAY_NAME" "$M8_IMPORT_BACK")" = 200 ] \
+  || fail "fixture 111 the Clay-imported photo did not serve back"
+cmp -s "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_BACK" \
+  || fail "fixture 111 the Clay-imported photo is not byte for byte the source"
+[ "$(fetch_file "$M8_IMPORT_S3_NAME" "$M8_IMPORT_BACK")" = 200 ] \
+  || fail "fixture 111 the S3-imported photo did not serve back"
+cmp -s "$M8_IMPORT_S3_PHOTO" "$M8_IMPORT_BACK" \
+  || fail "fixture 111 the S3-imported photo is not byte for byte the source"
+rm -f "$M8_IMPORT_BACK"
+
+# And the CONTROL on the import screen is what sends the answer. The browser
+# drives the real screen and the request it makes is read off the wire.
+M8_BROWSER_IMPORT_DOC="/tmp/rover-m8-import-document-$STAMP.json"
+m8_photoless_document "$M8_BROWSER_IMPORT_DOC" \
+  || fail "fixture 111 could not build the document the browser uploads"
+import_backend_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/import-backend-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$M8_BROWSER_IMPORT_DOC" s3 send
+} 2>&1)" || fail "fixture 111 the browser could not drive the import screen: $import_backend_out"
+grep -qx 'IMPORT_BACKENDS=clay,s3' <<<"$import_backend_out" \
+  || fail "fixture 111 the import screen does not offer both backends: $import_backend_out"
+grep -q '^IMPORT_REQUEST=/apps/rover/import?backend=s3$' <<<"$import_backend_out" \
+  || fail "fixture 111 the import screen did not send the owner's choice: $import_backend_out"
+grep -qx 'IMPORT_REQUEST_COUNT_DISAGREEING=0' <<<"$import_backend_out" \
+  || fail "fixture 111 a batch went out under a different backend: $import_backend_out"
+note "fixture 111 backends - $(grep '^IMPORT_BACKENDS=' <<<"$import_backend_out"), bucket $m8_import_bucket"
+note "fixture 111 PASS - the import asks once which backend to use, refuses an archive of photos that names none, and both choices land the photo in the store the owner named"
+
+# ---------------------------------------------------------------------------
+# fixture 112 - a ship with no %storage configuration offers Clay only, and
+# says why in human words.
+#
+# The configuration is removed and put back, so this runs on a ship that is
+# otherwise identical to the one fixture 111 just used.
+# ---------------------------------------------------------------------------
+storage_poke "[%set-access-key-id '']"
+backends_json="$(curl -sS -b "$JAR" "$URL/apps/rover/backends.json")"
+m8_backend_state="$(python3 - <<PY
+import json
+backends = {b["name"]: b for b in json.loads('''$backends_json''')["backends"]}
+assert backends["clay"]["available"] is True, "Clay is not offered"
+assert backends["s3"]["available"] is False, "S3 is offered on a ship with no bucket"
+reason = backends["s3"]["reason"]
+assert "no S3 storage set up yet" in reason, reason
+assert "Landscape storage settings" in reason, reason
+for token in ("nest-fail", "%bad-shape", "0x"):
+    assert token not in reason, reason
+print(reason)
+PY
+)" || fail "fixture 112 the backend route does not refuse S3 in human words: $backends_json"
+# The endpoint refuses the choice the screen no longer offers.
+refused="$(m8_import_backend "$M8_IMPORT_S3_TAR" s3)"
+case "$refused" in
+  (*$'\n'409) ;;
+  (*) fail "fixture 112 an unconfigured ship accepted an S3 import: $refused";;
+esac
+grep -q 'no S3 storage set up yet' <<<"$refused" \
+  || fail "fixture 112 the import refusal is not in human words: $refused"
+# The screen offers Clay alone, and prints the reason the ship gave.
+import_clay_only="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" \
+  ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/import-backend-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$M8_BROWSER_IMPORT_DOC" clay hold
+} 2>&1)" || fail "fixture 112 the browser could not read the import screen: $import_clay_only"
+storage_poke "[%set-access-key-id '$S3_SAVED_KEY']"
+grep -qx 'IMPORT_BACKENDS=clay' <<<"$import_clay_only" \
+  || fail "fixture 112 the import screen still offers S3 with no bucket configured: $import_clay_only"
+grep -q '^IMPORT_BACKEND_NOTE=.*no S3 storage set up yet' <<<"$import_clay_only" \
+  || fail "fixture 112 the import screen does not say why S3 is missing: $import_clay_only"
+grep -qx 'IMPORT_REQUEST_COUNT=0' <<<"$import_clay_only" \
+  || fail "fixture 112 the screen sent an import it was only asked to read: $import_clay_only"
+note "fixture 112 reason - $m8_backend_state"
+note "fixture 112 PASS - a ship with no %storage configuration offers Clay only on the import screen, says why in human words, and the endpoint refuses the S3 choice the same way"
+# ---------------------------------------------------------------------------
+# fixture 115 - a batch of photographs into S3, and a bucket that refuses.
+#
+# Fixture 111 imports ONE photograph, so it cannot tell an import that answers
+# after the last photograph from one that answers after the first. This one
+# carries three, and the count in the answer is what proves the request waited
+# for all of them.
+#
+# Then the same import meets a bucket that refuses. The rule is that one
+# photograph which will not store never stops the rest, and the person still
+# gets an answer. Two photographs go in and BOTH are named as failures, which
+# is what proves the loop ran past the first refusal.
+# ---------------------------------------------------------------------------
+m8_png() {
+  python3 - "$1" "$2" <<'PNG'
+import struct
+import sys
+import zlib
+
+path, red = sys.argv[1], int(sys.argv[2])
+width = height = 16
+raw = b"".join(
+    b"\x00" + bytes([red, (row * 13) % 256, 90] * width) for row in range(height)
+)
+
+
+def chunk(tag, body):
+    return (
+        struct.pack(">I", len(body))
+        + tag
+        + body
+        + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+    )
+
+
+open(path, "wb").write(
+    b"\x89PNG\r\n\x1a\n"
+    + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    + chunk(b"IDAT", zlib.compress(raw, 9))
+    + chunk(b"IEND", b"")
+)
+PNG
+}
+
+# One archive carrying SEVERAL photographs, all on the first vehicle. Every
+# other record in it is already imported, so the photographs are the only work
+# the run has left to do.
+m8_batch_archive() {
+  local target="$1"
+  shift
+  python3 - "$M8_UNPACKED/rover-import.json" "$target" "$@" <<'BATCHTAR'
+import hashlib
+import io
+import json
+import pathlib
+import sys
+import tarfile
+
+document = json.loads(pathlib.Path(sys.argv[1]).read_text())
+target = sys.argv[2]
+pairs = sys.argv[3:]
+
+
+def strip(node):
+    if isinstance(node, dict):
+        node.pop("attachments", None)
+        for value in node.values():
+            strip(value)
+    elif isinstance(node, list):
+        for value in node:
+            strip(value)
+
+
+for vehicle in document["vehicles"]:
+    strip(vehicle)
+
+names = []
+bodies = {}
+for pair in pairs:
+    name, path = pair.split("=", 1)
+    names.append(name)
+    bodies[name] = pathlib.Path(path).read_bytes()
+
+document["vehicles"][0]["attachments"] = names
+document["source"]["attachments"]["files"] = [
+    {
+        "name": name,
+        "path": "attachments/" + name,
+        "hash": hashlib.sha256(bodies[name]).hexdigest(),
+        "bytes": str(len(bodies[name])),
+        "mediaType": "image/png",
+    }
+    for name in names
+]
+document["source"]["attachments"]["photoCount"] = len(names)
+payload = json.dumps(document).encode()
+
+with tarfile.open(target, "w", format=tarfile.USTAR_FORMAT) as archive:
+    members = [("rover-import.json", payload)]
+    members += [("attachments/" + name, bodies[name]) for name in names]
+    for member, content in members:
+        info = tarfile.TarInfo(member)
+        info.size = len(content)
+        archive.addfile(info, io.BytesIO(content))
+BATCHTAR
+}
+
+# Read one object out of the bucket with a client that is not Rover.
+m8_bucket_object() {
+  python3 - "$S3_ENDPOINT" "$1" <<'BUCKET'
+import sys, hashlib, boto3, botocore
+endpoint, locator = sys.argv[1], sys.argv[2]
+bucket, key = locator.lstrip("/").split("/", 1)
+s3 = boto3.client("s3", endpoint_url=endpoint,
+                  aws_access_key_id="roverm8key",
+                  aws_secret_access_key="roverm8secret123",
+                  region_name="us-east-1",
+                  config=botocore.config.Config(s3={"addressing_style": "path"}))
+body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+print(hashlib.sha256(body).hexdigest(), len(body))
+BUCKET
+}
+
+M8_BATCH_TAR="/tmp/rover-m8-batch-$STAMP.tar"
+M8_BATCH_PAIRS=''
+m8_batch_names=''
+for m8_shade in 31 97 163; do
+  m8_batch_photo="/tmp/rover-m8-batch-$m8_shade-$STAMP.png"
+  m8_batch_name="batch-$m8_shade-$STAMP.png"
+  m8_png "$m8_batch_photo" "$m8_shade"
+  M8_BATCH_PAIRS="$M8_BATCH_PAIRS $m8_batch_name=$m8_batch_photo"
+  m8_batch_names="$m8_batch_names $m8_batch_name"
+done
+m8_batch_archive "$M8_BATCH_TAR" $M8_BATCH_PAIRS \
+  || fail "fixture 115 could not build the three-photo archive"
+m8_batch_import="$(m8_import_backend "$M8_BATCH_TAR" s3)"
+case "$m8_batch_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 115 the three-photo S3 import was refused: $m8_batch_import";;
+esac
+# The count is the proof. An import that answered after the first photograph
+# could not report three, and one that answered twice could not report any
+# number at all, because the second answer has no request left to carry it.
+grep -q 'Photos: imported 3, already-imported 0, failures 0' <<<"$m8_batch_import" \
+  || fail "fixture 115 the batch did not answer after the last photograph: $m8_batch_import"
+m8_batch_checked=0
+for m8_batch_name in $m8_batch_names; do
+  m8_shade="$(sed 's/^batch-\([0-9]*\)-.*/\1/' <<<"$m8_batch_name")"
+  report="$(rover_report "FROM attachments T WHERE T.file-name = '$m8_batch_name' SELECT T.attachment-id, T.backend, T.locator;")"
+  backend_named "$report" s3 \
+    || fail "fixture 115 the batch photo $m8_batch_name did not land in S3: $report"
+  m8_batch_locator="$(grep -oE "%locator 116 '[^']*'" <<<"$report" | head -1 | sed "s/^.*'\(.*\)'$/\1/")"
+  [ -n "$m8_batch_locator" ] || fail "fixture 115 a batch reference carries no locator: $report"
+  m8_batch_read="$(m8_bucket_object "$m8_batch_locator")" \
+    || fail "fixture 115 could not read $m8_batch_name out of the bucket"
+  [ "$(awk '{print $1}' <<<"$m8_batch_read")" \
+    = "$(digest "/tmp/rover-m8-batch-$m8_shade-$STAMP.png")" ] \
+    || fail "fixture 115 the object in the bucket is not $m8_batch_name: $m8_batch_read"
+  m8_batch_checked=$((m8_batch_checked + 1))
+done
+[ "$m8_batch_checked" = 3 ] \
+  || fail "fixture 115 checked $m8_batch_checked of the three batch photos"
+
+# The refusal. The secret key is made wrong, so the bucket answers 403 for
+# every PUT. The endpoint still accepts the import, because the ship IS
+# configured for S3, and the report is where the failure is named.
+#
+# Every shade here is its own, and no other fixture generates it. Bytes this
+# ship already holds take the reuse path and never reach the bucket, so a
+# repeated shade would silently import instead of being refused.
+M8_REFUSED_TAR="/tmp/rover-m8-refused-$STAMP.tar"
+M8_REFUSED_PAIRS=''
+m8_refused_names=''
+for m8_shade in 43 149; do
+  m8_refused_photo="/tmp/rover-m8-refused-$m8_shade-$STAMP.png"
+  m8_refused_name="refused-$m8_shade-$STAMP.png"
+  m8_png "$m8_refused_photo" "$m8_shade"
+  M8_REFUSED_PAIRS="$M8_REFUSED_PAIRS $m8_refused_name=$m8_refused_photo"
+  m8_refused_names="$m8_refused_names $m8_refused_name"
+done
+m8_batch_archive "$M8_REFUSED_TAR" $M8_REFUSED_PAIRS \
+  || fail "fixture 115 could not build the refused archive"
+storage_poke "[%set-secret-access-key 'wrong-secret-$STAMP']"
+m8_refused_import="$(m8_import_backend "$M8_REFUSED_TAR" s3)"
+storage_poke "[%set-secret-access-key 'roverm8secret123']"
+case "$m8_refused_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 115 a refusing bucket left the request unanswered: $m8_refused_import";;
+esac
+grep -q 'Photos: imported 0, already-imported 0, failures 2' <<<"$m8_refused_import" \
+  || fail "fixture 115 the refusal did not fail exactly the two photographs: $m8_refused_import"
+for m8_refused_name in $m8_refused_names; do
+  grep -qF "Photo $m8_refused_name" <<<"$m8_refused_import" \
+    || fail "fixture 115 the report does not name $m8_refused_name: $m8_refused_import"
+  report="$(rover_report "FROM attachments T WHERE T.file-name = '$m8_refused_name' SELECT T.attachment-id;")"
+  grep -q '%attachment-id' <<<"$report" \
+    && fail "fixture 115 a refused photograph left a reference behind: $report"
+done
+grep -q 'S3 storage' <<<"$m8_refused_import" \
+  || fail "fixture 115 the refusal is not in human words: $m8_refused_import"
+# And the ship is not stuck. The next import runs, on the same records.
+m8_after_refusal="$(m8_import_backend "$M8_BATCH_TAR" s3)"
+case "$m8_after_refusal" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 115 the ship refused the next import after a bucket refusal: $m8_after_refusal";;
+esac
+grep -q 'Photos: imported 0, already-imported 3, failures 0' <<<"$m8_after_refusal" \
+  || fail "fixture 115 reading the same batch twice did not add nothing: $m8_after_refusal"
+note "fixture 115 batch - three imported and read back out of the bucket, two refused and named"
+note "fixture 115 PASS - a three-photograph S3 import answers once, after the last one, a bucket that refuses fails every photograph it refuses and still answers the request, and the run that follows a refusal still works"
+
+# ---------------------------------------------------------------------------
+# fixture 114 - everything M8 added survives a ship restart.
+#
+# Fixture 106 proves the ATTACH path across the first restart. Everything M8
+# built after it - the import that carries photographs, the choice of backend,
+# the complete archive and its manifest - had never met one. This is a SECOND
+# restart, taken after those fixtures have run, so the state it reads is the
+# state they left.
+#
+# The S3 half matters most. A reference the import wrote names bytes that are
+# not on this ship, and reading it back after a restart is what proves the
+# reference, the locator, and the credential path all survived together.
+# ---------------------------------------------------------------------------
+m8_restart_refs_before="$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')"
+[ -n "$m8_restart_refs_before" ] && [ "$m8_restart_refs_before" -gt 0 ] \
+  || fail "fixture 114 the database holds no reference to carry across the restart"
+restart_pier 114
+auth_cookie_name="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $6; exit}' "$JAR")"
+auth_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
+[ -n "$auth_cookie" ] || fail "fixture 114 has no urbauth cookie after the restart"
+m8_restart_refs_after="$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')"
+[ "$m8_restart_refs_after" = "$m8_restart_refs_before" ] \
+  || fail "fixture 114 the reference count moved from $m8_restart_refs_before to $m8_restart_refs_after over the restart"
+
+# Both imported photographs serve back, byte for byte, out of the store the
+# owner named for each.
+M8_RESTART_BACK="/tmp/rover-m8-restart-back-$STAMP.png"
+[ "$(fetch_file "$M8_IMPORT_CLAY_NAME" "$M8_RESTART_BACK")" = 200 ] \
+  || fail "fixture 114 the Clay-imported photo did not serve back after the restart"
+cmp -s "$M8_IMPORT_CLAY_PHOTO" "$M8_RESTART_BACK" \
+  || fail "fixture 114 the Clay-imported photo is not byte for byte the source after the restart"
+[ "$(fetch_file "$M8_IMPORT_S3_NAME" "$M8_RESTART_BACK")" = 200 ] \
+  || fail "fixture 114 the S3-imported photo did not serve back after the restart"
+cmp -s "$M8_IMPORT_S3_PHOTO" "$M8_RESTART_BACK" \
+  || fail "fixture 114 the S3-imported photo is not byte for byte the source after the restart"
+rm -f "$M8_RESTART_BACK"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$M8_IMPORT_S3_NAME' SELECT T.attachment-id, T.backend, T.locator;")"
+backend_named "$report" s3 \
+  || fail "fixture 114 the imported S3 reference no longer names its backend: $report"
+
+# The backend question the import asks is still answered the same way.
+M8_RESTART_BACKENDS="/tmp/rover-m8-restart-backends-$STAMP.json"
+curl -sS -b "$JAR" -o "$M8_RESTART_BACKENDS" "$URL/apps/rover/backends.json"
+m8_restart_offers="$(python3 - "$M8_RESTART_BACKENDS" 2>&1 <<'PY'
+import json
+import sys
+
+backends = {b["name"]: b for b in json.load(open(sys.argv[1]))["backends"]}
+assert backends["clay"]["available"] is True, "Clay is not offered after the restart"
+assert backends["s3"]["available"] is True, "S3 is not offered after the restart"
+print("BACKENDS=clay,s3")
+PY
+)" || fail "fixture 114 the backend route changed over the restart: $m8_restart_offers"
+rm -f "$M8_RESTART_BACKENDS"
+
+# The complete archive still serves, and its manifest still tells the truth
+# about the photographs the database holds.
+M8_RESTART_TAR="/tmp/rover-m8-restart-export-$STAMP.tar"
+m8_restart_status="$(curl -sS -b "$JAR" -o "$M8_RESTART_TAR" -w '%{http_code}' "$URL/apps/rover/export.tar")"
+[ "$m8_restart_status" = 200 ] \
+  || fail "fixture 114 the archive endpoint answered $m8_restart_status after the restart"
+m8_restart_manifest="$(python3 - "$M8_RESTART_TAR" "$m8_restart_refs_after" <<'PY'
+import json
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1]) as archive:
+    names = archive.getnames()
+    document = json.loads(archive.extractfile("rover-import.json").read())
+
+manifest = document["source"]["attachments"]
+stored = int(sys.argv[2])
+assert manifest["included"] is True, "the archive disowns the photos it carries"
+assert int(manifest["photoCount"]) == stored, f'{manifest["photoCount"]} against {stored}'
+carried = [name for name in names if name.startswith("attachments/")]
+assert len(carried) == stored, f"{len(carried)} members against {stored} references"
+print(f"MEMBERS={len(names)} PHOTOS={len(carried)}")
+PY
+)" || fail "fixture 114 the archive manifest is not true after the restart: $m8_restart_manifest"
+rm -f "$M8_RESTART_TAR"
+
+# And an import with photographs still works on the far side. Re-reading the
+# batch adds nothing, which is the same rule ruling 18 gives every record.
+m8_restart_import="$(m8_import_backend "$M8_BATCH_TAR" s3)"
+case "$m8_restart_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 114 an S3 import was refused after the restart: $m8_restart_import";;
+esac
+grep -q 'Photos: imported 0, already-imported 3, failures 0' <<<"$m8_restart_import" \
+  || fail "fixture 114 the batch was not recognised after the restart: $m8_restart_import"
+note "fixture 114 restart - $m8_restart_refs_after references, $m8_restart_manifest"
+note "fixture 114 PASS - every imported photograph, both backends, the archive and its manifest survived a second ship restart, and an S3 import still answers after it"
+rm -f "$M8_BATCH_TAR" "$M8_REFUSED_TAR"
+rm -f /tmp/rover-m8-batch-*-"$STAMP".png /tmp/rover-m8-refused-*-"$STAMP".png
+
+rm -f "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_S3_PHOTO" "$M8_IMPORT_CLAY_TAR" "$M8_IMPORT_S3_TAR"
+rm -f "$M8_BROWSER_IMPORT_DOC"
+
+rm -f "$M8_MANIFEST" "$M8_EXPORT_TAR" "$M8_EXPORT_JSON"
+rm -rf "$M8_UNPACKED"
+
 restore_roundtrip_owner \
   || fail "fixture 86 could not restore the populated pre-round-trip database"
-note "fixture 86 PASS - an unchanged export imports into a fresh real database with all 101 primary-key relation counts, rendered history, archive state, and semantic re-export equal"
+
+# ---------------------------------------------------------------------------
+# fixture 104 - the owner's real corpus loads. 121 photos against 114 records,
+# stored bytes hashing equal to the source bytes, on a real pier.
+#
+# The corpus is the owner's own data. This fixture reports COUNTS and never a
+# file name, a label, a date, or a digest out of it.
+#
+# It runs in a database of its own, put in place the way fixture 86 puts one
+# in place. Two reasons: the owner's history is not the battery's data, and a
+# battery that ran twice would otherwise meet a different state the second
+# time. Here the second run does exactly what the first one did.
+#
+# The load goes through `/apps/rover/add-attachment`, the same endpoint a
+# browser calls. An import has no privileged path.
+# ---------------------------------------------------------------------------
+CORPUS_SOURCE="${ROVER_CORPUS:-$HOME/workspace/rover/aCar export}"
+CORPUS_OUT="${ROVER_CORPUS_OUT:-$HOME/workspace/rover/converted-m8-battery}"
+[ -d "$CORPUS_SOURCE" ] \
+  || fail "fixture 104 the real corpus is not at $CORPUS_SOURCE - this fixture does not run on synthetic data"
+rm -rf "$CORPUS_OUT"
+python3 "$REPO/tools/acar-import/convert.py" --out "$CORPUS_OUT" "$CORPUS_SOURCE" > /dev/null \
+  || fail "fixture 104 the converter could not read the corpus"
+[ -f "$CORPUS_OUT/rover-import.json" ] && [ -f "$CORPUS_OUT/attachments.json" ] \
+  || fail "fixture 104 the converter wrote no import document or no photo manifest"
+corpus_photos="$(python3 -c '
+import json, sys
+document = json.load(open(sys.argv[1]))
+entries = document["attachments"] if isinstance(document, dict) else document
+print(len(entries))
+' "$CORPUS_OUT/attachments.json")"
+[ "$corpus_photos" = 121 ] \
+  || fail "fixture 104 the corpus holds $corpus_photos photos, and this fixture is written against 121"
+
+database_report="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+database_exists "$database_report" "$CORPUS_BACKUP" \
+  && fail "fixture 104 the temporary database $CORPUS_BACKUP already exists"
+obelisk_report sys "ALTER DATABASE rover RENAME TO $CORPUS_BACKUP;" >/dev/null \
+  || fail "fixture 104 could not put the battery database aside"
+CORPUS_SWAPPED=1
+click_file '=/  m  (strand ,vase)
+;<  our=@p  bind:m  get-our
+;<  ~  bind:m  (poke [our %rover] %rover-action !>([%init-db ~]))
+;<  ~  bind:m  (sleep ~s8)
+(pure:m !>(~))' >/dev/null
+database_report="$(obelisk_report sys 'FROM sys.sys.databases SELECT database;')"
+database_exists "$database_report" rover \
+  || fail "fixture 104 the corpus database was not created"
+
+corpus_import="$(curl -sS -b "$JAR" -w $'\n%{http_code}' \
+  -H 'content-type: application/json' --data-binary "@$CORPUS_OUT/rover-import.json" \
+  "$URL/apps/rover/import")"
+case "$corpus_import" in
+  (*$'\n'200) ;;
+  (*) fail "fixture 104 the corpus document was refused: $(tail -3 <<<"$corpus_import")";;
+esac
+grep -q 'failures 0' <<<"$corpus_import" \
+  || fail "fixture 104 the corpus document import reported a failure"
+
+# The pier is measured on either side of the PHOTO load alone, so the figure
+# is the cost of the bytes and not the cost of the records they hang off.
+corpus_pier_before="$(du -sb "$PIER" | awk '{print $1}')"
+corpus_cookie_name="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $6; exit}' "$JAR")"
+corpus_cookie="$(awk '$0 !~ /^#/ && $6 ~ /^urbauth-/ {print $7; exit}' "$JAR")"
+[ -n "$corpus_cookie" ] || fail "fixture 104 has no urbauth cookie for the loader"
+corpus_out="$(python3 "$REPO/tools/rover-import/attachments.py" \
+  "$CORPUS_OUT/attachments.json" --url "$URL" \
+  --cookie "$corpus_cookie_name=$corpus_cookie" --backend clay --verify 2>&1)" \
+  || fail "fixture 104 the corpus photo load refused or mismatched: $(grep -c . <<<"$corpus_out") lines reported"
+corpus_pier_after="$(du -sb "$PIER" | awk '{print $1}')"
+for want in ATTACHMENTS_IN_MANIFEST=121 ATTACHMENTS_STORED=121 ATTACHMENTS_ALREADY=0 \
+  ATTACHMENTS_REFUSED=0 ATTACHMENTS_FILL=116 ATTACHMENTS_EVENT=3 ATTACHMENTS_VEHICLE=2 \
+  ATTACHMENTS_VERIFIED=121 ATTACHMENTS_MISMATCHED=0; do
+  grep -qx "$want" <<<"$corpus_out" \
+    || fail "fixture 104 the corpus load did not report $want: $(grep '^ATTACHMENTS_' <<<"$corpus_out" | tr '\n' ' ')"
+done
+# One photo in the corpus is a byte-identical duplicate of another, under its
+# own name. Both names are kept and the bytes are stored once, so the count of
+# distinct digests is one lower than the count of photos.
+grep -qx 'ATTACHMENTS_DISTINCT_DIGESTS=120' <<<"$corpus_out" \
+  || fail "fixture 104 the corpus digests do not show the one known duplicate: $(grep '^ATTACHMENTS_DIST' <<<"$corpus_out")"
+
+# What the database holds: one reference per photo, and the records they hang
+# off counted by distinct owner id across the three link relations.
+corpus_refs="$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')"
+[ "$corpus_refs" = 121 ] \
+  || fail "fixture 104 the corpus left $corpus_refs references, want 121"
+corpus_owners=0
+for pair in 'energy-acquisition-attachments L acquisition-id' \
+  'vehicle-event-attachments L event-id' 'vehicle-attachments L vehicle-id'; do
+  set -- $pair
+  report="$(rover_report "FROM $1 $2 SELECT $2.$3, $2.attachment-id;")"
+  owners="$(grep -oE "%$3 [0-9]+ [0-9a-fx.]+" <<<"$report" | sort -u | wc -l)"
+  corpus_owners=$((corpus_owners + owners))
+done
+[ "$corpus_owners" = 114 ] \
+  || fail "fixture 104 the corpus photos hang off $corpus_owners records, want 114"
+# And no blob went in with them.
+blob_probe="$(rover_report 'FROM attachments T SELECT T.attachment-id, T.backend, T.locator, T.content-hash, T.byte-count, T.media-type, T.file-name;')"
+[ "$(printf '%s' "$blob_probe" | wc -c)" -lt 200000 ] \
+  || fail "fixture 104 the corpus attachments relation reads back blob-sized"
+
+# The same load, run again. Ruling 18 applied to photos: it adds nothing.
+corpus_again="$(python3 "$REPO/tools/rover-import/attachments.py" \
+  "$CORPUS_OUT/attachments.json" --url "$URL" \
+  --cookie "$corpus_cookie_name=$corpus_cookie" --backend clay 2>&1)" \
+  || fail "fixture 104 the second corpus load refused a photo"
+grep -qx 'ATTACHMENTS_STORED=0' <<<"$corpus_again" \
+  || fail "fixture 104 the second load stored a photo again: $(grep '^ATTACHMENTS_STORED' <<<"$corpus_again")"
+grep -qx 'ATTACHMENTS_ALREADY=121' <<<"$corpus_again" \
+  || fail "fixture 104 the second load did not recognise all 121 photos: $(grep '^ATTACHMENTS_ALREADY' <<<"$corpus_again")"
+corpus_refs_again="$(count_rows "$(rover_report 'FROM attachments T SELECT T.attachment-id;')" '%attachment-id')"
+[ "$corpus_refs_again" = 121 ] \
+  || fail "fixture 104 the second load changed the reference count to $corpus_refs_again"
+
+note "fixture 104 corpus - 121 photos, 116 fill, 3 event, 2 vehicle, 120 distinct digests, 114 records"
+note "fixture 104 pier - $corpus_pier_before bytes before the photo load, $corpus_pier_after after, growth $((corpus_pier_after - corpus_pier_before))"
+restore_corpus_owner \
+  || fail "fixture 104 could not restore the battery database"
+rm -rf "$CORPUS_OUT"
+note "fixture 104 PASS - the real corpus loads through the product endpoint: 121 photos against 114 records, every stored photo hashing equal to its source, and a second load adding nothing"
 
 . "$(dirname "$0")/event-coverage-gate.sh"

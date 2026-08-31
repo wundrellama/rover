@@ -94,26 +94,87 @@
   =/  label  (text-by target-id-key target target-label-key targets)
   s+(need label)
 ::
+::  M8. The attachment relations, by their ordinal in `export-view`.
+++  attachment-rows      |=(commands=(list cmd-result:ast) (rows commands 101))
+++  energy-attachments   |=(commands=(list cmd-result:ast) (rows commands 102))
+++  event-attachments    |=(commands=(list cmd-result:ast) (rows commands 103))
+++  vehicle-attachments  |=(commands=(list cmd-result:ast) (rows commands 104))
+::
+::  The file names one record carries. A name, never an id: the file name is
+::  the human handle, it is what the tar member is called, and it is the only
+::  thing the receiving ship needs to match bytes to a record.
+++  attachment-names
+  |=  [owner-key=@tas owner=@ links=(list vector:ast) refs=(list vector:ast)]
+  ^-  (list json)
+  %+  turn  (rows-by:view owner-key owner links)
+  |=  link=vector:ast
+  =/  found
+    (one-by %attachment-id (cell-atom:view %attachment-id link) refs)
+  ?~  found  s+''
+  s+(cell-text:view %file-name u.found)
+::
+::  Every stored photo, named with its digest and its size. Ruling 19: nothing
+::  is silently absent, and the manifest that T10 promised now describes files
+::  that are really there.
+::
+::  `path` is the member name inside the tar, so it belongs to the ARCHIVE
+::  manifest only. The document served by itself carries no member, and a path
+::  into a container the reader does not hold is a claim, not a fact.
+++  manifest-json
+  |=  [refs=(list vector:ast) carried=?]
+  ^-  (list json)
+  %+  turn  refs
+  |=  row=vector:ast
+  =/  name  (cell-text:view %file-name row)
+  =/  tail=(list [@t json])
+    :~  ['hash' s+(cell-text:view %content-hash row)]
+        ::  A plain integer. `scot %ud` groups with dots past four figures, and
+        ::  a byte count that reads 52.428.800 is not a number any reader parses.
+        ['bytes' s+(format-scaled:render (cell-atom:view %byte-count row) 0 %.n)]
+        ['mediaType' s+(cell-text:view %media-type row)]
+    ==
+  %-  object
+  :-  ['name' s+name]
+  ?.  carried  tail
+  [['path' s+(crip (weld "attachments/" (trip name)))] tail]
+::
+::  M8, second leg. The two download endpoints share one document and each one
+::  now tells the truth about ITSELF.
+::
+::  `/apps/rover/export` serves this document alone. `/apps/rover/export.tar`
+::  serves the same document plus every photo. One manifest written for the
+::  archive made the document claim to carry photographs it did not hold, and a
+::  false positive claim is worse than silence.
 ++  source-json
+  |=  [commands=(list cmd-result:ast) carried=?]
   ^-  json
+  =/  refs  (attachment-rows commands)
+  =/  count  (lent refs)
+  =/  head=(list [@t json])
+    :~  ['included' b+carried]
+        ['photoCount' n+(scot %ud count)]
+        ['container' s+'tar']
+        ['directory' s+'attachments/']
+    ==
+  =/  says=(list [@t json])
+    ?:  carried  ~
+    :~  ['download' s+'/apps/rover/export.tar']
+        :-  'reason'
+        :-  %s
+        %^    cat
+            3
+          'This file holds the records only. The photographs it names are in '
+        'the complete export, which Rover serves at /apps/rover/export.tar and reads back the same way.'
+    ==
+  =/  tail=(list [@t json])
+    ['files' [%a (manifest-json refs carried)]]~
   =/  attachments=json
-    %-  object
-    :~  ['included' b+%.n]
-        ['photoCount' n+'0']
-        ['manifest' s+'attachments-manifest.json']
-    ==
-  =/  omission=json
-    %-  object
-    :~  ['kind' s+'photos']
-        ['count' n+'0']
-        ['manifest' s+'attachments-manifest.json']
-        ['reason' s+'Photo attachments are stored outside the Rover database and are not included.']
-    ==
+    (object :(weld head says tail))
   %-  object
   :~  ['app' s+'Rover']
       ['version' s+'1']
       ['attachments' attachments]
-      ['omissions' [%a ~[omission]]]
+      ['omissions' [%a ~]]
   ==
 ::
 ++  simple-definitions
@@ -510,6 +571,7 @@
         ['notes' ?~(note s+'' s+(cell-text:view %note u.note))]
         ['paymentMethod' ?~(payment s+'' s+u.payment)]
         ['customFields' [%a (custom-values-json acquisition-id commands)]]
+        ['attachments' [%a (attachment-names %acquisition-id acquisition-id (energy-attachments commands) (attachment-rows commands))]]
     ==
   (object (flop (source-fields acquisition-id commands fields)))
 ::
@@ -596,6 +658,7 @@
       ['sourceTotal' ?~(source-total s+'' (j-scaled (cell-atom:view %total-mills u.source-total) 3))]
       ['subtype' ?~(subtype s+'' s+u.subtype)]
       ['measurements' [%a (turn measurements measurement-json)]]
+      ['attachments' [%a (attachment-names %acquisition-id acquisition-id (energy-attachments commands) (attachment-rows commands))]]
   ==
 ::
 ++  consumable-json
@@ -674,6 +737,7 @@
       ['disposalKind' ?~(disposal-kind s+'' s+u.disposal-kind)]
       ['paymentMethod' ?~(payment s+'' s+u.payment)]
       ['notes' ?~(note s+'' s+(cell-text:view %note u.note))]
+      ['attachments' [%a (attachment-names %event-id event-id (event-attachments commands) (attachment-rows commands))]]
   ==
 ::
 ++  events-of-kind
@@ -823,6 +887,7 @@
         ['odometerReadings' [%a (turn standalone |=(odometer=vector:ast (standalone-odometer-json odometer label)))]]
         ['specification' (spec-json vehicle-id commands)]
         ['consumables' [%a (turn vehicle-consumables |=(link=vector:ast (vehicle-consumable-json link commands)))]]
+        ['attachments' [%a (attachment-names %vehicle-id vehicle-id (vehicle-attachments commands) (attachment-rows commands))]]
     ==
   =.  fields
     ?~  tank
@@ -841,13 +906,16 @@
   |=  row=vector:ast
   (vehicle-json row commands)
 ::
+::  `carried` says whether the caller is writing the archive. Everything else
+::  in the document is identical between the two endpoints, byte for byte, and
+::  fixture 102 proves it.
 ++  document
-  |=  commands=(list cmd-result:ast)
+  |=  [commands=(list cmd-result:ast) carried=?]
   ^-  @t
   =/  payload=json
     %-  object
     :~  ['rover-import' n+'1']
-        ['source' source-json]
+        ['source' (source-json commands carried)]
         ['definitions' (definitions-json commands)]
         ['places' [%a (places-json commands)]]
         ['vehicles' [%a (vehicles-json commands)]]

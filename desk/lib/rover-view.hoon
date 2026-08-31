@@ -1332,7 +1332,7 @@
     "<section data-settings-section=\"definitions\"><h2>Definitions</h2><p>Rename corrects a label everywhere it renders, including on records already saved. Archive removes a definition from every selector and keeps every record that names it. Nothing is deleted, and an archived definition can be restored.</p>"
     (definition-panels panels)
     "<output id=\"definition-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></section>"
-    "<section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import JSON document. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section data-settings-section=\"export\"><h2>Export</h2><p>Download one Rover import file that contains your complete vehicle history.</p><a href=\"/apps/rover/export\" download data-rover-export-download>Download complete export</a></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
+    "<section data-settings-section=\"import\"><h2>Import</h2><p>Rover reads a Rover import file. Run the converter first. Rover never learns the name of the app the records came from.</p><button type=\"button\" data-open-screen=\"import-screen\">Import records</button></section><section data-settings-section=\"export\"><h2>Export</h2><p>Download one archive that holds your complete vehicle history and every photo you attached to it. Rover reads this same archive back.</p><a href=\"/apps/rover/export.tar\" download data-rover-export-download>Download complete export</a></section><section class=\"settings-placeholder\"><h2>GRANTS - COMING LATER</h2></section></section>"
   ==
 ::
 ::  The import screen carries no server-rendered data. The browser reads the
@@ -1349,6 +1349,11 @@
     "<p class=\"field-note\">Rover checks the document in this browser and sends it in batches. A record that is already imported reports already-imported and writes nothing, so a stopped run recovers by uploading the same file again.</p>"
     "<label>Import document<input id=\"import-file\" name=\"document\" type=\"file\" accept=\".json,application/json\" required></label>"
     "<label>Records per batch<input id=\"import-batch-size\" name=\"batchSize\" inputmode=\"numeric\" autocomplete=\"off\" value=\"50\"></label>"
+    ::  M8, second leg. One choice, for the whole import. Rover does not pick
+    ::  the store for the owner, because a photograph in the wrong backend is
+    ::  slow to move. The list comes from `/apps/rover/backends.json`, so a
+    ::  ship with no bucket offers Clay alone and says why.
+    (photo-field 'import')
     "<div class=\"form-actions\"><button type=\"button\" id=\"import-validate\">Validate</button><button type=\"submit\" id=\"import-submit\">Start import</button></div>"
     "<div class=\"preview-row\"><span>Plan</span><output id=\"import-plan\">&mdash;</output><small>Validate reads the document and counts the batches. It sends nothing.</small></div>"
     "<div class=\"preview-row\"><span>Progress</span><output id=\"import-progress\" aria-live=\"polite\">&mdash;</output></div>"
@@ -2285,6 +2290,7 @@
     "<label data-fill-field=\"payment-method\">Payment Method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
     payment-html
     "</select></label>"
+    (photo-field 'fill')
     "<input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\">"
     "<input name=\"tank\" type=\"hidden\" value=\"full\">"
     "<input name=\"settlement\" type=\"hidden\" value=\"standard\">"
@@ -2384,7 +2390,9 @@
     ::  form is adding, and it names the record while the form is correcting -
     ::  a correction may move the date, so the record cannot be found by the
     ::  date the person just typed.
-    "</select></label><label>Note <span class=\"optional\">optional</span><input name=\"notes\" autocomplete=\"off\"></label><label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><input name=\"originalObserved\" type=\"hidden\" value=\"\"><div class=\"form-actions\"><button type=\"submit\">Save event</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"event-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
+    "</select></label><label>Note <span class=\"optional\">optional</span><input name=\"notes\" autocomplete=\"off\"></label>"
+    (photo-field 'event')
+    "<label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><input name=\"originalObserved\" type=\"hidden\" value=\"\"><div class=\"form-actions\"><button type=\"submit\">Save event</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"event-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
     ::  M7 T6. A reminder names one kind of service work and carries an
     ::  interval in time, an interval in distance, or both. A blank interval
     ::  writes NO row, so the form asks for nothing it will not store.
@@ -2545,12 +2553,49 @@
     $(rows t.rows)
   ==
 ::
+::  M8, second leg. The card says which record it is, so the browser can ask
+::  `/apps/rover/attachments.json` for the photos this record carries and hang
+::  them here. Ruling 8: the address is the vehicle label and the moment, the
+::  same handle the attach endpoint takes. No id.
+++  photo-address
+  |=  [owner=@tas vehicle=@t observed=(unit @da)]
+  ^-  tape
+  ;:  weld
+    " data-photo-owner=\""
+    (escape (scot %tas owner))
+    "\" data-photo-vehicle=\""
+    (escape vehicle)
+    "\" data-photo-observed=\""
+    ?~(observed ~ (input-da u.observed))
+    "\""
+  ==
+::
+::  The photo control the entry forms carry. One fragment, used by Add Fill and
+::  by Add Event, so the two can never offer different choices.
+::
+::  The backend list is empty here on purpose. The browser reads
+::  `/apps/rover/backends.json` and fills it, so this markup never states a
+::  choice the ship cannot honor.
+++  photo-field
+  |=  form=@t
+  ^-  tape
+  ;:  weld
+    "<fieldset class=\"photo-field\" data-photo-field=\""
+    (escape form)
+    "\"><legend>Photo <span class=\"optional\">optional</span></legend>"
+    "<label>Choose a photo<input name=\"photo\" type=\"file\" accept=\"image/*\" data-photo-input></label>"
+    "<label>Store it<select name=\"photoBackend\" data-photo-backend></select></label>"
+    "<p class=\"field-note\" data-photo-note hidden></p>"
+    "</fieldset>"
+  ==
+::
 ++  fill-card
   |=  $:  row=vector:ast
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
           economy-breaks=(list vector:ast)
+          vehicle=@t
       ==
   ^-  tape
   =/  acquisition-id  (cell-atom %acquisition-id row)
@@ -2588,7 +2633,9 @@
       ")"
     ==
   ;:  weld
-    "<article class=\"history-card fill\"><header><span>FILL</span><time>"
+    "<article class=\"history-card fill\""
+    (photo-address %energy vehicle `(cell-atom %observed-start row))
+    "><header><span>FILL</span><time>"
     observed
     "</time></header><dl>"
     "<div><dt>ENERGY</dt><dd>"
@@ -2622,7 +2669,7 @@
   ^-  tape
   ?~  rows
     ~
-  =/  card=tape  (fill-card i.rows ~ ~ ~ ~)
+  =/  card=tape  (fill-card i.rows ~ ~ ~ ~ '')
   =/  rest=tape  (fill-cards t.rows)
   (weld card rest)
 ::
@@ -2750,6 +2797,7 @@
           costs=charging-cost-rows
           odometers=(list vector:ast)
           preference=(unit @tas)
+          vehicle=@t
       ==
   ^-  tape
   =/  acquisition-id  (cell-atom %acquisition-id row)
@@ -2797,7 +2845,9 @@
       "</dd></div>"
     ==
   ;:  weld
-    "<article class=\"history-card charge\"><header><span>CHARGE</span><time>"
+    "<article class=\"history-card charge\""
+    (photo-address %energy vehicle `(cell-atom %observed-start row))
+    "><header><span>CHARGE</span><time>"
     observed
     "</time></header><dl>"
     "<div><dt>ENERGY</dt><dd>"
@@ -3097,7 +3147,9 @@
   ;:  weld
     "<article class=\"history-card event\" data-event-kind=\""
     (escape (scot %tas kind))
-    "\"><header><span>"
+    "\""
+    (photo-address %event vehicle `(cell-atom %observed-start row))
+    "><header><span>"
     (cuss (trip (scot %tas kind)))
     "</span><time>"
     observed
@@ -3138,8 +3190,8 @@
     ?^  is-event
       (event-card i.rows events preference vehicle)
     ?^  is-fill
-      (fill-card i.rows station-links additive-links subtype-links economy-breaks)
-    (charge-card i.rows measurements batteries costs odometers preference)
+      (fill-card i.rows station-links additive-links subtype-links economy-breaks vehicle)
+    (charge-card i.rows measurements batteries costs odometers preference vehicle)
   (weld card $(rows t.rows))
 ::
 ++  pagination-controls
@@ -3489,6 +3541,11 @@
         (cell-text %label row)
     ==
   ;:  weld
+    ::  A photo OF THE VEHICLE reaches no renderer yet. It reaches
+    ::  `/apps/rover/attachments.json` as an entry whose owner is `vehicle`,
+    ::  and a client may read it there. This article is not that client:
+    ::  fixture 58 holds the vehicle card to the shape it had before M7 T7,
+    ::  and the brief scopes the M8 entry surface to the History card.
     "<article class=\"vehicle-card\" data-vehicle-settings-panel data-vehicle=\""
     (escape (cell-text %label row))
     "\" hidden><header><div><p class=\"eyebrow\">VEHICLE SETTINGS</p><h2>"
