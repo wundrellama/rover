@@ -125,16 +125,25 @@ fork the database engine and silently break the pin.
 - TDD: failing test first, watch it fail, minimal code to pass. See the
   `test-driven-development` skill in `.claude/skills/`.
 
-## Do-NOT-build fence — M7 OPEN, ratified 2026-08-17
+## Do-NOT-build fence — M8 CLOSED, ratified 2026-08-31
 
-**The M7 fence is lifted.** Maintenance, service, expenses, reminders, vehicle
-specification, and vehicle acquisition and disposal are now in scope. See
-`PLAN-M7.md` and `~/brain/projects/rover/app-structure.md` rulings 11 through 14.
+**M7 and M8 are complete.** Maintenance, service, expenses, reminders, vehicle
+specification, vehicle acquisition and disposal, and attachments all shipped. See
+`PLAN-M7.md`, `PLAN-M8.md`, and `~/brain/projects/rover/app-structure.md` rulings 11
+through 27.
+
+**Attachments ship, and the fence on them holds in its original sense.** Photographs
+live in Clay or in an S3-compatible bucket. The database holds a reference. A blob
+still never enters Obelisk.
 
 Still do not build: sharing (`vehicle-grants`, `vehicle-grant-fields` — that is the
 second pour), the remote/poke sharing protocol, the community aggregate corpus,
-attachments in the database, permanent EVSE/connector inventory, leases, trip records,
-or vehicle parts.
+attachment bytes inside the database, permanent EVSE/connector inventory, leases,
+trip records, or vehicle parts.
+
+Two rulings are ratified and unbuilt. Ruling 26 clears an in-flight run flag in
+`on-load`. Ruling 27 puts a stall timer beside each outbound bucket write. Build
+either when a milestone calls for it, not as a drive-by.
 
 **Rover is published and installed on another ship.** New capability enters through a
 new child or link relation. It never enters through a new column on a populated

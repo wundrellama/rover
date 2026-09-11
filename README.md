@@ -26,9 +26,14 @@ Rover has a working mobile-first owner interface. It is similar in purpose to [L
 - Record charging sessions with energy, battery, cost state, and measurement source.
 - Record odometer observations as independent facts.
 - Record purchases for DEF, coolant, motor oil, and washer fluid.
+- Record service, expense, and note events, and carry as many service subtypes as the work needed.
+- Record buying and selling a vehicle, and derive ownership intervals from the pair.
+- Record reminders, and derive the countdown on the read.
+- Record the vehicle's own specification across thirteen fields.
 - Link entries to stations, odometer observations, additives, tags, driving modes, and payment methods.
 - Add notes and typed custom fields to fuel fills.
-- Correct every fuel-fill field through one atomic database change.
+- Attach photographs to a fill, to an event, and to a vehicle, and see them on the record's card.
+- Correct every fuel-fill field, and every event family, through one atomic database change.
 
 ### History and statistics
 
@@ -83,13 +88,13 @@ Rover includes a versioned JSON import path. Settings opens an import screen tha
 
 The converter stays outside the desk. Both clients read the file the converter writes. Rover never learns the name of the app the records came from.
 
-The import format covers definitions, places, vehicles, and fuel fills. It does not cover charges, consumables, standalone odometers, or service history.
+The import format covers definitions, places, vehicles, fuel fills, charges, consumables, standalone odometer readings, service and note events, reminders, vehicle specifications, and photographs.
 
 `tools/acar-import/convert.py` converts an aCar XML export into Rover import JSON. It validates units, reports unsupported data, and refuses guesses.
 
-The converter writes output outside this repository. It removes JPEG application metadata before it writes extracted photos.
+The converter writes output outside this repository. It keeps the source JPEG bytes exactly as the camera wrote them, EXIF included. The stripping rule governs publication, not the owner's own storage.
 
-Rover does not attach those photos to database records. The converter records them in a separate attachment manifest for later work.
+`tools/rover-import/attachments.py` loads the extracted photographs through the same endpoint a browser calls, reads each one back, and compares digests.
 
 `tools/rover-import/upload.py` sends bounded batches to the authenticated import endpoint. Import provenance makes identical retries safe and reports changed source records as conflicts.
 
@@ -134,7 +139,9 @@ The UI battery also applies a final demo-data guard. Use a pristine demo-only ow
 
 The fixture coverage gate lists every skipped fixture. A partial run does not become a complete pass because its executed checks are green.
 
-`ROVER_DEMO_ONLY=1 bin/ui-test.sh <pier>` runs all 90 defined UI fixtures and is the complete UI battery.
+`bin/event-test.sh <pier>` runs all 115 defined event and attachment fixtures. It is the battery that decides whether the app works. Run it twice back to back on one pier. Do not drop or rebuild the database between the two runs, so the second run meets what the first one wrote.
+
+`ROVER_DEMO_ONLY=1 bin/ui-test.sh <pier>` runs the defined UI fixtures and is the complete UI battery.
 
 `ROVER_LEGACY_ONLY=1 bin/ui-test.sh <pier>` is a Phase-A diagnostic, not a battery. It asserts against `Phase A Vehicle`, which only exists on a pier where someone poked `%seed-spike`, so it fails on a clean pier with `per-vehicle action missing: Add Charge`. Seeding alone does not fix it: the hub renders `Add Fill` and `Add Charge` from the energy sources of the **app default vehicle**, and `seed-spike` never writes the `app-default-vehicle` singleton, so both buttons stay hidden. Running the leg needs `click -k -i probes/seed-spike.hoon <pier>` plus a default-vehicle designation. Skip it otherwise. The Gate 7 fixture fence retires this dependency.
 
@@ -156,10 +163,11 @@ The copied Obelisk API mold and the pinned upstream mold must have the same SHA-
 | `desk/app/rover/` | Browser shell, fonts, and tile art |
 | `desk/lib/rover-act.hoon` | Schema and urQL changes |
 | `desk/lib/rover-entry.hoon` | HTTP input decoding and validation |
+| `desk/lib/rover-files.hoon` | Attachment storage, AWS4 signing, and the tar container |
 | `desk/lib/rover-import.hoon` | Import planning, comparison, and reports |
 | `desk/lib/rover-render.hoon` | Human units and exact value formatting |
 | `desk/lib/rover-view.hoon` | Owner views, history, statistics, and pagination |
-| `docs/schema-m0.sql` | Current 81-relation Obelisk schema |
+| `docs/schema-m0.sql` | Obelisk schema as poured for M0. The agent is the live source, and it now holds 92 relations |
 | `bin/` | Live schema, browser, import, pin, and performance batteries |
 | `tools/` | aCar conversion and Rover import upload tools |
 | `probes/` | Click threads for live inspection and fixture control |
@@ -167,6 +175,7 @@ The copied Obelisk API mold and the pinned upstream mold must have the same SHA-
 | `RESULTS.md` | Schema and data fixture evidence |
 | `RESULTS-UI.md` | Browser and owner-interface fixture evidence |
 | `RESULTS-M0CC.md` | Charging cost entry fixture evidence |
+| `RESULTS-M8-opus.md` | Attachment fixture evidence, both backends and the corpus load |
 
 ## Installing
 
@@ -187,15 +196,13 @@ Rover itself has no published release yet. It does not publish until the Gate 7 
 
 - Cross-ship sharing and per-field grants.
 - Remote mutation.
-- Browser controls for export.
-- Reminders, vehicle specification, and vehicle acquisition and disposal.
-  Service, expense, and note events record now, and a service event carries as
-  many service subtypes as the work needed. The rest of M7 follows.
-- Rename and archive for a service subtype. The catalog only grows until T8.
 - Insurance, tax, and modification records.
-- Database attachment storage.
+- Attachment bytes inside the database. Photographs live in Clay or in an
+  S3-compatible bucket, and the database holds a reference.
 - Permanent charger and connector inventory.
-- A published Rover release. Gate 7 blocks it.
+- Trip records, leases, and vehicle parts.
+- A restart that clears an in-flight export or import flag, and a stall timer
+  over an outbound bucket write. Both are ruled and neither is built.
 
 ## License
 
