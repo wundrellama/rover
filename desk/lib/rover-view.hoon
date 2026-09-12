@@ -2594,7 +2594,9 @@
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
-          economy-breaks=(list vector:ast)
+          odometers=(list vector:ast)
+          derivations=(map @ derived-fill)
+          preference=(unit @tas)
           vehicle=@t
       ==
   ^-  tape
@@ -2602,11 +2604,61 @@
   =/  stations  (rows-by %acquisition-id acquisition-id station-links)
   =/  additives  (rows-by %acquisition-id acquisition-id additive-links)
   =/  subtypes   (rows-by %acquisition-id acquisition-id subtype-links)
-  =/  breaks     (rows-by %acquisition-id acquisition-id economy-breaks)
+  =/  odometer   (rows-by %acquisition-id acquisition-id odometers)
+  ::  M9. The mileage this fill was recorded at. The history card rendered no
+  ::  mileage at all until the owner's own corpus made the gap plain: 420 fills,
+  ::  420 odometer links, and not one figure on screen. The edit surface
+  ::  (+history-row) always had it, so the two renderers disagreed.
+  ::
+  ::  The reading converts to the owner's preferred unit exactly as a charge
+  ::  card's does, so one history list never shows two distance units.
+  ::
+  ::  Absent is a real answer. An odometer reading is optional on a fill, and
+  ::  the link row is missing exactly when the owner recorded none.
+  =/  mileage=@t
+    ?~  odometer
+      'Not recorded'
+    =/  source-unit  (cell-term %unit i.odometer)
+    =/  target  ?~(preference source-unit u.preference)
+    =/  shown
+      %:  convert-distance:render
+          (cell-atom %value-digits i.odometer)
+          (cell-atom %decimal-places i.odometer)
+          source-unit
+          target
+      ==
+    %:  format-distance:render
+        converted-digits.shown
+        converted-places.shown
+        converted-unit.shown
+        converted.shown
+    ==
   =/  quantity
     %+  format-quantity:render
       (cell-atom %quantity-milli row)
     (cell-term %quantity-unit row)
+  ::  M9. The economy for this fill, DERIVED, never imported. Rover computes it
+  ::  from the mileage and the volume it already holds, which is why the import
+  ::  path discards a source's own efficiency figure.
+  ::
+  ::  The figure comes from +derive-fill-series, the same map the statistics
+  ::  screen and the main hub read. The card used to infer instead: it printed
+  ::  "another eligible full fill is required" whenever there was NO break row,
+  ::  which is backwards. A break row is the thing that says an interval cannot
+  ::  be derived, so its absence is the licence to show a figure. On the owner's
+  ::  corpus that inversion printed an unavailability sentence on 418 of 420
+  ::  fills and could never have shown a number on any of them.
+  =/  derived  (~(get by derivations) acquisition-id)
+  =/  economy=(unit economy-proof)
+    ?~(derived ~ economy.u.derived)
+  =/  break-reason=(unit @tas)
+    ?~(derived ~ break-reason.u.derived)
+  =/  economy-text=@t
+    ?^  economy
+      (crip (economy-display milli.u.economy unit.u.economy))
+    ?^  break-reason
+      (cat 3 'Unavailable - ' (economy-break-text u.break-reason))
+    'Unavailable - an eligible earlier full fill is required'
   =/  unit-price
     %+  format-unit-price:render
       (cell-atom %unit-price-mills row)
@@ -2650,13 +2702,10 @@
     ?:(=(%partial (cell-term %tank-state row)) " checked" "")
     "><span>Partial fill</span></label></dd></div><div class=\"derived\"><dt>CALCULATED TOTAL</dt><dd>"
     (escape total)
-    "</dd></div><div><dt>ECONOMY</dt><dd>"
-    ?:  ?=(~ breaks)
-      "Unavailable - another eligible full fill is required"
-    ;:  weld
-      "Unavailable - "
-      (escape (economy-break-text (cell-term %reason i.breaks)))
-    ==
+    "</dd></div><div><dt>MILEAGE</dt><dd>"
+    (escape mileage)
+    "</dd></div><div class=\"derived\"><dt>ECONOMY</dt><dd>"
+    (escape economy-text)
     "</dd></div><div><dt>STATION</dt><dd>"
     ?:(?=(~ stations) "No station recorded" (escape (cell-text %station i.stations)))
     "</dd></div><div><dt>ADDITIVES</dt><dd class=\"chips\">"
@@ -2664,12 +2713,27 @@
     "</dd></div></dl></article>"
   ==
 ::
+::  M9. The standalone fill list has no vehicle context, no odometer links, and
+::  no derivations: it renders a bare list of fills, not a vehicle's history.
+::  The empty arguments are explicit bunts rather than `~`, because a bare `~`
+::  does not nest for a cord or a map and the failure surfaces inside the card
+::  rather than at the call.
 ++  fill-cards
   |=  rows=(list vector:ast)
   ^-  tape
   ?~  rows
     ~
-  =/  card=tape  (fill-card i.rows ~ ~ ~ ~ '')
+  =/  card=tape
+    %:  fill-card
+        i.rows
+        ~
+        ~
+        ~
+        ~
+        *(map @ derived-fill)
+        ~
+        ''
+    ==
   =/  rest=tape  (fill-cards t.rows)
   (weld card rest)
 ::
@@ -3176,7 +3240,7 @@
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
-          economy-breaks=(list vector:ast)
+          derivations=(map @ derived-fill)
           events=event-rows
           preference=(unit @tas)
           vehicle=@t
@@ -3190,7 +3254,7 @@
     ?^  is-event
       (event-card i.rows events preference vehicle)
     ?^  is-fill
-      (fill-card i.rows station-links additive-links subtype-links economy-breaks vehicle)
+      (fill-card i.rows station-links additive-links subtype-links odometers derivations preference vehicle)
     (charge-card i.rows measurements batteries costs odometers preference vehicle)
   (weld card $(rows t.rows))
 ::
@@ -3243,7 +3307,7 @@
           station-links=(list vector:ast)
           additive-links=(list vector:ast)
           subtype-links=(list vector:ast)
-          economy-breaks=(list vector:ast)
+          derivations=(map @ derived-fill)
           events=event-rows
           preference=(unit @tas)
           history-page=@ud
@@ -3268,7 +3332,7 @@
         station-links
         additive-links
         subtype-links
-        economy-breaks
+        derivations
         events
         preference
         vehicle
@@ -3430,7 +3494,7 @@
           additive-links=(list vector:ast)
           preferences=(list vector:ast)
           subtype-links=(list vector:ast)
-          economy-breaks=(list vector:ast)
+          derivations=(map @ derived-fill)
           subtypes=(list vector:ast)
           default-subtypes=(list vector:ast)
           driving-modes=(list vector:ast)
@@ -3534,7 +3598,7 @@
         station-links
         additive-links
         subtype-links
-        economy-breaks
+        derivations
         events(events (rows-for id events.events))
         preference
         history-page
@@ -5043,7 +5107,7 @@
           additive-links
           preferences
           subtype-links
-          economy-breaks
+          derivations
           subtypes
           default-subtypes
           driving-modes
