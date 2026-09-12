@@ -9,11 +9,13 @@ import collections
 import dataclasses
 import datetime
 import hashlib
+import io
 import json
 import os
 import pathlib
 import re
 import sys
+import tarfile
 import xml.etree.ElementTree as ET
 
 
@@ -134,6 +136,9 @@ class VehicleSource:
     events: list[dict[str, str]] = dataclasses.field(default_factory=list)
     reminders: list[dict[str, str]] = dataclasses.field(default_factory=list)
     specification: dict[str, str] = dataclasses.field(default_factory=dict)
+    #  The vehicle's own photograph, named during extraction. Empty when the
+    #  source carried none.
+    photo: str = ""
 
 
 @dataclasses.dataclass
@@ -144,6 +149,15 @@ class ExportData:
 
 DECIMAL_RE = re.compile(r"^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))$")
 DATE_FORMAT = "%m/%d/%Y - %H:%M"
+
+#  Where a record carries the names of the photographs extracted from it. The
+#  key is not an aCar field. It is set during extraction and read when the
+#  record becomes a Rover record, so a photo never has to be matched back to
+#  its record by a value that two records could share.
+ATTACHMENT_KEY = "_rover_attachments"
+#  The media type every extracted photo carries. Not a guess: extraction
+#  refuses any blob whose first three bytes are not the JPEG start marker.
+ATTACHMENT_MEDIA_TYPE = "image/jpeg"
 
 RECORD_FIELDS = {
     "date",
@@ -844,13 +858,36 @@ def extract_attachments(
             f"{safe_observed}-{ordinal}-{written_hash[:12]}.jpg"
         )
         relative_text = relative.as_posix()
-        if relative_text in filenames:
+        #  Two vehicles could in principle produce the same base name, and the
+        #  base name is what Rover addresses. Collisions are checked on the
+        #  name that matters, not only on the path.
+        if relative_text in filenames or relative.name in filenames:
             raise ConversionError(f"attachment filename collision: {relative_text}")
         filenames.add(relative_text)
+        filenames.add(relative.name)
         if not dry_run:
             destination = output_dir / pathlib.Path(relative_text)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(written)
+        #  The photo is bound to the record here, while the record is in hand.
+        #  Matching afterwards on (vehicle, observed) would be ambiguous: aCar
+        #  timestamps carry minutes, and two fills can share one minute, and
+        #  keying on a source id would need that id to be unique across every
+        #  record type rather than within one. Neither assumption is needed if
+        #  the binding is made at the only moment it is certain.
+        #
+        #  The value is newline-joined rather than a list because these source
+        #  records are `dict[str, str]`. A generated file name is a timestamp,
+        #  an ordinal, and a hash, so it can never contain a newline.
+        #
+        #  The NAME is the base name, never the path. Rover refuses a file name
+        #  holding a separator, because a separator would let a request reach
+        #  outside the attachment tree. The `vehicle-N/` directory is how the
+        #  photos sit on disk for `attachments.py`; it is not part of a name.
+        record[ATTACHMENT_KEY] = "\n".join(
+            [text for text in [record.get(ATTACHMENT_KEY, "")] if text]
+            + [relative.name]
+        )
         entries.append(
             {
                 "bytes": len(written),
@@ -889,9 +926,9 @@ def extract_vehicle_attachment(
     stats: ReportStats,
     entries: list[dict[str, object]],
     filenames: set[str],
-) -> None:
+) -> str:
     if not photo_text.strip():
-        return
+        return ""
     compact = "".join(photo_text.split())
     try:
         raw = base64.b64decode(compact, validate=True)
@@ -901,9 +938,10 @@ def extract_vehicle_attachment(
     digest = hashlib.sha256(written).hexdigest()
     relative = pathlib.PurePosixPath(vehicle_dir) / f"vehicle-{digest[:12]}.jpg"
     relative_text = relative.as_posix()
-    if relative_text in filenames:
+    if relative_text in filenames or relative.name in filenames:
         raise ConversionError(f"attachment filename collision: {relative_text}")
     filenames.add(relative_text)
+    filenames.add(relative.name)
     if not dry_run:
         destination = output_dir / pathlib.Path(relative_text)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -925,6 +963,7 @@ def extract_vehicle_attachment(
     stats.attachment_written_bytes += len(written)
     stats.attachment_raw_hashes.add(hashlib.sha256(raw).hexdigest())
     stats.attachment_written_hashes.add(digest)
+    return relative_text
 
 
 def read_vehicles(
@@ -1071,7 +1110,7 @@ def read_vehicles(
             volume_unit = vehicle_values.get("volume-unit", "").strip()
             if not label or not distance_unit or not volume_unit:
                 raise ConversionError(f"vehicle-{vehicle_index} lacks required metadata")
-            extract_vehicle_attachment(
+            vehicle_photo = extract_vehicle_attachment(
                 vehicle_values.get("photo", ""),
                 vehicle_label=label,
                 vehicle_dir=f"vehicle-{vehicle_index}",
@@ -1081,6 +1120,9 @@ def read_vehicles(
                 entries=attachment_entries,
                 filenames=attachment_filenames,
             )
+            if vehicle_photo:
+                vehicle_photo = pathlib.PurePosixPath(vehicle_photo).name
+                vehicle_values[ATTACHMENT_KEY] = vehicle_photo
             for field in UNMAPPED_VEHICLE_FIELDS:
                 if vehicle_values.get(field, "").strip():
                     stats.unmapped_nonempty[f"vehicle.{field}"] += 1
@@ -1098,6 +1140,7 @@ def read_vehicles(
                         field: vehicle_values.get(field, "").strip()
                         for field in VEHICLE_SPEC_FIELDS
                     },
+                    photo=vehicle_photo,
                 )
             )
             stats.vehicles += 1
@@ -1115,6 +1158,16 @@ def read_vehicles(
             attachment_entries, key=lambda item: str(item["file"])
         ),
     )
+
+
+#  The photographs extracted from one source record, in the order they were
+#  found. The stored value is newline-joined because the source records are
+#  `dict[str, str]`; see the note where it is written.
+def attachment_names(record: dict[str, str]) -> list[str]:
+    text = record.get(ATTACHMENT_KEY, "")
+    if not text:
+        return []
+    return text.split("\n")
 
 
 def resolve_place_label(record: dict[str, str]) -> str:
@@ -1197,6 +1250,12 @@ def convert_fill(
     }
     if not fill["sourceRecordId"]:
         raise ConversionError(f"{record_ref(vehicle_dir, record)}: remote-id absent")
+    #  Ruling 19: the document names its own photographs, and the archive
+    #  carries them under the same names. Absent when the record has none, so
+    #  the key is never an empty claim.
+    photos = attachment_names(record)
+    if photos:
+        fill["attachments"] = photos
 
     source_efficiency = text_trimmed(record, "fuel-efficiency")
     if source_efficiency:
@@ -1354,6 +1413,9 @@ def convert_event(
         stats.service_events_out += 1
     elif expected_kind == "note":
         stats.note_events_out += 1
+    event_photos = attachment_names(record)
+    if event_photos:
+        output["attachments"] = event_photos
     return output
 
 
@@ -1586,6 +1648,7 @@ def make_import_document(
     event_subtypes: dict[str, EventSubtype],
     zone: str,
     stats: ReportStats,
+    attachment_entries: list[dict[str, object]],
 ) -> dict[str, object]:
     definitions = build_definitions(vehicles, fuel_types)
     stats.fuel_types_out = sum(
@@ -1622,6 +1685,8 @@ def make_import_document(
         if output_vehicle["specification"]:
             stats.vehicle_specifications += 1
             stats.vehicle_spec_fields.update(output_vehicle["specification"].keys())
+        if vehicle.photo:
+            output_vehicle["attachments"] = [vehicle.photo]
         if vehicle.tank_capacity:
             capacity = parse_decimal(vehicle.tank_capacity)
             if capacity.digits:
@@ -1723,6 +1788,30 @@ def make_import_document(
         "rover-import": 1,
         "source": {
             "app": "aCar",
+            "attachments": {
+                #  Rover reads this manifest for each photograph's media type,
+                #  keyed by the same name the archive member carries. The shape
+                #  matches what Rover's own export writes, so an import of a
+                #  converted archive and an import of a Rover archive take the
+                #  same path through the agent.
+                "container": "tar",
+                "directory": "attachments/",
+                "files": [
+                    {
+                        "bytes": str(entry["bytes"]),
+                        "hash": str(entry["sha256"]),
+                        "mediaType": ATTACHMENT_MEDIA_TYPE,
+                        "name": pathlib.PurePosixPath(str(entry["file"])).name,
+                        "path": (
+                            "attachments/"
+                            + pathlib.PurePosixPath(str(entry["file"])).name
+                        ),
+                    }
+                    for entry in attachment_entries
+                ],
+                "included": True,
+                "photoCount": len(attachment_entries),
+            },
             "backup-version": backup_version,
             "exported": exported,
             "version": source_version,
@@ -1884,6 +1973,52 @@ def validate_input(export_dir: pathlib.Path) -> None:
         raise ConversionError(f"missing export files: {', '.join(missing)}")
 
 
+#  Rover's import endpoint reads a ustar archive: one 512-byte header per
+#  member, then the bytes padded to the next 512-byte boundary, then two empty
+#  blocks. Python's own `tarfile` writes exactly this, so the container is not
+#  written by hand here the way Rover must write it in Hoon.
+#
+#  The archive holds the import document at the top and every photograph under
+#  `attachments/`, which is where `+archive-photos` looks for them.
+def write_import_archive(
+    *,
+    output_dir: pathlib.Path,
+    document_bytes: bytes,
+    attachment_entries: list[dict[str, object]],
+) -> pathlib.Path:
+    archive_path = output_dir / "rover-import.tar"
+    #  A fixed timestamp keeps the archive byte-identical across two runs of
+    #  the same export, so a converted archive can be compared with a hash.
+    stamp = 0
+    with tarfile.open(archive_path, "w", format=tarfile.USTAR_FORMAT) as archive:
+        info = tarfile.TarInfo("rover-import.json")
+        info.size = len(document_bytes)
+        info.mtime = stamp
+        info.mode = 0o644
+        archive.addfile(info, io.BytesIO(document_bytes))
+        for entry in attachment_entries:
+            name = str(entry["file"])
+            source = output_dir / pathlib.Path(name)
+            payload = source.read_bytes()
+            recorded = int(str(entry["bytes"]))
+            if len(payload) != recorded:
+                raise ConversionError(
+                    f"{name}: archive member is {len(payload)} bytes, "
+                    f"the manifest says {recorded}"
+                )
+            digest = hashlib.sha256(payload).hexdigest()
+            if digest != str(entry["sha256"]):
+                raise ConversionError(f"{name}: archive member does not match its digest")
+            #  The member name is the base name, matching the manifest and the
+            #  names the records carry. Rover looks the member up by that name.
+            member = tarfile.TarInfo(f"attachments/{pathlib.PurePosixPath(name).name}")
+            member.size = len(payload)
+            member.mtime = stamp
+            member.mode = 0o644
+            archive.addfile(member, io.BytesIO(payload))
+    return archive_path
+
+
 def convert_export(
     export_dir: pathlib.Path,
     output_dir: pathlib.Path,
@@ -1921,13 +2056,15 @@ def convert_export(
         vehicles=parsed.vehicles,
         fuel_types=fuel_types,
         event_subtypes=event_subtypes,
+        attachment_entries=parsed.attachment_entries,
         zone=zone,
         stats=stats,
     )
     report = render_report(document=document, stats=stats, dry_run=dry_run)
     if not dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "rover-import.json").write_bytes(json_bytes(document))
+        document_bytes = json_bytes(document)
+        (output_dir / "rover-import.json").write_bytes(document_bytes)
         attachment_document = {
             "attachments": parsed.attachment_entries,
             "vehicles": [
@@ -1937,6 +2074,15 @@ def convert_export(
         }
         (output_dir / "attachments.json").write_bytes(json_bytes(attachment_document))
         (output_dir / "report.txt").write_text(report, encoding="utf-8")
+        #  One file the owner can hand to the import screen. The loose document,
+        #  the manifest, and the photo tree stay beside it: `attachments.py`
+        #  reads each photo back and compares digests, and that check is the
+        #  only thing that proves a byte survived the whole path.
+        write_import_archive(
+            output_dir=output_dir,
+            document_bytes=document_bytes,
+            attachment_entries=parsed.attachment_entries,
+        )
     return document, parsed.attachment_entries, report
 
 

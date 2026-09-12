@@ -360,6 +360,7 @@ class VehicleDefaultTests(unittest.TestCase):
                 event_subtypes={},
                 zone="America/Chicago",
                 stats=convert.ReportStats(),
+                attachment_entries=[],
             )
 
 

@@ -1347,7 +1347,7 @@
     "<header><p class=\"eyebrow\">ROVER IMPORT</p><h2>Import records</h2></header>"
     "<form id=\"import-form\">"
     "<p class=\"field-note\">Rover checks the document in this browser and sends it in batches. A record that is already imported reports already-imported and writes nothing, so a stopped run recovers by uploading the same file again.</p>"
-    "<label>Import document<input id=\"import-file\" name=\"document\" type=\"file\" accept=\".json,application/json\" required></label>"
+    "<label>Import document<input id=\"import-file\" name=\"document\" type=\"file\" accept=\".tar,.json,application/json,application/x-tar\" required></label>"
     "<label>Records per batch<input id=\"import-batch-size\" name=\"batchSize\" inputmode=\"numeric\" autocomplete=\"off\" value=\"50\"></label>"
     ::  M8, second leg. One choice, for the whole import. Rover does not pick
     ::  the store for the owner, because a photograph in the wrong backend is

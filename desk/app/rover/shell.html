@@ -1282,6 +1282,91 @@
       ['unitMismatches', 'Unit mismatches', /Unit mismatches: (\d+)/]
     ];
 
+    //  M9. The owner chooses ONE file. Rover's export is a tar holding the
+    //  import document and every photograph, and ruling 19 makes that the
+    //  import format too, so the converter now writes the same container.
+    //
+    //  The archive is unpacked HERE rather than sent whole. The document still
+    //  goes up in batches, because one Arvo event carrying a whole corpus
+    //  freezes the ship, and the photographs still go through
+    //  `/apps/rover/add-attachment` one at a time, which is the endpoint a
+    //  person at a form already uses. The owner sees one file; the ship sees
+    //  the same well-behaved requests it saw before.
+    //
+    //  ustar: one 512-byte header per member, the name in the first 100 bytes,
+    //  the size as octal at offset 124, the magic at 257, and the body padded
+    //  to the next 512-byte boundary.
+    const TAR_BLOCK = 512;
+
+    function tarIsArchive(bytes) {
+      if (bytes.length < TAR_BLOCK) return false;
+      return String.fromCharCode(...bytes.subarray(257, 262)) === 'ustar';
+    }
+
+    function tarField(bytes, offset, width) {
+      let text = '';
+      for (let index = 0; index < width; index += 1) {
+        const byte = bytes[offset + index];
+        if (byte === 0) break;
+        text += String.fromCharCode(byte);
+      }
+      return text;
+    }
+
+    function tarMembers(bytes) {
+      const members = new Map();
+      let offset = 0;
+      while (offset + TAR_BLOCK <= bytes.length) {
+        const name = tarField(bytes, offset, 100);
+        if (!name) break;
+        const size = parseInt(tarField(bytes, offset + 124, 12).trim() || '0', 8);
+        const start = offset + TAR_BLOCK;
+        if (start + size > bytes.length) break;
+        members.set(name, bytes.subarray(start, start + size));
+        const over = size % TAR_BLOCK;
+        offset = start + (over === 0 ? size : size + (TAR_BLOCK - over));
+      }
+      return members;
+    }
+
+    //  Which record each photograph belongs to. The document is the only
+    //  source: every record family that can carry a photo names its own, so
+    //  nothing is matched back by a value two records could share.
+    //
+    //  `owner` is the vocabulary `+decode-attachment` accepts, and a vehicle
+    //  photo carries no moment because a vehicle has none.
+    const IMPORT_PHOTO_FAMILIES = [
+      ['fills', 'fill'],
+      ['chargingSessions', 'charge'],
+      ['serviceEvents', 'event'],
+      ['expenseEvents', 'event'],
+      ['noteEvents', 'event'],
+      ['acquisitionEvents', 'event'],
+      ['disposalEvents', 'event']
+    ];
+
+    function importPhotoPlan(source) {
+      const plan = [];
+      (source.vehicles || []).forEach((vehicle) => {
+        (vehicle.attachments || []).forEach((name) => {
+          plan.push({owner: 'vehicle', vehicle: vehicle.label, name});
+        });
+        IMPORT_PHOTO_FAMILIES.forEach(([key, owner]) => {
+          (vehicle[key] || []).forEach((record) => {
+            (record.attachments || []).forEach((name) => {
+              plan.push({
+                owner,
+                vehicle: vehicle.label,
+                observed: record.observed,
+                name
+              });
+            });
+          });
+        });
+      });
+      return plan;
+    }
+
     //  Decimals stay strings end to end. A floating-point token would go through
     //  a double on the way back out and could rewrite the owner's own numbers,
     //  so it is refused here exactly as upload.py refuses it with parse_float.
@@ -1330,6 +1415,34 @@
     //  (vehicle index, fill) pairs across every vehicle, copy the whole document
     //  per batch including its definitions preamble, empty every vehicle, and
     //  refill one slice. Each batch is a complete document on its own.
+    //
+    //  M9. A batch carries no photograph names.
+    //
+    //  The names are consumed in the browser: `importPhotoPlan` reads them
+    //  before the first batch goes out, and the photographs are posted
+    //  afterwards one at a time. A JSON batch carries no tar member, so a batch
+    //  that still named photographs would be making a claim it cannot support,
+    //  and `+archive-photos` would correctly report every one of them as
+    //  missing. That noise is indistinguishable from a real missing photo,
+    //  which is worse than saying nothing.
+    //
+    //  The source manifest goes for the same reason: `included` is true of the
+    //  archive, and a batch is not the archive.
+    function importStripPhotoNames(batch) {
+      if (batch.source && typeof batch.source === 'object') {
+        delete batch.source.attachments;
+      }
+      (batch.vehicles || []).forEach((vehicle) => {
+        delete vehicle.attachments;
+        IMPORT_PHOTO_FAMILIES.forEach(([key]) => {
+          (vehicle[key] || []).forEach((record) => {
+            delete record.attachments;
+          });
+        });
+      });
+      return batch;
+    }
+
     function importBatchDocuments(source, batchSize) {
       const flattened = [];
       source.vehicles.forEach((vehicle, vehicleIndex) => {
@@ -1350,7 +1463,7 @@
           .forEach(([vehicleIndex, fill]) => {
             batch.vehicles[vehicleIndex].fills.push(structuredClone(fill));
           });
-        return batch;
+        return importStripPhotoNames(batch);
       });
     }
 
@@ -1412,7 +1525,7 @@
           verdict: `%unavailable: import · batching changed the fill count from ${fills} to ${batched}`
         };
       }
-      return {ok: true, verdict: '', fills, batches};
+      return {ok: true, verdict: '', fills, batches, source};
     }
 
     function importParseReport(text) {
@@ -1547,14 +1660,57 @@
             settleImport('refused', '%missing-key: import.document');
             return null;
           }
-          const prepared = importPrepare(await file.text(), importBatchSize.value);
+          //  One file, either shape. An archive carries the document and the
+          //  photographs; a bare document carries the records alone, which is
+          //  what every importer before M9 sent and still sends.
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          let text;
+          let photoBytes = new Map();
+          if (tarIsArchive(bytes)) {
+            const members = tarMembers(bytes);
+            const document = members.get('rover-import.json');
+            if (!document) {
+              importPlan.value = '—';
+              settleImport(
+                'refused',
+                '%missing-key: import.archive.rover-import.json'
+              );
+              return null;
+            }
+            text = new TextDecoder().decode(document);
+            members.forEach((member, name) => {
+              if (name.startsWith('attachments/')) {
+                photoBytes.set(name.slice('attachments/'.length), member);
+              }
+            });
+          } else {
+            text = new TextDecoder().decode(bytes);
+          }
+          const prepared = importPrepare(text, importBatchSize.value);
           if (!prepared.ok) {
             importPlan.value = '—';
             settleImport('refused', prepared.verdict);
             return null;
           }
+          //  A document that names a photograph the archive does not carry is
+          //  refused before anything is sent. Importing the records and
+          //  discovering the gap afterwards would leave the owner to work out
+          //  which photographs never arrived.
+          const photos = importPhotoPlan(prepared.source);
+          const missing = photos.filter((photo) => !photoBytes.has(photo.name));
+          if (missing.length) {
+            importPlan.value = '—';
+            settleImport(
+              'refused',
+              `%missing-key: import.archive.attachments · the document names ${missing.length} photograph(s) the file does not carry`
+            );
+            return null;
+          }
+          prepared.photos = photos;
+          prepared.photoBytes = photoBytes;
           importPlan.value =
-            `${prepared.fills} fills in ${prepared.batches.length} batches`;
+            `${prepared.fills} fills in ${prepared.batches.length} batches` +
+            (photos.length ? `, ${photos.length} photographs` : '');
           return prepared;
         };
 
@@ -1565,7 +1721,11 @@
           if (prepared) {
             settleImport(
               'validated',
-              `${prepared.fills} fills are ready. Rover sent nothing.`
+              `${prepared.fills} fills are ready` +
+                (prepared.photos.length
+                  ? ` with ${prepared.photos.length} photographs`
+                  : '') +
+                '. Rover sent nothing.'
             );
           }
         });
@@ -1668,6 +1828,63 @@
                   'success',
                   `Import complete - imported ${imported}, already-imported ${already}.`
                 ];
+              }
+            }
+          }
+          //  The photographs go after every record, because a photo attaches to
+          //  a record that must already exist. One request each, the same
+          //  endpoint a person at a form uses: an import has no privileged path.
+          //
+          //  A photograph that fails does not stop the run. The records are
+          //  already written, and the owner is told the count rather than being
+          //  left with a half-finished import and no report.
+          if (!settled || settled[0] !== 'blocked') {
+            const photos = prepared.photos || [];
+            let attached = 0;
+            const refusals = [];
+            for (let index = 0; index < photos.length; index += 1) {
+              const photo = photos[index];
+              const params = new URLSearchParams({
+                owner: photo.owner,
+                vehicle: photo.vehicle,
+                file: photo.name,
+                type: 'image/jpeg',
+                //  The raw value, because URLSearchParams encodes it. The
+                //  batch URL above builds its query by hand and uses the
+                //  encoded one.
+                backend: importBackendControl?.value || 'clay'
+              });
+              if (photo.observed) params.set('observed', photo.observed);
+              importProgress.value =
+                `Photograph ${index + 1} of ${photos.length} - sending`;
+              try {
+                const response = await fetch(
+                  `/apps/rover/add-attachment?${params}`,
+                  {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {'content-type': 'image/jpeg'},
+                    body: prepared.photoBytes.get(photo.name)
+                  }
+                );
+                const body = await response.text();
+                if (response.ok) attached += 1;
+                else refusals.push(body.trim());
+              } catch (error) {
+                refusals.push(error.message);
+              }
+              importProgress.value =
+                `Photograph ${index + 1} of ${photos.length} - attached ${attached}, refused ${refusals.length}`;
+            }
+            if (photos.length) {
+              const photoLine =
+                refusals.length === 0
+                  ? ` ${attached} photographs attached.`
+                  : ` ${attached} photographs attached, ${refusals.length} refused · ${refusals[0]}`;
+              if (settled) settled = [settled[0], settled[1] + photoLine];
+              else settled = ['success', photoLine.trim()];
+              if (refusals.length && settled[0] === 'success') {
+                settled = ['incomplete', settled[1]];
               }
             }
           }
