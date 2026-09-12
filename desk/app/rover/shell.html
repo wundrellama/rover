@@ -2146,14 +2146,29 @@
           const payload = Object.fromEntries(formData);
           payload.additives = formData.getAll('additives');
           payload.tags = formData.getAll('tags');
+          //  The photo controls belong to this form, not to the record. The
+          //  entry forms drop them the same way before they post.
+          delete payload.photo;
+          delete payload.photoBackend;
           const response = await fetch('/apps/rover/edit-fill', {
             method: 'POST',
             credentials: 'same-origin',
             headers: {'content-type': 'application/json'},
             body: JSON.stringify(payload)
           });
-          verdict.value = await response.text();
-          if (response.ok) await loadView();
+          const saved = await response.text();
+          //  M9. The photograph goes after the save, because the endpoint
+          //  addresses a record by its moment and this form may have moved it.
+          //  `payload.observed` is where the record is now, not where it was.
+          if (response.ok) {
+            const photo = await attachChosenPhoto(
+              editForm, 'fill', payload.vehicle, payload.observed
+            );
+            verdict.value = photo ? `${saved} · ${photo}` : saved;
+            await loadView();
+          } else {
+            verdict.value = saved;
+          }
         });
       });
 
