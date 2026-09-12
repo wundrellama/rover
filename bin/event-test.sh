@@ -5839,4 +5839,122 @@ restore_corpus_owner \
 rm -rf "$CORPUS_OUT"
 note "fixture 104 PASS - the real corpus loads through the product endpoint: 121 photos against 114 records, every stored photo hashing equal to its source, and a second load adding nothing"
 
+
+# ---------------------------------------------------------------------------
+# fixture 116 - a fill card shows its mileage and its DERIVED economy, and a
+# photograph can reach a record that already exists
+# ---------------------------------------------------------------------------
+# Three M9 repairs, and the reason they are one fixture: all three were
+# invisible to 115 fixtures that assert on served HTML, because a fixture
+# cannot see a field that was never written.
+#
+# The owner found them by reading his own 420 fills. Every card showed no
+# mileage and the same sentence, economy unavailable. Nothing was missing from
+# the database: 420 fills, 420 odometer links. Two renderers disagreed.
+# +history-row always took the odometer links; +fill-card took neither them nor
+# the derivations, so it rendered no mileage and inferred economy from the
+# PRESENCE of a break row. That inference ran backwards. A break row is the
+# thing that says an interval cannot be derived, so its absence is the licence
+# to show a figure.
+#
+# Economy is DERIVED, never imported. Two full fills on one vehicle with
+# odometer readings are all Rover needs, and the second card must carry a real
+# number computed from the distance and the volume between them.
+note "fixture 116 - mileage, derived economy, and a photo on an existing record"
+
+ECONOMY_VEHICLE="Economy Vehicle $STAMP"
+eyre_post add-vehicle \
+  "$(printf '{"label":"%s","energy":"Gasoline","distanceUnit":"mi","volumeUnit":"gal"}' "$ECONOMY_VEHICLE")" \
+  "$(printf 'Added vehicle - %s\n201' "$ECONOMY_VEHICLE")" \
+  'fixture 116 the economy vehicle'
+
+# Two full fills, 300 miles apart, the second taking 15 gallons. 300 / 15 is
+# exactly 20 mpg, so the rendered figure is checked against arithmetic done
+# here rather than against whatever the card happens to print.
+economy_fill() {
+  # observed mileage quantity note label expected
+  eyre_post add-fill \
+    "$(printf '{"vehicle":"%s","definition":"Gasoline","quantity":"%s","price":"$3.00","profile":"us-usd-gal","tank":"full","settlement":"standard","observed":"%s","zone":"America/Chicago","mileage":"%s","mileageUnit":"mi","station":"none","newStationLabel":"","newPlaceLabel":"","newStationKind":"fuel","additives":[],"subtype":"","missedFill":"no","drivingMode":"","averageSpeed":"","speedUnit":"mph","driveBalance":"","tags":[],"newTag":"","notes":"%s","paymentMethod":""}' \
+      "$ECONOMY_VEHICLE" "$3" "$1" "$2" "$4")" \
+    "$5" "fixture 116 $6"
+}
+economy_fill '2026-08-01T09:00' '40000' '10.000' "econ-first-$STAMP" \
+  "$(printf 'Saved fill - $3.009 - derived $30.09\n201')" 'the first fill'
+economy_fill '2026-08-15T09:00' '40300' '15.000' "econ-second-$STAMP" \
+  "$(printf 'Saved fill - $3.009 - derived $45.14\n201')" 'the second fill'
+
+view="$(eyre_view)"
+
+# The first fill has no earlier fill to measure from, so it is honestly
+# unavailable. The second has one, and must show a figure.
+first_card="$(fill_card_with 'data-photo-observed="2026-08-01T09:00"')"
+[ -n "$first_card" ] || fail "fixture 116 the first fill card is not in the view"
+second_card="$(fill_card_with 'data-photo-observed="2026-08-15T09:00"')"
+[ -n "$second_card" ] || fail "fixture 116 the second fill card is not in the view"
+
+# MILEAGE. The field has to EXIST and carry the figure that was entered. This
+# is the assertion whose absence let the defect ship.
+grep -q '<dt>MILEAGE</dt>' <<<"$second_card" \
+  || fail "fixture 116 the fill card renders no MILEAGE field at all: $second_card"
+second_mileage="$(sed -n 's/.*<dt>MILEAGE<\/dt><dd>\([^<]*\)<.*/\1/p' <<<"$second_card")"
+[ "$second_mileage" = '40,300 mi' ] \
+  || fail "fixture 116 the second fill shows mileage '$second_mileage', want '40,300 mi'"
+first_mileage="$(sed -n 's/.*<dt>MILEAGE<\/dt><dd>\([^<]*\)<.*/\1/p' <<<"$first_card")"
+[ "$first_mileage" = '40,000 mi' ] \
+  || fail "fixture 116 the first fill shows mileage '$first_mileage', want '40,000 mi'"
+
+# ECONOMY, derived. 300 miles on 15.000 gallons is 20 mpg exactly.
+second_economy="$(sed -n 's/.*<dt>ECONOMY<\/dt><dd>\([^<]*\)<.*/\1/p' <<<"$second_card")"
+[ "$second_economy" = '20.000 mpg' ] \
+  || fail "fixture 116 the second fill shows economy '$second_economy', want '20.000 mpg'"
+
+# And the card that genuinely cannot derive one says so, without claiming a
+# break that does not exist.
+first_economy="$(sed -n 's/.*<dt>ECONOMY<\/dt><dd>\([^<]*\)<.*/\1/p' <<<"$first_card")"
+case "$first_economy" in
+  Unavailable*) : ;;
+  *) fail "fixture 116 the first fill shows economy '$first_economy', want an unavailability" ;;
+esac
+# The old inverted sentence must be gone from every card in the document. It
+# was printed whenever NO break row existed, which is almost every fill.
+grep -q 'another eligible full fill is required' <<<"$view" \
+  && fail "fixture 116 the inverted economy sentence is still served"
+
+# A photograph can reach a record that already exists. Until M9 the only way to
+# attach one was at creation, so an imported record could never gain one.
+edit_form="$(fill_edit_form "$ECONOMY_VEHICLE")"
+[ -n "$edit_form" ] || fail "fixture 116 the history edit form is not in the view"
+grep -q 'data-photo-field="history"' <<<"$edit_form" \
+  || fail "fixture 116 the history edit form carries no photo field"
+
+# The camera stays a menu, not a camera. `accept="image/*"` alone makes a phone
+# offer the camera BESIDE the photo library; `capture` forces camera-only and
+# removes the library, which is how most of a corpus arrives.
+grep -q 'accept="image/\*"' <<<"$edit_form" \
+  || fail "fixture 116 the history photo input does not accept an image"
+grep -q 'capture=' <<<"$view" \
+  && fail "fixture 116 a capture attribute is served, which would force camera-only"
+
+# The photo really attaches, through the endpoint the form calls.
+econ_photo="fixture-116-$STAMP.jpg"
+printf '\377\330\377\340\000\020JFIF\000\001\001\000\000\001\000\001\000\000\377\331' \
+  > "/tmp/$econ_photo"
+econ_query="owner=fill&vehicle=$(printf '%s' "$ECONOMY_VEHICLE" | sed 's/ /+/g')"
+econ_query="$econ_query&file=$econ_photo&type=image/jpeg&backend=clay"
+econ_query="$econ_query&observed=2026-08-15T09:00"
+attach_status="$(curl -s -o /tmp/attach-116.txt -w '%{http_code}' -b "$JAR" \
+  -X POST -H 'content-type: image/jpeg' --data-binary "@/tmp/$econ_photo" \
+  "$URL/apps/rover/add-attachment?$econ_query")"
+[ "$attach_status" = 201 ] \
+  || fail "fixture 116 attaching to an existing fill answered $attach_status: $(cat /tmp/attach-116.txt)"
+readback="$(curl -s -o /tmp/attach-116-back.jpg -w '%{http_code}' -b "$JAR" \
+  "$URL/apps/rover/attachment/$econ_photo")"
+[ "$readback" = 200 ] \
+  || fail "fixture 116 the attached photo did not read back: HTTP $readback"
+cmp -s "/tmp/$econ_photo" /tmp/attach-116-back.jpg \
+  || fail "fixture 116 the attached photo read back with different bytes"
+rm -f "/tmp/$econ_photo" /tmp/attach-116.txt /tmp/attach-116-back.jpg
+
+note "fixture 116 PASS - mileage 40,000 and 40,300 mi, economy 20.000 mpg derived from 300 mi on 15.000 gal, and a photo attached to a record that already existed"
+
 . "$(dirname "$0")/event-coverage-gate.sh"
