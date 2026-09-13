@@ -1398,6 +1398,8 @@
       "CREATE TABLE rover..vehicle-event-attachments (event-id @ux, attachment-id @ux) PRIMARY KEY (event-id, attachment-id) FOREIGN KEY (event-id) REFERENCES vehicle-events (event-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (attachment-id) REFERENCES attachments (attachment-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
       :-  %vehicle-attachments
       "CREATE TABLE rover..vehicle-attachments (vehicle-id @ux, attachment-id @ux) PRIMARY KEY (vehicle-id, attachment-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT, (attachment-id) REFERENCES attachments (attachment-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
+      :-  %vehicle-attachment-preferences
+      "CREATE TABLE rover..vehicle-attachment-preferences (vehicle-id @ux, backend @tas, recorded-at @da) PRIMARY KEY (vehicle-id) FOREIGN KEY (vehicle-id) REFERENCES vehicles (vehicle-id) ON DELETE RESTRICT ON UPDATE RESTRICT; "
   ==
     ::  M7 T7. Every member keys only to `vehicles`, which `schema-m0` pours
     ::  before it reaches this list at all, so these may sit at either end.
@@ -1628,6 +1630,7 @@
     " "
     spec-queries
     (statistics-view selected-label)
+    " FROM vehicles V JOIN vehicle-attachment-preferences P ON V.vehicle-id = P.vehicle-id WHERE V.archived = N SELECT V.vehicle-id, V.label, P.backend;"
   ==
 ::
 ::  T10 reads every stored fact with a wide projection. Each query names the
@@ -3700,14 +3703,14 @@
       ;:  weld
         "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id WHERE V.label = '"
         quoted  "' AND A.observed-start = "  moment
-        " SELECT A.acquisition-id; "
+        " SELECT A.acquisition-id, V.vehicle-id; "
       ==
     ::
         %event
       ;:  weld
         "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id WHERE V.label = '"
         quoted  "' AND E.observed-start = "  moment
-        " SELECT E.event-id; "
+        " SELECT E.event-id, V.vehicle-id; "
       ==
     ==
   ::  What this owner already has. Attaching the same photo to the same record
@@ -3780,24 +3783,40 @@
 ::  owner would be a photo nothing points at, and a link with no reference
 ::  would break the foreign key, so neither may land without the other.
 ++  attachment-link
-  |=  [owner=attachment-owner:rover owner-id=@ux attachment-id=@ux]
+  |=  [owner=attachment-owner:rover owner-id=@ux attachment-id=@ux vehicle-id=@ux backend=attachment-backend:rover now=@da]
   ^-  tape
   =/  attachment=tape  (scow %ux attachment-id)
-  ?-  owner
-    %vehicle  ;:(weld "INSERT INTO vehicle-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
-    %energy   ;:(weld "INSERT INTO energy-acquisition-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
-    %event    ;:(weld "INSERT INTO vehicle-event-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+  ;:  weld
+    ?-  owner
+      %vehicle  ;:(weld "INSERT INTO vehicle-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+      %energy   ;:(weld "INSERT INTO energy-acquisition-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+      %event    ;:(weld "INSERT INTO vehicle-event-attachments VALUES (" (scow %ux owner-id) ", " attachment "); ")
+    ==
+    (remember-attachment-backend vehicle-id backend now)
+  ==
+::
+::  The reference and its link precede this preference in one atomic script.
+::  A refused reference cannot change the backend the vehicle offers next.
+++  remember-attachment-backend
+  |=  [vehicle-id=@ux backend=attachment-backend:rover now=@da]
+  ^-  tape
+  =/  vehicle=tape  (scow %ux vehicle-id)
+  ;:  weld
+    "DELETE FROM vehicle-attachment-preferences WHERE vehicle-id = "
+    vehicle  "; INSERT INTO vehicle-attachment-preferences VALUES ("
+    vehicle  ", "  (sql-term backend)  ", "  (scow %da now)  "); "
   ==
 ::
 ++  insert-attachment
   |=  $:  ref=attachment-ref:rover
           owner=attachment-owner:rover
           owner-id=@ux
+          vehicle-id=@ux
           now=@da
       ==
   ^-  tape
   =/  attachment=tape  (scow %ux attachment-id.ref)
-  =/  link=tape  (attachment-link owner owner-id attachment-id.ref)
+  =/  link=tape  (attachment-link owner owner-id attachment-id.ref vehicle-id backend.ref now)
   ;:  weld
     "INSERT INTO attachments VALUES ("
     attachment

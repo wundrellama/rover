@@ -1017,24 +1017,38 @@
     async function fillBackendControl(field) {
       const select = field.querySelector('[data-photo-backend]');
       const note = field.querySelector('[data-photo-note]');
-      if (!select || select.options.length > 0) return;
+      if (!select) return;
       const backends = await readBackends();
+      const preferred = select.value || 'clay';
       const offered = backends.filter((backend) => backend.available);
       const list = offered.length > 0
         ? offered
         : [{name: 'clay', label: 'On this ship'}];
+      select.replaceChildren();
       list.forEach((backend) => {
         const option = document.createElement('option');
         option.value = backend.name;
         option.textContent = backend.label;
         select.appendChild(option);
       });
+      select.value = list.some((backend) => backend.name === preferred) ? preferred : 'clay';
       const missing = backends.filter((backend) => !backend.available);
       if (note) {
         note.textContent = [...missing, ...offered.filter((backend) => backend.name === 's3')]
           .map((backend) => backend.reason).join(' ');
         note.hidden = note.textContent.length === 0;
       }
+    }
+
+    function syncPhotoBackend(form) {
+      const select = form.querySelector('[data-photo-backend]');
+      if (!select) return;
+      const vehicle = form.elements.vehicle?.value || '';
+      const marker = [...app.querySelectorAll('[data-photo-vehicle]')]
+        .find(item => item.dataset.photoVehicle === vehicle);
+      const preferred = marker?.dataset.photoPreference || 'clay';
+      select.value = [...select.options].some(option => option.value === preferred)
+        ? preferred : 'clay';
     }
 
     // S3 receives the bytes from the browser. The ship receives metadata.
@@ -2316,6 +2330,7 @@
       const tagsPicker = app.querySelector('#fill-tags-picker');
       const previousOdometer = app.querySelector('#fill-previous-odometer');
       if (defaultVehicle) vehicle.value = defaultVehicle;
+      syncPhotoBackend(form);
 
       const syncDefinitions = () => {
         const options = [...definition.options];
@@ -2410,6 +2425,7 @@
       form.elements.observed.value = local.toISOString().slice(0, 16);
       form.elements.zone.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
       vehicle.addEventListener('change', () => {
+        syncPhotoBackend(form);
         subtype.value = '';
         syncDefinitions();
         syncDrivingModes();
@@ -2661,6 +2677,8 @@
       const eventForm = app.querySelector('#event-form');
       if (eventForm) {
         if (defaultVehicle) eventForm.elements.vehicle.value = defaultVehicle;
+        syncPhotoBackend(eventForm);
+        eventForm.elements.vehicle.addEventListener('change', () => syncPhotoBackend(eventForm));
         eventForm.elements.observed.value = local.toISOString().slice(0, 16);
         eventForm.elements.zone.value =
           Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -2733,6 +2751,7 @@
         resetEventForm = () => {
           eventForm.reset();
           if (defaultVehicle) eventForm.elements.vehicle.value = defaultVehicle;
+          syncPhotoBackend(eventForm);
           eventForm.elements.observed.value = local.toISOString().slice(0, 16);
           eventForm.elements.zone.value =
             Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -2750,6 +2769,7 @@
             const card = button.closest('article.history-card.event');
             const data = button.dataset;
             eventForm.elements.vehicle.value = data.editVehicle;
+            syncPhotoBackend(eventForm);
             eventForm.elements.kind.value = data.editKind;
             // The kind controls which fields show, and hiding one clears it,
             // so the kind settles before anything else is filled in.

@@ -2220,6 +2220,7 @@
       ::  Record only. The browser calls this after its PUT returns 200.
       =/  owner-id=@ux
         `@ux`(cell-atom:view (attachment-owner-column owner.entry.meta) (snag 0 owners))
+      =/  vehicle-id=@ux  `@ux`(cell-atom:view %vehicle-id (snag 0 owners))
       =/  stored  (rows-at:view p.res 1)
       =/  same-photo  (attachment-match entry.meta content-hash.meta %.y stored)
       =/  taken=(set @t)
@@ -2232,17 +2233,17 @@
         %+  lien  (rows-at:view p.res 2)
         |=  row=vector:ast
         =((cell-atom:view %attachment-id row) (cell-atom:view %attachment-id u.same-photo))
-      ?:  already
-        :_  cleared
-        (http-give u.eyre-id 200 ['content-type' 'text/plain']~ `(text-octs (cat 3 'Already attached ' name)))
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  attachment-id=@ux  (fixture-id:act base 9.201)
       =/  ref=attachment-ref:rover
         [attachment-id %s3 locator content-hash.meta byte-count.meta media-type.entry.meta name]
       =/  script=tape
-        ?~  same-photo  (insert-attachment:act ref owner.entry.meta owner-id now.bowl)
-        (attachment-link:act owner.entry.meta owner-id `@ux`(cell-atom:view %attachment-id u.same-photo))
-      =/  write-wire=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
+        ?:  already  (remember-attachment-backend:act vehicle-id %s3 now.bowl)
+        ?~  same-photo  (insert-attachment:act ref owner.entry.meta owner-id vehicle-id now.bowl)
+        (attachment-link:act owner.entry.meta owner-id `@ux`(cell-atom:view %attachment-id u.same-photo) vehicle-id %s3 now.bowl)
+      =/  write-wire=path
+        =/  base=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
+        ?:(already (weld base /already) base)
       =/  next=_this
         %=  cleared
           http-pending  (~(put by http-pending.cleared) write-wire u.eyre-id)
@@ -2295,6 +2296,7 @@
         ==
       =/  owner-id=@ux
         `@ux`(cell-atom:view (attachment-owner-column owner.entry.write) (snag 0 owners))
+      =/  vehicle-id=@ux  `@ux`(cell-atom:view %vehicle-id (snag 0 owners))
       =/  stored  (rows-at:view p.res 1)
       =/  taken=(set @t)
         %-  silt
@@ -2332,7 +2334,7 @@
         =/  link-wire=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
         =/  jon
           !>  :*  %script  %rover  %vector
-                  (attachment-link:act owner.entry.write owner-id existing)
+                  (attachment-link:act owner.entry.write owner-id existing vehicle-id backend.entry.write now.bowl)
               ==
         =/  next=_this
           %=  cleared
@@ -2359,7 +2361,7 @@
         =/  share-wire=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
         =/  jon
           !>  :*  %script  %rover  %vector
-                  (insert-attachment:act ref owner.entry.write owner-id now.bowl)
+                  (insert-attachment:act ref owner.entry.write owner-id vehicle-id now.bowl)
               ==
         =/  next=_this
           %=  cleared
@@ -2395,6 +2397,7 @@
           %=  cleared
             http-pending        (~(put by (~(del by http-pending) wire)) put-wire u.eyre-id)
             attachment-pending  (~(put by (~(del by attachment-pending) wire)) put-wire resolved)
+            pending             (~(put by pending) put-wire (scot %ux vehicle-id))
           ==
         :_  next
         [%pass put-wire %arvo %i %request outbound *outbound-config:iris]~
@@ -2409,7 +2412,7 @@
         ==
       =/  write-wire=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
       =/  script=tape
-        (insert-attachment:act ref owner.entry.write owner-id now.bowl)
+        (insert-attachment:act ref owner.entry.write owner-id vehicle-id now.bowl)
       =/  jon  !>([%script %rover %vector script])
       =/  next=_this
         %=  cleared
@@ -2448,12 +2451,13 @@
       ?:  ?|(?=(%.n -.res) ?=(~ name))
         :_  cleared
         (http-give u.eyre-id 422 ['content-type' 'text/plain']~ `(text-octs '%database-refused: attachment'))
+      =/  already=?  ?=([%rover-attachment-write @ @ %already ~] wire)
       :_  cleared
       %:  http-give
           u.eyre-id
-          201
+          ?:(already 200 201)
           ['content-type' 'text/plain']~
-          `(text-octs (cat 3 'Attached ' u.name))
+          `(text-octs (cat 3 ?:(already 'Already attached ' 'Attached ') u.name))
       ==
     ::
         %kick
@@ -4905,6 +4909,7 @@
         (fail 'no record on this ship carries the moment it belongs to')
       =/  owner-id=@ux
         `@ux`(cell-atom:view (attachment-owner-column owner.entry.photo) (snag 0 owners))
+      =/  vehicle-id=@ux  `@ux`(cell-atom:view %vehicle-id (snag 0 owners))
       =/  stored  (rows-at:view p.res 1)
       =/  content-hash=@t  (hash-octs:files bytes.photo)
       ::  The same rule the attach endpoint follows: identical bytes under a
@@ -4931,7 +4936,7 @@
           ~
         %+  step
           report.run
-        `(attachment-link:act owner.entry.photo owner-id existing)
+        `(attachment-link:act owner.entry.photo owner-id existing vehicle-id backend.entry.photo now.bowl)
       =/  name=@t  (unique-name:files file-name.entry.photo taken)
       =/  base=@ux  (cut 7 [0 1] eny.bowl)
       =/  attachment-id=@ux  (fixture-id:act base 9.202)
@@ -4947,7 +4952,7 @@
           ==
         %+  step
           report.run
-        `(insert-attachment:act ref owner.entry.photo owner-id now.bowl)
+        `(insert-attachment:act ref owner.entry.photo owner-id vehicle-id now.bowl)
       ::  M8, second leg. The owner answered this question once, for the whole
       ::  batch, and the answer rides on every photo in it. Rover no longer
       ::  puts an imported photograph in Clay by default: on an S3-configured
@@ -4982,7 +4987,7 @@
               now.bowl
           ==
         =/  script=tape
-          (insert-attachment:act ref owner.entry.photo owner-id now.bowl)
+          (insert-attachment:act ref owner.entry.photo owner-id vehicle-id now.bowl)
         :_  %=  this
               import-run  `run(serial +(serial.run), report report.run)
               pending     (~(put by pending) put-wire (crip script))
@@ -4998,7 +5003,7 @@
             name
         ==
       =/  script=tape
-        (insert-attachment:act ref owner.entry.photo owner-id now.bowl)
+        (insert-attachment:act ref owner.entry.photo owner-id vehicle-id now.bowl)
       :_  this(import-run `run(serial +(serial.run), report report.run))
       :-  (clay-write-card:files attachment-id media-type.entry.photo bytes.photo)
       (import-photo-write-cards our.bowl serial.run script)
@@ -6428,7 +6433,7 @@
           u.eyre-id
           200
           headers
-          `(as-octs:mimes:html (page:view our.bowl now.bowl history-page selected-label p.res))
+          `(as-octs:mimes:html (page:view our.bowl now.bowl history-page selected-label p.res (s3-configured our.bowl now.bowl)))
       ==
     ::
         %kick
@@ -6497,16 +6502,21 @@
       (on-arvo:def wire sign-arvo)
     =/  eyre-id  (~(get by http-pending) wire)
     =/  waiting  (~(get by attachment-pending) wire)
+    =/  vehicle  (~(get by pending) wire)
     =/  cleared=_this
       %=  this
         http-pending        (~(del by http-pending) wire)
         attachment-pending  (~(del by attachment-pending) wire)
+        pending             (~(del by pending) wire)
       ==
     ?~  eyre-id
       `cleared
     ?~  waiting
       :_  cleared
       (restart-http u.eyre-id)
+    ?~  vehicle
+      [(restart-http u.eyre-id) cleared]
+    =/  vehicle-id=@ux  (slav %ux u.vehicle)
     ?.  ?=(%finished -.client-response.sign-arvo)
       `this
     =/  status  status-code.response-header.client-response.sign-arvo
@@ -6534,12 +6544,12 @@
       ==
     =/  write-wire=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
     =/  script=tape
-      (insert-attachment:act ref owner.entry.write owner-id.write now.bowl)
+      (insert-attachment:act ref owner.entry.write owner-id.write vehicle-id now.bowl)
     =/  jon  !>([%script %rover %vector script])
     =/  next=_this
       %=  cleared
         http-pending  (~(put by (~(del by http-pending) wire)) write-wire u.eyre-id)
-        pending       (~(put by pending) write-wire stored-name.write)
+        pending       (~(put by pending.cleared) write-wire stored-name.write)
       ==
     :_  next
     :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]

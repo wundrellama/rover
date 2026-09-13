@@ -102,6 +102,9 @@
 ::  because a service visit may be recorded without a reading.
 +$  reminder-completion
   [date=@da odometer=(unit vector:ast)]
+::
++$  photo-context
+  [preferences=(list vector:ast) s3=?]
 ::  M7 T7. The thirteen specification relations, keyed by relation name rather
 ::  than carried as thirteen positional arguments. `spec-view-order:act` is the
 ::  one list that decides which query answers which name.
@@ -1340,6 +1343,7 @@
 ::  because /apps/rover/import takes one document per POST and answers 409 while
 ::  a run is live. The split is the one tools/rover-import/upload.py makes.
 ++  import-screen
+  |=  [backend=@tas s3=?]
   ^-  tape
   ;:  weld
     "<section id=\"import-screen\" class=\"entry-screen app-screen\" hidden>"
@@ -1353,7 +1357,7 @@
     ::  the store for the owner, because a photograph in the wrong backend is
     ::  slow to move. The list comes from `/apps/rover/backends.json`, so a
     ::  ship with no bucket offers Clay alone and says why.
-    (photo-field 'import')
+    (photo-field 'import' backend s3)
     "<div class=\"form-actions\"><button type=\"button\" id=\"import-validate\">Validate</button><button type=\"submit\" id=\"import-submit\">Start import</button></div>"
     "<div class=\"preview-row\"><span>Plan</span><output id=\"import-plan\">&mdash;</output><small>Validate reads the document and counts the batches. It sends nothing.</small></div>"
     "<div class=\"preview-row\"><span>Progress</span><output id=\"import-progress\" aria-live=\"polite\">&mdash;</output></div>"
@@ -2226,6 +2230,8 @@
           localities=(list vector:ast)
           service-subtypes=(list vector:ast)
           disposal-kinds=(list vector:ast)
+          backend=@tas
+          s3=?
       ==
   ^-  tape
   =/  vehicle-html  (vehicle-options vehicles)
@@ -2290,7 +2296,7 @@
     "<label data-fill-field=\"payment-method\">Payment Method <span class=\"optional\">optional</span><select name=\"paymentMethod\"><option value=\"\">Not recorded</option>"
     payment-html
     "</select></label>"
-    (photo-field 'fill')
+    (photo-field 'fill' backend s3)
     "<input name=\"profile\" type=\"hidden\" value=\"us-usd-gal\">"
     "<input name=\"tank\" type=\"hidden\" value=\"full\">"
     "<input name=\"settlement\" type=\"hidden\" value=\"standard\">"
@@ -2391,7 +2397,7 @@
     ::  a correction may move the date, so the record cannot be found by the
     ::  date the person just typed.
     "</select></label><label>Note <span class=\"optional\">optional</span><input name=\"notes\" autocomplete=\"off\"></label>"
-    (photo-field 'event')
+    (photo-field 'event' backend s3)
     "<label>Observed<input name=\"observed\" type=\"datetime-local\" required></label><input name=\"zone\" type=\"hidden\"><input name=\"originalObserved\" type=\"hidden\" value=\"\"><div class=\"form-actions\"><button type=\"submit\">Save event</button><button type=\"button\" data-close-screen>Cancel</button></div><output id=\"event-verdict\" class=\"form-verdict\" aria-live=\"polite\"></output></form></section>"
     ::  M7 T6. A reminder names one kind of service work and carries an
     ::  interval in time, an interval in distance, or both. A blank interval
@@ -2573,20 +2579,53 @@
 ::  The photo control the entry forms carry. One fragment, used by Add Fill and
 ::  by Add Event, so the two can never offer different choices.
 ::
-::  The backend list is empty here on purpose. The browser reads
-::  `/apps/rover/backends.json` and fills it, so this markup never states a
-::  choice the ship cannot honor.
+::  The page receives the same availability check as `backends.json`.
+::  The selected option records the preference before browser code runs.
 ++  photo-field
-  |=  form=@t
+  |=  [form=@t backend=@tas s3=?]
   ^-  tape
   ;:  weld
     "<fieldset class=\"photo-field\" data-photo-field=\""
     (escape form)
     "\"><legend>Photo <span class=\"optional\">optional</span></legend>"
     "<label>Choose a photo<input name=\"photo\" type=\"file\" accept=\"image/*\" data-photo-input></label>"
-    "<label>Store it<select name=\"photoBackend\" data-photo-backend></select></label>"
+    "<label>Store it<select name=\"photoBackend\" data-photo-backend><option value=\"clay\""
+    ?:  ?&  s3  =(%s3 backend)  ==
+      ""
+    " selected"
+    ">On this ship</option>"
+    ?.  s3
+      ""
+    ;:  weld
+      "<option value=\"s3\""
+      ?:(=(%s3 backend) " selected" "")
+      ">S3 storage</option>"
+    ==
+    "</select></label>"
     "<p class=\"field-note\" data-photo-note hidden></p>"
     "</fieldset>"
+  ==
+::
+++  photo-backend
+  |=  [vehicle=@t photos=photo-context]
+  ^-  @tas
+  ?.  s3.photos  %clay
+  =/  preference  (row-by-text %label vehicle preferences.photos)
+  ?~  preference  %clay
+  ?:(=(%s3 (cell-term %backend u.preference)) %s3 %clay)
+::
+++  photo-preference-data
+  |=  photos=photo-context
+  ^-  tape
+  ?~  preferences.photos  ~
+  =/  vehicle=@t  (cell-text %label i.preferences.photos)
+  ;:  weld
+    "<span hidden data-photo-vehicle=\""
+    (escape vehicle)
+    "\" data-photo-preference=\""
+    (trip (scot %tas (photo-backend vehicle photos)))
+    "\"></span>"
+    $(preferences.photos t.preferences.photos)
   ==
 ::
 ++  fill-card
@@ -3723,6 +3762,7 @@
           tags=(list vector:ast)
           fill-tags=(list vector:ast)
           payment-methods=(list vector:ast)
+          photos=photo-context
       ==
   ^-  tape
   =/  vehicle  (vehicle-label (cell-atom %vehicle-id row) vehicles)
@@ -3877,7 +3917,7 @@
     ::  The same fragment the entry forms use, so the two can never offer
     ::  different backends. The browser uploads after the edit saves.
     ::  The attachment uses the record moment, which the edit may change.
-    (photo-field 'history')
+    (photo-field 'history' (photo-backend vehicle photos) s3.photos)
     "<button type=\"submit\">Save changes</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></div></article>"
   ==
 ::
@@ -3903,6 +3943,7 @@
           payment-methods=(list vector:ast)
           selected-vehicle=(unit vector:ast)
           history-page=@ud
+          photos=photo-context
       ==
   ^-  tape
   =/  history-window-size=@ud  25
@@ -3943,6 +3984,7 @@
           tags
           fill-tags
           payment-methods
+          photos
       ==
     (weld rendered $(rows t.rows))
   =/  rows=tape  (render-rows ordered)
@@ -4943,6 +4985,7 @@
           history-page=@ud
           selected-label=(unit @t)
           commands=(list cmd-result:ast)
+          s3=?
       ==
   ^-  @t
   =/  vehicles  (rows-at commands 0)
@@ -5059,6 +5102,13 @@
         (rows-at commands 86)
     ==
   =/  definition-html  (definition-options definition-rows vehicles)
+  =/  photos=photo-context  [(rows-at commands 87) s3]
+  =/  backend=@tas
+    ?~  app-default
+      =/  active  (skim vehicles |=(row=vector:ast !=(0 (cell-atom %archived row))))
+      ?~  active  %clay
+      (photo-backend (cell-text %label i.active) photos)
+    (photo-backend (cell-text %label i.app-default) photos)
   =/  starter-html  (starter-definition-options starter-definitions)
   =/  starter-subtype-html  (subtype-options subtypes)
   =/  starter-mode-html  (vehicle-mode-membership-options available-modes ~)
@@ -5147,8 +5197,9 @@
       ==
       "></span>"
       (address-locality-data localities)
+      (photo-preference-data photos)
       (main-hub app-default definition-rows odometers tank-sizes refill-reserves fills energy-odometers economy-breaks def-purchases def-odometers derivations ownership reminder-html)
-      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes disposal-kinds)
+      (entry-screens vehicles odometers definition-rows stations additives subtypes default-subtypes driving-modes tags custom-definitions payment-methods consumables localities service-subtypes disposal-kinds backend s3)
       "<section id=\"vehicles-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"main-hub\">&lsaquo; MAIN</button><header class=\"view-header\"><p class=\"eyebrow\">ROVER FLEET</p><h1>VEHICLES</h1></header><button type=\"button\" data-open-screen=\"vehicle-create-screen\">Add Vehicle</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicles recorded.</p>" (weld "<ul class=\"vehicle-list\">" (weld (vehicle-list-items vehicles) "</ul>")))
       "<details class=\"archived-vehicles\"><summary>View archived vehicles</summary><ul class=\"vehicle-list\">"
@@ -5167,10 +5218,10 @@
       "<section id=\"vehicle-settings-screen\" class=\"app-screen\" hidden><button type=\"button\" class=\"back-control\" data-open-screen=\"vehicles-screen\">&lsaquo; VEHICLES</button>"
       ?:(?=(~ vehicles) "<p class=\"empty\">No vehicle selected.</p>" cards)
       "</section>"
-      (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page)
+      (history-screen vehicles fills energy-odometers stations station-links additives additive-links subtypes subtype-links driving-modes fill-driving-modes fill-average-speeds fill-drive-balances fill-notes fill-payment-links economy-breaks tags fill-tags payment-methods selected-vehicle history-page photos)
       (statistics-screen fills vehicles app-default subtype-links tank-sizes def-purchases def-odometers derivations ownership statistic-costs selected-vehicle history-page)
       (settings-screen custom-definitions definition-panel-rows)
-      import-screen
+      (import-screen backend s3)
     ==
   (crip html)
 --

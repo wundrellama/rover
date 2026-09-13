@@ -3448,6 +3448,26 @@ followon_out="$(python3 "$REPO/bin/followon-fixture.py" 122 "$URL" "$JAR" "$PIER
   || fail "fixture 122 $followon_out"
 note "fixture 122 PASS - a scheme-less endpoint returns HTTPS putUrl and getUrl"
 
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 123 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 123 $followon_out"
+note "fixture 123 PASS - a stored S3 photograph makes S3 the selected backend in later vehicle forms"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 124 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 124 $followon_out"
+note "fixture 124 PASS - a vehicle without a photograph selects Clay"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 125 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 125 $followon_out"
+note "fixture 125 PASS - unavailable S3 falls back to Clay without losing the preference"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 126 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 126 $followon_out"
+note "fixture 126 PASS - only successful storage changes the preferred backend"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 127 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 127 $followon_out"
+note "fixture 127 PASS - browser attachment forms follow the selected vehicle"
+
 # fixture 118 - an unfamiliar bucket status survives the real Iris response.
 status_photo="$ROVER_TEST_TMP/status-$STAMP.jpg"
 printf 'Status fixture %s' "$STAMP" > "$status_photo"
