@@ -5082,7 +5082,7 @@ import sys
 
 document = json.loads(pathlib.Path(sys.argv[1]).read_text())
 for photo in document["source"]["attachments"]["files"]:
-    print(photo["name"], photo["hash"], photo["bytes"])
+    print(photo["name"], photo["hash"], photo["bytes"], sep="\t")
 PY
 [ -s "$M8_MANIFEST" ] || fail "fixture 102 the manifest names no photo to round-trip"
 
@@ -5283,7 +5283,7 @@ archive_known="$(sed -n 's/^Photos: .*already-imported \([0-9]*\).*/\1/p' <<<"$r
 # Every photo, read back the way a browser reads one, and compared with the
 # digest the SOURCE ship recorded before any of this started.
 roundtrip_photo="$(mktemp ${ROVER_TEST_TMP}/rover-roundtrip-photo.XXXXXX)"
-while read -r photo_name photo_hash photo_bytes; do
+while IFS=$'\t' read -r photo_name photo_hash photo_bytes; do
   photo_status="$(curl -sS -b "$JAR" -o "$roundtrip_photo" -w '%{http_code}' \
     "$URL/apps/rover/attachment/$(urlenc "$photo_name")")"
   [ "$photo_status" = 200 ] \
