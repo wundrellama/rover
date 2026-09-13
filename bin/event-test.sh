@@ -5922,7 +5922,19 @@ grep -q 'another eligible full fill is required' <<<"$view" \
 
 # A photograph can reach a record that already exists. Until M9 the only way to
 # attach one was at creation, so an imported record could never gain one.
-edit_form="$(fill_edit_form "$ECONOMY_VEHICLE")"
+# The history screen serves the rows of ONE vehicle, the selected one, so
+# this fixture asks for its own vehicle's view rather than reading the
+# default one. `fill_edit_form` is scoped to the T8 vehicle by design and
+# three earlier fixtures depend on that, so it is left alone.
+economy_view="$(scoped_event_view "$ECONOMY_VEHICLE")"
+edit_form="$(python3 -c '
+import re, sys
+document = sys.stdin.read()
+found = re.search(
+    r"<article class=\"history-table-row\" data-history-vehicle=\"%s\".*?</article>"
+    % re.escape(sys.argv[1]), document, re.S)
+sys.stdout.write(found.group(0) if found else "")
+' "$ECONOMY_VEHICLE" <<<"$economy_view")"
 [ -n "$edit_form" ] || fail "fixture 116 the history edit form is not in the view"
 grep -q 'data-photo-field="history"' <<<"$edit_form" \
   || fail "fixture 116 the history edit form carries no photo field"
