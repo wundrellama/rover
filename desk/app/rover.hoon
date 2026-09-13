@@ -845,7 +845,7 @@
               ['available' b+ready]
               :-  'reason'
               ?:  ready
-                s+'Rover reads the bucket you already set up in the Landscape storage settings.'
+                s+'S3 photos must be publicly readable. Anyone with a photo URL can read it, and a leaked URL cannot be revoked. Choose Clay for private photos.'
               s+s3-unavailable
           ==
       ==
@@ -858,7 +858,7 @@
 ::  Ruling 8: the file name is the whole handle. No attachment id and no record
 ::  id crosses this boundary in either direction.
 ++  photo-json
-  |=  [owner=@tas timed=? rows=(list vector:ast)]
+  |=  [owner=@tas timed=? endpoint=@t rows=(list vector:ast)]
   ^-  (list json)
   %+  turn  rows
   |=  row=vector:ast
@@ -873,20 +873,23 @@
       ::  A plain integer. `scot %ud` groups with dots past four figures, and
       ::  a byte count that reads 16.422 is not a number any reader parses.
       ['bytes' n+(format-scaled:render (cell-atom:view %byte-count row) 0 %.n)]
-      ['url' s+(crip (weld "/apps/rover/attachment/" (en-urlt:html (trip name))))]
+      :-  'url'
+      ?:  =(%s3 (cell-term:view %backend row))
+        s+(s3-url:files endpoint (cell-text:view %locator row))
+      s+(crip (weld "/apps/rover/attachment/" (en-urlt:html (trip name))))
   ==
 ::
 ++  attachment-index-json
-  |=  [label=@t commands=(list cmd-result:ast)]
+  |=  [label=@t endpoint=@t commands=(list cmd-result:ast)]
   ^-  json
   %-  pairs:enjs:format
   :~  ['vehicle' s+label]
       :-  'photos'
       :-  %a
       ;:  weld
-        (photo-json %energy %.y (rows:exp commands 0))
-        (photo-json %event %.y (rows:exp commands 1))
-        (photo-json %vehicle %.n (rows:exp commands 2))
+        (photo-json %energy %.y endpoint (rows:exp commands 0))
+        (photo-json %event %.y endpoint (rows:exp commands 1))
+        (photo-json %vehicle %.n endpoint (rows:exp commands 2))
       ==
   ==
 ::
@@ -2476,9 +2479,15 @@
         :_  cleared
         %^  json-give  u.eyre-id  503
         (json-message 'Rover could not read the photos for that vehicle.')
+      =/  config  (storage-configuration our.bowl now.bowl)
+      =/  s3-photos
+        %+  lien  ;:(weld (rows:exp p.res 0) (rows:exp p.res 1) (rows:exp p.res 2))
+        |=(row=vector:ast =(%s3 (cell-term:view %backend row)))
+      ?:  ?&(?=(~ config) s3-photos)
+        [(json-give u.eyre-id 409 (json-message storage-unconfigured)) cleared]
       :_  cleared
       %^  json-give  u.eyre-id  200
-      (attachment-index-json ?~(label '' u.label) p.res)
+      (attachment-index-json ?~(label '' u.label) ?~(config '' endpoint.u.config) p.res)
     ::
         %kick
       `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))

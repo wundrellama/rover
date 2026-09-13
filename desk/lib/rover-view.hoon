@@ -3875,9 +3875,8 @@
     ::  nowhere to go and an imported record could never gain one.
     ::
     ::  The same fragment the entry forms use, so the two can never offer
-    ::  different backends. The browser posts the file to
-    ::  `/apps/rover/add-attachment` after the edit saves, because the endpoint
-    ::  addresses a record by its moment and the edit may have moved it.
+    ::  different backends. The browser uploads after the edit saves.
+    ::  The attachment uses the record moment, which the edit may change.
     (photo-field 'history')
     "<button type=\"submit\">Save changes</button><output class=\"form-verdict\" aria-live=\"polite\"></output></form></div></article>"
   ==

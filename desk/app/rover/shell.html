@@ -1031,9 +1031,39 @@
       });
       const missing = backends.filter((backend) => !backend.available);
       if (note) {
-        note.textContent = missing.map((backend) => backend.reason).join(' ');
+        note.textContent = [...missing, ...offered.filter((backend) => backend.name === 's3')]
+          .map((backend) => backend.reason).join(' ');
         note.hidden = note.textContent.length === 0;
       }
+    }
+
+    // S3 receives the bytes from the browser. The ship receives metadata.
+    async function uploadPhoto(params, source) {
+      if (params.get('backend') !== 's3') {
+        return fetch(`/apps/rover/add-attachment?${params}`, {
+          method: 'POST', credentials: 'same-origin',
+          headers: {'content-type': params.get('type')}, body: source
+        });
+      }
+      const bytes = source instanceof Blob ? await source.arrayBuffer() : source;
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+      params.set('hash', [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join(''));
+      params.set('bytes', String(bytes.byteLength));
+      const signed = await fetch(`/apps/rover/attachment-url?${params}`, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store'
+      });
+      const urls = await signed.json();
+      if (!signed.ok) throw new Error(urls.message || `The ship returned HTTP ${signed.status}.`);
+      const uploaded = await fetch(urls.putUrl, {
+        method: 'PUT', credentials: 'omit',
+        headers: {'content-type': params.get('type')}, body: bytes
+      });
+      if (uploaded.status !== 200) {
+        throw new Error(`The S3 storage returned HTTP ${uploaded.status}. The photo was not attached.`);
+      }
+      return fetch(`/apps/rover/record-attachment?${params}`, {
+        method: 'POST', credentials: 'same-origin'
+      });
     }
 
     //  The photo a person chose on the entry form, sent after the record it
@@ -1053,12 +1083,7 @@
       });
       if (observed) params.set('observed', observed);
       try {
-        const response = await fetch(`/apps/rover/add-attachment?${params}`, {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {'content-type': mediaType},
-          body: file
-        });
+        const response = await uploadPhoto(params, file);
         const message = await response.text();
         if (response.ok) input.value = '';
         return message;
@@ -1288,10 +1313,8 @@
     //
     //  The archive is unpacked HERE rather than sent whole. The document still
     //  goes up in batches, because one Arvo event carrying a whole corpus
-    //  freezes the ship, and the photographs still go through
-    //  `/apps/rover/add-attachment` one at a time, which is the endpoint a
-    //  person at a form already uses. The owner sees one file; the ship sees
-    //  the same well-behaved requests it saw before.
+    //  freezes the ship. Photos use the same upload path as the entry forms.
+    //  S3 receives bytes from the browser. Clay receives bytes through Eyre.
     //
     //  ustar: one 512-byte header per member, the name in the first 100 bytes,
     //  the size as octal at offset 124, the magic at 257, and the body padded
@@ -1858,15 +1881,7 @@
               importProgress.value =
                 `Photograph ${index + 1} of ${photos.length} - sending`;
               try {
-                const response = await fetch(
-                  `/apps/rover/add-attachment?${params}`,
-                  {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {'content-type': 'image/jpeg'},
-                    body: prepared.photoBytes.get(photo.name)
-                  }
-                );
+                const response = await uploadPhoto(params, prepared.photoBytes.get(photo.name));
                 const body = await response.text();
                 if (response.ok) attached += 1;
                 else refusals.push(body.trim());

@@ -3418,6 +3418,25 @@ BUCKET
 note "fixture 100 bucket - $s3_locator holds $bucket_digest"
 note "fixture 100 PASS - the ship signs, curl uploads to the real bucket, and Rover records a reference after HTTP 200"
 
+# Both metadata routes refuse bodies, invalid hashes, and missing owners.
+for route in attachment-url record-attachment; do
+  body_code="$(curl -sS -b "$JAR" --data-binary "@$M8_PHOTO" -o /dev/null -w '%{http_code}' \
+    "$URL/apps/rover/$route?$presign_query")"
+  [ "$body_code" = 400 ] || fail "fixture 117 $route accepted photo bytes"
+  bad_query="${presign_query/hash=$M8_PHOTO_HASH/hash=invalid}"
+  bad_code="$(curl -sS -b "$JAR" -X POST -o /dev/null -w '%{http_code}' \
+    "$URL/apps/rover/$route?$bad_query")"
+  [ "$bad_code" = 400 ] || fail "fixture 117 $route accepted an invalid hash"
+  missing_query="${presign_query/owner=fill/owner=vehicle}"
+  missing_query="${missing_query/vehicle=$(urlenc "$VEHICLE")/vehicle=Missing-$STAMP}"
+  missing_code="$(curl -sS -b "$JAR" -X POST -o /dev/null -w '%{http_code}' \
+    "$URL/apps/rover/$route?$missing_query")"
+  [ "$missing_code" = 404 ] || fail "fixture 117 $route accepted a missing owner"
+  unauth_code="$(curl -sS -X POST -o /dev/null -w '%{http_code}' \
+    "$URL/apps/rover/$route?$presign_query")"
+  [ "$unauth_code" = 303 ] || fail "fixture 117 $route accepted a request without owner authentication"
+done
+
 # Fixture 117 reads the persisted locator, after the signed URL was consumed.
 grep -qi 'X-Amz-Signature' <<<"$s3_locator" \
   && fail "fixture 117 the stored locator carries an expiring signature"
@@ -3486,6 +3505,17 @@ storage_poke() {
 S3_SAVED_KEY='roverm8key'
 storage_poke "[%set-access-key-id '']"
 s3_response="$(attach_file vehicle "$VEHICLE" '' "s3-refused-$STAMP.jpg" 'image/jpeg' "$M8_PHOTO" s3)"
+for route in attachment-url record-attachment; do
+  metadata_refusal="$(curl -sS -b "$JAR" -X POST -w $'\n%{http_code}' \
+    "$URL/apps/rover/$route?$presign_query")"
+  case "$metadata_refusal" in
+    (*$'\n'409) ;;
+    (*) storage_poke "[%set-access-key-id '$S3_SAVED_KEY']"
+        fail "fixture 101 $route did not refuse unconfigured storage";;
+  esac
+  grep -q 'no S3 storage set up yet' <<<"$metadata_refusal" \
+    || fail "fixture 101 $route lost the storage-unconfigured message"
+done
 storage_poke "[%set-access-key-id '$S3_SAVED_KEY']"
 s3_code="$(tail -1 <<<"$s3_response")"
 [ "$s3_code" = 409 ] \
@@ -3598,6 +3628,42 @@ report="$(rover_report "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-
 grep -q '%attachment-id' <<<"$report" \
   && fail "fixture 120 the refused browser PUT left a link in Obelisk"
 note "fixture 120 PASS - S3 photos upload and render in the browser, and a refused PUT records no reference"
+
+# fixture 121 - an archive photo uses the same browser upload path.
+M9_IMPORT_VEHICLE="Browser Import Photo Vehicle $STAMP"
+own_add_vehicle "$M9_IMPORT_VEHICLE" Gasoline
+M9_IMPORT_NAME="browser-import-$STAMP.png"
+M9_IMPORT_TAR="$ROVER_TEST_TMP/browser-import-$STAMP.tar"
+python3 - "$M9_IMPORT_VEHICLE" "$M9_IMPORT_NAME" "$M8_BROWSER_FILL_PHOTO" "$M9_IMPORT_TAR" <<'ARCHIVE'
+import hashlib, io, json, pathlib, sys, tarfile
+vehicle, name, photo, target = sys.argv[1:]
+body = pathlib.Path(photo).read_bytes()
+document = {
+    "rover-import": 1,
+    "source": {"app": "rover", "attachments": {"photoCount": 1, "files": [{
+        "name": name, "path": "attachments/" + name,
+        "hash": hashlib.sha256(body).hexdigest(), "bytes": str(len(body)), "mediaType": "image/png",
+    }]}},
+    "definitions": {"energy": [], "additives": [], "driving-modes": [], "tags": [], "payment-methods": []},
+    "places": [], "vehicles": [{"label": vehicle, "distanceUnit": "mi", "volumeUnit": "gal",
+        "defaultEnergy": "Gasoline", "fills": [], "attachments": [name]}],
+}
+with tarfile.open(target, 'w', format=tarfile.USTAR_FORMAT) as archive:
+    for member, data in [('rover-import.json', json.dumps(document).encode()), ('attachments/' + name, body)]:
+        info = tarfile.TarInfo(member)
+        info.size = len(data)
+        archive.addfile(info, io.BytesIO(data))
+ARCHIVE
+browser_import_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/import-backend-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$M9_IMPORT_TAR" s3 photos
+} 2>&1)" || fail "fixture 121 the archive photo did not use the browser PUT: $browser_import_out"
+report="$(rover_report "FROM vehicles V JOIN vehicle-attachments L ON V.vehicle-id = L.vehicle-id JOIN attachments T ON L.attachment-id = T.attachment-id WHERE V.label = '$M9_IMPORT_VEHICLE' SELECT T.backend, T.locator;")"
+backend_named "$report" s3 || fail "fixture 121 the browser import did not store an S3 reference"
+grep -q "/rover-attachments/attachments/$M8_BROWSER_FILL_HASH" <<<"$report" \
+  || fail "fixture 121 the imported reference does not carry the photo content hash"
+note "fixture 121 PASS - an archive photo goes from the browser to S3 and its owner link reaches real Obelisk"
 
 # --- fixture 107 - a photo attaches to a fill FROM THE BROWSER --------------
 grep -q '^FILL_VERDICT=Saved fill' <<<"$attachment_out" \

@@ -11,6 +11,7 @@
 //   argv: url authName auth documentPath backend mode
 //   mode: "send" presses Start import.  "hold" only reads the screen.
 
+const assert = require('node:assert/strict');
 const {chromium} = require(process.env.ROVER_PLAYWRIGHT_MODULE);
 
 const [url, authName, auth, documentPath, backend, mode] = process.argv.slice(2);
@@ -27,6 +28,15 @@ function fail(message) {
   await context.addCookies([{name: authName, value: auth, url}]);
   const page = await context.newPage();
   const requests = [];
+  const photos = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/attachment-url') || path.endsWith('/record-attachment') ||
+        path.endsWith('/add-attachment') || request.method() === 'PUT') {
+      photos.push({path: request.method() === 'PUT' ? 'PUT' : path,
+        bytes: request.postDataBuffer()?.length || 0});
+    }
+  });
   page.on('request', (request) => {
     const path = new URL(request.url()).pathname;
     if (path === '/apps/rover/import') {
@@ -63,7 +73,13 @@ function fail(message) {
       [...node.options].map((option) => option.value)
     );
 
-    if (mode === 'send' && offered.includes(backend)) {
+    if (mode === 'photos') {
+      const note = await field.locator('[data-photo-note]').innerText();
+      assert.match(note, /public/i);
+      assert.match(note, /anyone/i);
+      assert.match(note, /Clay/);
+    }
+    if ((mode === 'send' || mode === 'photos') && offered.includes(backend)) {
       await control.selectOption(backend);
       await form.locator('#import-file').setInputFiles(documentPath);
       await form.locator('#import-batch-size').fill('400');
@@ -84,6 +100,17 @@ function fail(message) {
       );
     }
 
+    if (mode === 'photos') {
+      assert.equal(await form.locator('#import-outcome').getAttribute('data-import-outcome'), 'success');
+      assert.match(await form.locator('#import-outcome').evaluate((node) => node.value), /1 photographs attached/);
+      assert.deepEqual(photos.map((item) => item.path), [
+        '/apps/rover/attachment-url', 'PUT', '/apps/rover/record-attachment'
+      ]);
+      assert.equal(photos[0].bytes, 0);
+      assert.ok(photos[1].bytes > 0);
+      assert.equal(photos[2].bytes, 0);
+      console.log('IMPORT_PHOTO_FLOW=metadata,PUT,record');
+    }
     console.log(`IMPORT_REQUEST_COUNT=${requests.length}`);
     const wanted = `/apps/rover/import?backend=${backend}`;
     requests.forEach((request) => {

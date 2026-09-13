@@ -3764,16 +3764,16 @@
     " JOIN energy-acquisition-attachments L ON A.acquisition-id = L.acquisition-id"
     " JOIN attachments T ON L.attachment-id = T.attachment-id WHERE V.label = '"
     quoted
-    "' SELECT A.observed-start, T.file-name, T.media-type, T.byte-count; "
+    "' SELECT A.observed-start, T.file-name, T.media-type, T.byte-count, T.backend, T.locator; "
     "FROM vehicles V JOIN vehicle-events E ON V.vehicle-id = E.vehicle-id"
     " JOIN vehicle-event-attachments L ON E.event-id = L.event-id"
     " JOIN attachments T ON L.attachment-id = T.attachment-id WHERE V.label = '"
     quoted
-    "' SELECT E.observed-start, T.file-name, T.media-type, T.byte-count; "
+    "' SELECT E.observed-start, T.file-name, T.media-type, T.byte-count, T.backend, T.locator; "
     "FROM vehicles V JOIN vehicle-attachments L ON V.vehicle-id = L.vehicle-id"
     " JOIN attachments T ON L.attachment-id = T.attachment-id WHERE V.label = '"
     quoted
-    "' SELECT T.file-name, T.media-type, T.byte-count; "
+    "' SELECT T.file-name, T.media-type, T.byte-count, T.backend, T.locator; "
   ==
 ::
 ::  The reference row and its link, in ONE atomic script. A reference with no
