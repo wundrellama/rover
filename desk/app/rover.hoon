@@ -778,7 +778,11 @@
     'The S3 storage has no such bucket or object. Check the bucket name in the Landscape storage settings.'
   ?:  =(0 status)
     'Rover could not reach the S3 storage at all. Check that the endpoint is running and reachable from this ship.'
-  'The S3 storage would not complete the request. The photo was not stored.'
+  %-  crip
+  ;:  weld
+    "The S3 storage returned HTTP "  (scow %ud status)
+    ". The photo was not stored."
+  ==
 ::
 ::  M8, second leg, ruling 23. A new surface ships a JSON route, and the HTML
 ::  renderer is one client of it. These arms are what those routes answer with,
@@ -1231,6 +1235,16 @@
   ^-  (unit vector:ast)
   |-
   ?~  rows  ~
+  =/  parts  (split-on '/' (trip (cell-text:view %locator i.rows)))
+  =/  content-addressed
+    ?&  =(4 (lent parts))
+        =("" (snag 0 parts))
+        !=("" (snag 1 parts))
+        =("attachments" (snag 2 parts))
+        =((trip content-hash) (snag 3 parts))
+    ==
+  ?:  ?&  =(%s3 backend.entry)  !content-addressed  ==
+    $(rows t.rows)
   ?:  ?&  =(content-hash (cell-text:view %content-hash i.rows))
           =(backend.entry (cell-term:view %backend i.rows))
           ?|  !by-name

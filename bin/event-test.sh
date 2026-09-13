@@ -15,7 +15,10 @@ PIER="${1:-${ROVER_PIER:-}}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 ROVER_TEST_TMP="$REPO/.scratch/event-test"
 mkdir -p "$ROVER_TEST_TMP"
-export TMPDIR="$ROVER_TEST_TMP"
+# A relative path keeps Chromium sockets below the Unix path length limit.
+[ -z "$PIER" ] || PIER="$(realpath "$PIER")"
+cd "$REPO" || exit 2
+export TMPDIR=.scratch
 
 if [ -z "$PIER" ]; then
   cat >&2 <<'USAGE'
@@ -3422,6 +3425,49 @@ grep -qi 'X-Amz-Signature' <<<"$s3_locator" \
   || fail "fixture 117 the stored locator is not the content address"
 note "fixture 117 PASS - the stored locator carries the content hash and no presigned credential"
 
+# fixture 118 - an unfamiliar bucket status survives the real Iris response.
+status_photo="$ROVER_TEST_TMP/status-$STAMP.jpg"
+printf 'Status fixture %s' "$STAMP" > "$status_photo"
+status_out="$(python3 "$REPO/bin/s3-refusal-fixture.py" "$URL" "$JAR" "$PIER" \
+  "$VEHICLE" "$status_photo" "$S3_ENDPOINT" "$ROVER_TEST_TMP" 2>&1)" \
+  || fail "fixture 118 the refusal lost the received status: $status_out"
+report="$(rover_report "FROM attachments T WHERE T.file-name = 'status-$STAMP.jpg' SELECT T.attachment-id;")"
+grep -q '%attachment-id' <<<"$report" \
+  && fail "fixture 118 the refused upload recorded a reference"
+note "fixture 118 PASS - the legacy upload received HTTP 504, named 504, and stored no reference"
+
+# fixture 119 - a diagnostic old locator must not survive deduplication.
+guard_photo="$ROVER_TEST_TMP/guard-$STAMP.jpg"
+printf 'Locator guard fixture %s' "$STAMP" > "$guard_photo"
+guard_hash="$(digest "$guard_photo")"
+guard_bytes="$(wc -c < "$guard_photo")"
+guard_name="guard-$STAMP.jpg"
+guard_first="$(attach_file vehicle "$VEHICLE" '' "$guard_name" image/jpeg "$guard_photo" s3)"
+case "$guard_first" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 119 could not store the source photo: $guard_first";;
+esac
+# Change only this run's row on the real substrate to reproduce the old shape.
+rover_report "UPDATE attachments SET locator = '/rover-attachments/attachments/0x1234' WHERE file-name = '$guard_name';" >/dev/null
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$guard_name' SELECT T.locator;")"
+grep -q 'attachments/0x1234' <<<"$report" \
+  || fail "fixture 119 the diagnostic row did not acquire the old locator"
+guard_query="owner=vehicle&vehicle=$(urlenc "$VEHICLE")&file=$guard_name&type=image%2Fjpeg&backend=s3&hash=$guard_hash&bytes=$guard_bytes"
+guard_reply="$(curl -sS -b "$JAR" -X POST -w $'\n%{http_code}' \
+  "$URL/apps/rover/record-attachment?$guard_query")"
+# Restore the diagnostic row before any assertion or export uses it.
+rover_report "UPDATE attachments SET locator = '/rover-attachments/attachments/$guard_hash' WHERE file-name = '$guard_name';" >/dev/null
+case "$guard_reply" in
+  (*$'\n'201) ;;
+  (*) fail "fixture 119 reused the old locator instead of writing a new reference: $guard_reply";;
+esac
+report="$(rover_report "FROM attachments T WHERE T.content-hash = '$guard_hash' SELECT T.attachment-id, T.locator;")"
+[ "$(grep -o '%attachment-id' <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 119 did not create a second reference for the same bytes"
+[ "$(grep -o "/rover-attachments/attachments/$guard_hash" <<<"$report" | wc -l)" = 2 ] \
+  || fail "fixture 119 the new reference did not use the content hash"
+note "fixture 119 PASS - the same bytes with an old S3 locator proceed as a new reference"
+
 # ---------------------------------------------------------------------------
 # fixture 101 - a ship with no %storage configuration says so in human words
 # and offers Clay. It does not fail with a raw error and it does not silently
@@ -3526,6 +3572,32 @@ attachment_out="$({
       "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_EVENT_PHOTO" \
       "$M8_BROWSER_NOTE" clay
 } 2>&1)" || fail "fixture 107 the browser could not drive the entry surface: $attachment_out"
+
+# fixture 120 - the browser uploads to S3 and renders the public object.
+M9_BROWSER_VEHICLE="S3 Photo Vehicle $STAMP"
+own_add_vehicle "$M9_BROWSER_VEHICLE" Gasoline
+s3_browser_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/attachment-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$M9_BROWSER_VEHICLE" \
+      "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_EVENT_PHOTO" "$M8_BROWSER_NOTE" s3
+} 2>&1)" || fail "fixture 120 the S3 browser path failed: $s3_browser_out"
+grep -qx 'S3_BROWSER_FLOW=metadata,PUT,record; metadata,PUT,record' <<<"$s3_browser_out" \
+  || fail "fixture 120 the browser did not send both photos directly to S3"
+grep -qx 'PHOTO_VIEW_NATURAL=24x24' <<<"$s3_browser_out" \
+  || fail "fixture 120 the public S3 photo did not render"
+M9_REFUSED_VEHICLE="Refused Photo Vehicle $STAMP"
+own_add_vehicle "$M9_REFUSED_VEHICLE" Gasoline
+s3_refused_out="$({
+  ROVER_PLAYWRIGHT_MODULE="$playwright_module" ROVER_CHROMIUM="$chromium_binary" \
+    node "$REPO/bin/attachment-browser-fixture.cjs" \
+      "$URL" "$auth_cookie_name" "$auth_cookie" "$M9_REFUSED_VEHICLE" \
+      "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_EVENT_PHOTO" "$M8_BROWSER_NOTE" s3 refusal
+} 2>&1)" || fail "fixture 120 the browser did not stop after a refused PUT: $s3_refused_out"
+report="$(rover_report "FROM vehicles V JOIN energy-acquisitions A ON V.vehicle-id = A.vehicle-id JOIN energy-acquisition-attachments L ON A.acquisition-id = L.acquisition-id WHERE V.label = '$M9_REFUSED_VEHICLE' SELECT L.attachment-id;")"
+grep -q '%attachment-id' <<<"$report" \
+  && fail "fixture 120 the refused browser PUT left a link in Obelisk"
+note "fixture 120 PASS - S3 photos upload and render in the browser, and a refused PUT records no reference"
 
 # --- fixture 107 - a photo attaches to a fill FROM THE BROWSER --------------
 grep -q '^FILL_VERDICT=Saved fill' <<<"$attachment_out" \

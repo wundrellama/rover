@@ -8,6 +8,7 @@
 // afterwards, and a way to open it full size. A record with no photo must show
 // nothing at all - no empty frame.
 
+const assert = require('node:assert/strict');
 const {chromium} = require(process.env.ROVER_PLAYWRIGHT_MODULE);
 
 // `mode` is "enter" for the whole journey, or "verify" to read a vehicle whose
@@ -54,6 +55,23 @@ async function settledVerdict(page, selector) {
   });
   await context.addCookies([{name: authName, value: auth, url}]);
   const page = await context.newPage();
+  const transfers = [];
+  page.on('request', (request) => {
+    const parsed = new URL(request.url());
+    if (['/apps/rover/attachment-url', '/apps/rover/record-attachment',
+         '/apps/rover/add-attachment'].includes(parsed.pathname) ||
+        request.method() === 'PUT') {
+      transfers.push({path: parsed.pathname, method: request.method(),
+        bytes: request.postDataBuffer()?.length || 0, headers: request.headers()});
+    }
+  });
+  if (mode === 'refusal') {
+    await page.route('**/attachments/**', async (route) => {
+      if (route.request().method() === 'PUT') {
+        await route.fulfill({status: 503, headers: {'access-control-allow-origin': '*'}});
+      } else await route.continue();
+    });
+  }
   try {
     await page.goto(`${url}/apps/rover`, {waitUntil: 'networkidle'});
 
@@ -109,6 +127,11 @@ async function settledVerdict(page, selector) {
       .locator('[data-photo-note]')
       .evaluate((node) => (node.hidden ? '' : node.textContent.trim()));
     console.log(`FILL_BACKEND_NOTE=${fillNote}`);
+    if (backend === 's3') {
+      assert.match(fillNote, /public/i);
+      assert.match(fillNote, /anyone/i);
+      assert.match(fillNote, /Clay/);
+    }
     await fillField.locator('[data-photo-input]').setInputFiles(fillPhoto);
     await fillField.locator('[data-photo-backend]').selectOption(backend);
 
@@ -124,7 +147,15 @@ async function settledVerdict(page, selector) {
       .evaluate((node) => node.value);
     console.log(`FILL_OBSERVED=${fillObserved}`);
     await fillForm.locator('button[type="submit"]').click();
-    console.log(`FILL_VERDICT=${await settledVerdict(page, '#fill-verdict')}`);
+    const fillVerdict = await settledVerdict(page, '#fill-verdict');
+    console.log(`FILL_VERDICT=${fillVerdict}`);
+    if (mode === 'refusal') {
+      assert.match(fillVerdict, /503/);
+      assert.equal(transfers.filter((item) => item.path.endsWith('/record-attachment')).length, 0);
+      assert.equal(transfers.filter((item) => item.method === 'PUT').length, 1);
+      console.log('REFUSED_PUT_RECORDED=no');
+      return;
+    }
 
     // ---- Add Event, with a photo ------------------------------------------
     // The saved fill reloads the log, which puts the main hub back on screen.
@@ -237,6 +268,23 @@ async function settledVerdict(page, selector) {
         name: document.getElementById('photo-view-name').textContent
       };
     });
+    if (backend === 's3') {
+      assert.match(opened.src, /^https?:\/\/[^?]+\/attachments\/[a-f0-9]{64}$/);
+      if (entering) {
+        assert.deepEqual(transfers.map((item) => item.method === 'PUT' ? 'PUT' : item.path), [
+          '/apps/rover/attachment-url', 'PUT', '/apps/rover/record-attachment',
+          '/apps/rover/attachment-url', 'PUT', '/apps/rover/record-attachment'
+        ]);
+        for (const transfer of transfers) {
+          if (transfer.method === 'PUT') {
+            assert.ok(transfer.bytes > 0);
+            assert.equal(transfer.headers.cookie, undefined);
+            assert.equal(transfer.headers.authorization, undefined);
+          } else assert.equal(transfer.bytes, 0);
+        }
+        console.log('S3_BROWSER_FLOW=metadata,PUT,record; metadata,PUT,record');
+      }
+    }
     console.log(`PHOTO_VIEW_SRC=${opened.src}`);
     console.log(`PHOTO_VIEW_NATURAL=${opened.natural}`);
     console.log(`PHOTO_VIEW_RENDERED=${opened.rendered}`);
