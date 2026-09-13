@@ -193,15 +193,15 @@ async function settledVerdict(page, selector) {
       .first()
       .click();
     const fillCard = page.locator(
-      `[data-photo-owner="energy"][data-photo-observed="${fillObserved}"]`
+      `[data-photo-owner="energy"][data-photo-vehicle="${vehicle}"][data-photo-observed="${fillObserved}"]`
     );
     await fillCard.first().waitFor({state: 'visible'});
     await page.waitForFunction(
-      (moment) =>
+      ([moment, owner]) =>
         (document.querySelector(
-          `[data-photo-owner="energy"][data-photo-observed="${moment}"] [data-photo-strip] .photo-thumb`
+          `[data-photo-owner="energy"][data-photo-vehicle="${owner}"][data-photo-observed="${moment}"] [data-photo-strip] .photo-thumb`
         ) !== null),
-      fillObserved,
+      [fillObserved, vehicle],
       {timeout: 30000}
     );
     const fillThumbs = fillCard.first().locator('.photo-thumb');
@@ -213,14 +213,14 @@ async function settledVerdict(page, selector) {
     );
 
     const eventCard = page.locator(
-      `[data-photo-owner="event"][data-photo-observed="${eventObserved}"]`
+      `[data-photo-owner="event"][data-photo-vehicle="${vehicle}"][data-photo-observed="${eventObserved}"]`
     );
     await page.waitForFunction(
-      (moment) =>
+      ([moment, owner]) =>
         (document.querySelector(
-          `[data-photo-owner="event"][data-photo-observed="${moment}"] [data-photo-strip] .photo-thumb`
+          `[data-photo-owner="event"][data-photo-vehicle="${owner}"][data-photo-observed="${moment}"] [data-photo-strip] .photo-thumb`
         ) !== null),
-      eventObserved,
+      [eventObserved, vehicle],
       {timeout: 30000}
     );
     const eventThumbs = eventCard.first().locator('.photo-thumb');
