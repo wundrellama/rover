@@ -142,3 +142,71 @@ This change adds no migration, rekey on read, compatibility branch, or delete
 path. Export still reads bytes through the ship. Rulings 26 and 27 remain
 unbuilt. The shipping action union still has five arms. The schema has no new
 relation or column. The sharing fence remains closed.
+
+## M9 T-FOLLOWON record — 2026-09-13
+
+Rulings 30, 31, 32, and 32a are complete.
+
+Storage endpoints without a scheme now use `https://`. Endpoints with an
+explicit scheme keep that scheme. Fixture 122 requires HTTPS on both the
+presigned PUT URL and the public GET URL.
+
+The new `vehicle-attachment-preferences` child holds `vehicle-id`, `backend`,
+and `recorded-at`. Its primary key is the vehicle key, and its foreign key uses
+RESTRICT. The existing `ensure-def-schema` action adds it to an installed
+database. Attachment writes save the preference after the reference and link
+in the same atomic script. Presigning and refused uploads do not change it.
+
+Served forms select the vehicle's saved backend. A vehicle without a stored
+photo uses Clay. An unavailable S3 backend also falls back to Clay. Browser
+forms follow vehicle changes and successful imports without a page reload.
+Fixtures 123 through 127 check these choices, repeated uploads, and refused
+records against real Eyre and the local bucket. Fixture 130 checks the saved
+choices after a pier restart.
+
+Combined reminders now compose one sentence from their numeric thresholds.
+The forecast compares integer products over observations in the current
+ownership interval. Equal products and absent forecasts put distance first.
+Due states, unavailable states, and reminders with one interval keep their
+existing wording.
+
+Fixture 128 records 45,000 mi and 45,100 mi exactly 100 days apart. Its
+5,000 mi interval has a due point of 47,500 mi, so 2,400 mi remain.
+The date is 30 days ahead. The required sentence was:
+
+> Due 2026-10-13 — or in 2,400 mi, whichever comes first.
+
+Fixture 129 has only the 45,100 mi observation and the same due points.
+Its required sentence was:
+
+> Due in 2,400 mi — or 2026-10-13, whichever comes first.
+
+Both cards have no second detail line. Fixtures 131 through 133 also check
+zero distance progress, an ownership gap, and a faster distance forecast.
+The existing reminder fixtures passed in both full runs.
+
+Both complete foreground runs used clean commit `c6dbdac`. Each used a
+separate fresh `~bel` pier under this worktree's `.scratch/`, the brass pill,
+standalone Obelisk `9de6332`, and the real RustFS bucket. The mounted Rover
+desks matched the source. The Obelisk AST hash still matches the pin.
+Every boot used `--loom 33`, including both restarts in each run.
+
+| Run | Exit | Distinct fixtures | Failures | Skips |
+| --- | --- | --- | --- | --- |
+| 1 | 0 | 133 | 0 | 0 |
+| 2 | 0 | 133 | 0 | 0 |
+
+Each run executed the 121 original fixtures and all 12 additions. Both
+coverage lines state: `all 133 defined fixtures executed, no skips`.
+Each real-corpus check verified 121 photos across 114 records, with 120
+distinct digests. Repeating the load added nothing. Export round trips kept
+the same records, counts, and semantic hashes.
+
+The logs are `.scratch/battery-followon-run1.log` and
+`.scratch/battery-followon-run2.log`. Their hashes, the tested commit, the
+fixture lists, and the scope checks are in `.scratch/followon-results.json`.
+
+The signing functions, endpoint host parser, and export query are unchanged.
+No existing relation gained a column, and the shipping action union still has
+five arms. This step adds no attachment removal route, sharing relations,
+remote protocol, EVSE inventory, leases, trips, or parts.
