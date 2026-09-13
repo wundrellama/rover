@@ -3444,6 +3444,10 @@ grep -qi 'X-Amz-Signature' <<<"$s3_locator" \
   || fail "fixture 117 the stored locator is not the content address"
 note "fixture 117 PASS - the stored locator carries the content hash and no presigned credential"
 
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 122 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 122 $followon_out"
+note "fixture 122 PASS - a scheme-less endpoint returns HTTPS putUrl and getUrl"
+
 # fixture 118 - an unfamiliar bucket status survives the real Iris response.
 status_photo="$ROVER_TEST_TMP/status-$STAMP.jpg"
 printf 'Status fixture %s' "$STAMP" > "$status_photo"

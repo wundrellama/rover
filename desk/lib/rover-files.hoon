@@ -469,7 +469,7 @@
   =/  text  (trip endpoint)
   ?:  =("http://" (scag 7 text))   text
   ?:  =("https://" (scag 8 text))  text
-  (weld "http://" text)
+  (weld "https://" text)
 ::
 ::  The content hash names the bytes without exposing an attachment id.
 ++  s3-key
