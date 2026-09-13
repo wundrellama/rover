@@ -3468,6 +3468,26 @@ followon_out="$(python3 "$REPO/bin/followon-fixture.py" 127 "$URL" "$JAR" "$PIER
   || fail "fixture 127 $followon_out"
 note "fixture 127 PASS - browser attachment forms follow the selected vehicle"
 
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 128 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 128 $followon_out"
+note "fixture 128 PASS - a combined reminder forecasts the date first from exact odometer arithmetic"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 129 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 129 $followon_out"
+note "fixture 129 PASS - one odometer observation gives the distance-first reminder sentence"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 131 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 131 $followon_out"
+note "fixture 131 PASS - zero odometer progress keeps the distance-first fallback"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 132 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 132 $followon_out"
+note "fixture 132 PASS - a reminder forecast uses only the current ownership interval"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 133 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 133 $followon_out"
+note "fixture 133 PASS - a faster measured distance rate places distance before the date"
+
 # fixture 118 - an unfamiliar bucket status survives the real Iris response.
 status_photo="$ROVER_TEST_TMP/status-$STAMP.jpg"
 printf 'Status fixture %s' "$STAMP" > "$status_photo"
@@ -3863,7 +3883,7 @@ done
   || fail "fixture $fx urbit still holds $PIER: $(pier_holders)"
 # script(1) gives the run a pty; without one vere refuses to start interactive.
 tmux new-session -d -s "$pier_session" \
-  "exec script -q -f -e -O /dev/null -c $(printf '%q' "$pier_binary -p $ames_port $PIER")"
+  "exec script -q -f -e -O /dev/null -c $(printf '%q' "$pier_binary --loom 33 -p $ames_port $PIER")"
 ready=0
 for attempt in $(seq 1 180); do
   PORT="$(awk '/insecure public/{print $1}' "$PIER/.http.ports" 2>/dev/null)"
@@ -3902,6 +3922,10 @@ report="$(scoped_rows vehicle-event-costs C cost-state "$NOTE_DA")"
 grep -q '%cost-state' <<<"$report" \
   && fail "fixture 12 a cost row appeared for the note event after restart"
 note "fixture 12 PASS - every event, total, odometer link, station link, and reading survived a ship restart"
+
+followon_out="$(python3 "$REPO/bin/followon-fixture.py" 130 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
+  || fail "fixture 130 $followon_out"
+note "fixture 130 PASS - stored backend choices and the Clay default survive a pier restart"
 
 # ---------------------------------------------------------------------------
 # fixture 21 - the subtype catalog and every subtype link survive the restart

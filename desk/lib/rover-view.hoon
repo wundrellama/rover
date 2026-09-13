@@ -97,7 +97,11 @@
 ::  `%not-due` are answers; `%unavailable` is the refusal, and it carries the
 ::  human reason for it.
 +$  reminder-verdict
-  [state=@tas headline=@t detail=@t]
+  [state=@tas headline=@t detail=@t figures=(unit reminder-figures)]
++$  reminder-figures
+  $%  [%time due-at=@da]
+      [%distance remaining=@ud distance-unit=@tas]
+  ==
 ::  A service the reminder names, already recorded. The odometer is a unit
 ::  because a service visit may be recorded without a reading.
 +$  reminder-completion
@@ -1721,12 +1725,14 @@
       ". "
     ==
   ?:  (gte now effective)
-    :+  %due
+    :^  %due
       'Due now'
-    (crip ;:(weld "Due on " (format-day effective) "."))
-  :+  %not-due
+      (crip ;:(weld "Due on " (format-day effective) "."))
+    ~
+  :^  %not-due
     (crip (weld "Due " (format-day effective)))
-  (crip ;:(weld every "Next due on " (format-day effective) "."))
+    (crip ;:(weld every "Next due on " (format-day effective) "."))
+  [~ %time effective]
 ::
 ::  The distance half. Three things can make it unanswerable, and each says so
 ::  in a sentence: the vehicle has no reading, the readings overlap, or the
@@ -1761,22 +1767,25 @@
         distance-unit
     ==
   ?:  ?|(?=(~ interval) ?=(~ anchor))
-    :+  %unavailable
+    :^  %unavailable
       'Unavailable'
-    'This reminder holds a distance Rover cannot hold exactly, so it is unavailable.'
+      'This reminder holds a distance Rover cannot hold exactly, so it is unavailable.'
+    ~
   =/  found  (current-odometer-reading odometers)
   ?:  ?=(%| -.found)
-    :+  %unavailable
+    :^  %unavailable
       'Unavailable'
-    ?:  =(%no-readings p.found)
-      'This vehicle has no odometer reading, so Rover cannot tell whether this is due.'
-    'The latest odometer observations of this vehicle overlap, so Rover cannot tell whether this is due.'
+      ?:  =(%no-readings p.found)
+        'This vehicle has no odometer reading, so Rover cannot tell whether this is due.'
+      'The latest odometer observations of this vehicle overlap, so Rover cannot tell whether this is due.'
+    ~
   =/  current=(unit @ud)
     (reading-in-milli digits.p.found places.p.found reading-unit.p.found distance-unit)
   ?~  current
-    :+  %unavailable
+    :^  %unavailable
       'Unavailable'
-    'The odometer of this vehicle is not in a unit Rover can compare against this reminder.'
+      'The odometer of this vehicle is not in a unit Rover can compare against this reminder.'
+    ~
   ::  The newest recorded service that carries a reading. One without a reading
   ::  moves no distance due point, because it says nothing about the odometer.
   =/  completion=(unit @ud)
@@ -1805,7 +1814,7 @@
   =/  started=@da
     (countdown-start-date odometers distance-unit countdown-start date.p.found)
   ?:  (ownership-gap spans started date.p.found)
-    [%unavailable 'Unavailable' (economy-break-text %ownership-gap)]
+    [%unavailable 'Unavailable' (economy-break-text %ownership-gap) ~]
   =/  every=tape
     ;:  weld
       "Every "
@@ -1813,25 +1822,27 @@
       ". "
     ==
   ?:  (gte u.current effective)
-    :+  %due
+    :^  %due
       'Due now'
+      %-  crip
+      ;:  weld
+        "Due at "
+        (format-distance-milli effective distance-unit)
+        ". The odometer reads "
+        (format-distance-milli u.current distance-unit)
+        "."
+      ==
+    ~
+  :^  %not-due
+    (crip (weld "Due in " (format-distance-milli (sub effective u.current) distance-unit)))
     %-  crip
     ;:  weld
-      "Due at "
+      every
+      "Next due at "
       (format-distance-milli effective distance-unit)
-      ". The odometer reads "
-      (format-distance-milli u.current distance-unit)
       "."
     ==
-  :+  %not-due
-    (crip (weld "Due in " (format-distance-milli (sub effective u.current) distance-unit)))
-  %-  crip
-  ;:  weld
-    every
-    "Next due at "
-    (format-distance-milli effective distance-unit)
-    "."
-  ==
+  [~ %distance (sub effective u.current) distance-unit]
 ::
 ::  When the countdown started, in time. The reading at or below the countdown
 ::  point is where the clock of this reminder began; if the record starts after
@@ -1877,11 +1888,16 @@
 ::  When neither has fired and one of them cannot answer, the reminder is
 ::  unavailable rather than not due. Half an answer is not an answer.
 ++  reminder-verdict-of
-  |=  [time=(unit reminder-verdict) distance=(unit reminder-verdict)]
+  |=  $:  time=(unit reminder-verdict)
+          distance=(unit reminder-verdict)
+          odometers=(list vector:ast)
+          spans=(list ownership-interval)
+          now=@da
+      ==
   ^-  reminder-verdict
   ?~  time
     ?~  distance
-      [%unavailable 'Unavailable' 'This reminder carries no interval.']
+      [%unavailable 'Unavailable' 'This reminder carries no interval.' ~]
     u.distance
   ?~  distance
     u.time
@@ -1889,16 +1905,83 @@
   =/  due=(list reminder-verdict)
     (skim both |=(one=reminder-verdict =(%due state.one)))
   ?^  due
-    :+  %due
+    :^  %due
       'Due now'
-    (crip (join-details due))
+      (crip (join-details due))
+    ~
   =/  refused=(list reminder-verdict)
     (skim both |=(one=reminder-verdict =(%unavailable state.one)))
   ?^  refused
-    [%unavailable 'Unavailable' (crip (join-details refused))]
-  :+  %not-due
-    (crip ;:(weld (trip headline.u.distance) " or " (slag 4 (trip headline.u.time))))
-  (crip (join-details ~[u.distance u.time]))
+    [%unavailable 'Unavailable' (crip (join-details refused)) ~]
+  =/  time-point  (need figures.u.time)
+  =/  distance-point  (need figures.u.distance)
+  ?>  ?=(%time -.time-point)
+  ?>  ?=(%distance -.distance-point)
+  =/  distance-text=tape
+    (format-distance-milli remaining.distance-point distance-unit.distance-point)
+  =/  distance-first=?
+    %:  reminder-distance-first
+        remaining.distance-point
+        due-at.time-point
+        distance-unit.distance-point
+        odometers
+        spans
+        now
+    ==
+  :^  %not-due
+    %-  crip
+    ;:  weld
+      "Due "
+      ?:  distance-first
+        ;:(weld "in " distance-text " — or " (format-day due-at.time-point))
+      ;:(weld (format-day due-at.time-point) " — or in " distance-text)
+      ", whichever comes first."
+    ==
+    ''
+  ~
+::
+::  Ruling 32a. Compare products in the current ownership interval.
+::  A tie or an absent forecast puts distance first.
+++  reminder-distance-first
+  |=  $:  remaining=@ud
+          due-at=@da
+          distance-unit=@tas
+          odometers=(list vector:ast)
+          spans=(list ownership-interval)
+          now=@da
+      ==
+  ^-  ?
+  =/  current=(list vector:ast)
+    %+  skim  odometers
+    |=  row=vector:ast
+    =/  date=@da  `@da`(cell-atom %observed-start row)
+    ?&  (lte date now)
+        !(ownership-gap spans date now)
+    ==
+  ?:  (lth (lent current) 2)  %.y
+  =/  ordered  (order-vectors:act %observed-start %.n current)
+  ?~  ordered  %.y
+  =/  first  i.ordered
+  =/  last  (rear `(list vector:ast)`ordered)
+  =/  start=@da  `@da`(cell-atom %observed-start first)
+  =/  end=@da  `@da`(cell-atom %observed-start last)
+  ?:  (lte end start)  %.y
+  =/  measured
+    |=  row=vector:ast
+    %:  reading-in-milli
+        (cell-atom %value-digits row)
+        (cell-atom %decimal-places row)
+        (cell-term %unit row)
+        distance-unit
+    ==
+  =/  start-distance  (measured first)
+  =/  end-distance  (measured last)
+  ?:  ?|(?=(~ start-distance) ?=(~ end-distance))  %.y
+  ?:  (lte u.end-distance u.start-distance)  %.y
+  ?:  (lte due-at now)  %.y
+  %+  lte
+    (mul remaining (sub end start))
+  (mul (sub due-at now) (sub u.end-distance u.start-distance))
 ::
 ++  join-details
   |=  parts=(list reminder-verdict)
@@ -1967,7 +2050,7 @@
         vehicle-odometers
         spans
     ==
-  =/  verdict  (reminder-verdict-of time distance)
+  =/  verdict  (reminder-verdict-of time distance vehicle-odometers spans now)
   ;:  weld
     "<article class=\"reminder\" data-reminder=\""
     (escape label)
@@ -1981,9 +2064,11 @@
     (escape label)
     "</span><strong>"
     (escape headline.verdict)
-    "</strong><small>"
-    (escape detail.verdict)
-    "</small></article>"
+    "</strong>"
+    ?:  =('' detail.verdict)
+      ""
+    ;:(weld "<small>" (escape detail.verdict) "</small>")
+    "</article>"
     rest
   ==
 ::

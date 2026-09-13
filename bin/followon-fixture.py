@@ -2,6 +2,7 @@
 """Check M9 follow-on results through Eyre on a prepared disposable pier."""
 
 import base64
+import datetime
 import hashlib
 import html
 import json
@@ -20,6 +21,7 @@ class Fixture:
         self.url = url
         self.jar = jar
         self.pier = pier
+        self.stamp = stamp
         self.vehicle = f"Followon {number} {stamp}"
         self.work = pathlib.Path(__file__).resolve().parent.parent / ".scratch"
 
@@ -180,6 +182,75 @@ class Fixture:
         subprocess.run(["node", "bin/followon-browser-fixture.cjs", self.url, self.jar,
                         saved, fresh], env=env, check=True)
 
+    def preference_persistence(self):
+        for number, backend in ((123, "s3"), (124, "clay"), (125, "s3"), (126, "s3")):
+            self.vehicle = f"Followon {number} {self.stamp}"
+            self.assert_backend(backend)
+        print("Saved backend choices and the absent-row Clay default survive the restart.")
+
+    def reminder_sentence(self, mode):
+        self.create_vehicle()
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        due = today + datetime.timedelta(days=30)
+        # Two readings: 45,000 mi then 45,100 mi, exactly 100 days apart.
+        # The 5,000 mi interval has a due point of 47,500 mi: 2,400 mi remain.
+        # 2,400 * 100 > 30 * 100, so the date leads when both readings exist.
+        # With just 45,100 mi, ruling 32a requires distance to lead.
+        observations = [(today - datetime.timedelta(days=1), "45100")]
+        # Zero repeats 45,100 mi. The distance case advances 10,000 mi in 100 days:
+        # 2,400 * 100 < 29 * 10,000, so distance leads even late in the current day.
+        if mode != "one":
+            first = "45100" if mode == "zero" else ("35100" if mode == "distance" else "45000")
+            observations.insert(0, (today - datetime.timedelta(days=101), first))
+        if mode == "gap":
+            # Only the final reading belongs to the current ownership interval.
+            # Including the old reading would put time first, so this tests the bound.
+            for days, route, kind in ((110, "add-acquisition-event", ""),
+                                      (50, "add-disposal-event", "Sold"),
+                                      (2, "add-acquisition-event", "")):
+                status, body = self.request(route, {
+                    "vehicle": self.vehicle,
+                    "observed": (today - datetime.timedelta(days=days)).isoformat() + "T09:00",
+                    "zone": "UTC", "total": "", "currency": "usd", "mileage": "",
+                    "mileageUnit": "mi", "station": "none", "newStationLabel": "",
+                    "newPlaceLabel": "", "newStationKind": "private", "tags": [],
+                    "newTag": "", "paymentMethod": "", "subtypes": [],
+                    "disposalKind": kind, "notes": "Forecast ownership interval",
+                })
+                assert status == 201, (status, body)
+        for day, reading in observations:
+            status, body = self.request("add-odometer", {
+                "vehicle": self.vehicle, "reading": reading, "unit": "mi",
+                "observed": day.isoformat() + "T12:00", "zone": "UTC",
+            })
+            assert status == 201, (status, body)
+        status, body = self.request("add-reminder", {
+            "vehicle": self.vehicle, "subtype": "Engine Oil", "timeInterval": "6",
+            "timeUnit": "month", "timeDue": due.isoformat(),
+            # The gap fixture starts its countdown in the current interval.
+            "distanceInterval": "1000" if mode == "gap" else "5000",
+            "distanceDue": "47500", "distanceUnit": "mi",
+        })
+        assert status == 201, (status, body)
+        document = self.view()
+        original = re.search(r'id="app-default-data"[^>]*data-vehicle="([^"]*)"', document)
+        self.set_default(self.vehicle)
+        try:
+            document = self.view()
+            card = re.search(r'<article class="reminder"[^>]*data-reminder="Engine Oil".*?</article>', document, re.S)
+            assert card, "The Engine Oil reminder is absent"
+            expected = (f"Due {due} — or in 2,400 mi, whichever comes first." if mode == "time" else
+                        f"Due in 2,400 mi — or {due}, whichever comes first.")
+            actual = html.unescape(re.search(r'data-reminder-due="([^"]*)"', card[0])[1])
+            assert actual == expected, (actual, expected)
+            assert 'data-reminder-state="not-due"' in card[0], card[0]
+            assert 'data-reminder-detail=""' in card[0], card[0]
+            assert "Every " not in card[0], card[0]
+            print(expected)
+        finally:
+            if original:
+                self.set_default(html.unescape(original[1]))
+
     def https_endpoint(self):
         self.create_vehicle()
         # No request goes to this host. Rover only signs these URLs.
@@ -202,4 +273,10 @@ if __name__ == "__main__":
     fixture = Fixture(int(sys.argv[1]), *sys.argv[2:])
     {122: fixture.https_endpoint, 123: fixture.preferred_s3, 124: fixture.fresh_clay,
      125: fixture.unavailable_clay, 126: fixture.last_success,
-     127: fixture.browser_preferences}[fixture.number]()
+     127: fixture.browser_preferences,
+     128: lambda: fixture.reminder_sentence("time"),
+     129: lambda: fixture.reminder_sentence("one"),
+     130: fixture.preference_persistence,
+     131: lambda: fixture.reminder_sentence("zero"),
+     132: lambda: fixture.reminder_sentence("gap"),
+     133: lambda: fixture.reminder_sentence("distance")}[fixture.number]()
