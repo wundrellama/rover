@@ -13,6 +13,9 @@ set -uo pipefail
 
 PIER="${1:-${ROVER_PIER:-}}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+ROVER_TEST_TMP="$REPO/.scratch/event-test"
+mkdir -p "$ROVER_TEST_TMP"
+export TMPDIR="$ROVER_TEST_TMP"
 
 if [ -z "$PIER" ]; then
   cat >&2 <<'USAGE'
@@ -49,7 +52,7 @@ command -v click >/dev/null 2>&1 || { echo "click not on PATH" >&2; exit 2; }
 PORT="$(awk '/insecure public/{print $1}' "$PIER/.http.ports")"
 [ -n "$PORT" ] || { echo "no public http port in $PIER/.http.ports" >&2; exit 2; }
 URL="http://localhost:$PORT"
-JAR="$(mktemp /tmp/rover-event-test-jar.XXXXXX)"
+JAR="$(mktemp ${ROVER_TEST_TMP}/rover-event-test-jar.XXXXXX)"
 ROUNDTRIP_BACKUP='roverexportowner'
 ROUNDTRIP_SWAPPED=0
 # M8. The real corpus loads into a database of its own, so the battery's own
@@ -198,7 +201,7 @@ STAT_FIX_VEHICLE="Correction Statistics Vehicle $STAMP"
 
 click_file() {
   local body="$1" file out
-  file="$(mktemp /tmp/rover-event-test.XXXXXX.hoon)"
+  file="$(mktemp ${ROVER_TEST_TMP}/rover-event-test.XXXXXX.hoon)"
   printf '%s\n' "$body" > "$file"
   out="$(click -k -i "$file" "$PIER" 2>/dev/null | tail -1)"
   rm -f "$file"
@@ -1888,7 +1891,7 @@ card="$(vehicle_card "$SPEC_FREE_VEHICLE")"
 [ -n "$card" ] || fail "fixture 58 no vehicle card for $SPEC_FREE_VEHICLE"
 grep -q 'data-vehicle-spec' <<<"$card" \
   && fail "fixture 58 a vehicle with no specification data renders a specification line"
-served_card="$(mktemp /tmp/rover-spec-card.XXXXXX.html)"
+served_card="$(mktemp ${ROVER_TEST_TMP}/rover-spec-card.XXXXXX.html)"
 printf '%s' "$card" > "$served_card"
 compat="$(python3 - "$REPO/bin/spec-free-vehicle-card.html" "$SPEC_FREE_VEHICLE" "$served_card" <<'PY'
 import pathlib, re, sys
@@ -3106,10 +3109,10 @@ backend_named() {
 # The fill this run's vehicle already carries, from fixture 3. An attachment
 # hangs off a record that already exists; it does not need a record of its own.
 M8_FILL_AT='2026-07-20T12:00'
-M8_TRANSPORT="/tmp/rover-m8-transport-$STAMP.bin"
-M8_TRANSPORT_BACK="/tmp/rover-m8-transport-back-$STAMP.bin"
-M8_PHOTO="/tmp/rover-m8-photo-$STAMP.jpg"
-M8_PHOTO_BACK="/tmp/rover-m8-photo-back-$STAMP.jpg"
+M8_TRANSPORT="${ROVER_TEST_TMP}/rover-m8-transport-$STAMP.bin"
+M8_TRANSPORT_BACK="${ROVER_TEST_TMP}/rover-m8-transport-back-$STAMP.bin"
+M8_PHOTO="${ROVER_TEST_TMP}/rover-m8-photo-$STAMP.jpg"
+M8_PHOTO_BACK="${ROVER_TEST_TMP}/rover-m8-photo-back-$STAMP.jpg"
 
 # ---------------------------------------------------------------------------
 # fixture 96 - outbound transport, measured before anything is built on it.
@@ -3330,19 +3333,56 @@ storage_configured() {
 grep -q "''" <<<"$(storage_configured)" \
   && fail "fixture 100 %storage carries no endpoint or bucket on this pier - point it at $S3_ENDPOINT before running the battery"
 s3_photo="s3-receipt-$STAMP.jpg"
-attach_response="$(attach_file fill "$VEHICLE" "$M8_FILL_AT" "$s3_photo" 'image/jpeg' "$M8_PHOTO" s3)"
+presign_query="owner=fill&vehicle=$(urlenc "$VEHICLE")&observed=$(urlenc "$M8_FILL_AT")&file=$(urlenc "$s3_photo")&type=image%2Fjpeg&backend=s3&hash=$M8_PHOTO_HASH&bytes=$M8_PHOTO_BYTES"
+presign_json="$ROVER_TEST_TMP/presign-$STAMP.json"
+presign_code="$(curl -sS -b "$JAR" -X POST -o "$presign_json" -w '%{http_code}' \
+  "$URL/apps/rover/attachment-url?$presign_query")"
+[ "$presign_code" = 200 ] \
+  || fail "fixture 100 the ship did not issue a PUT URL: HTTP $presign_code"
+presign_urls="$(python3 - "$presign_json" "$S3_ENDPOINT" "$M8_PHOTO_HASH" <<'PRESIGN'
+import json, sys, urllib.parse
+data = json.load(open(sys.argv[1]))
+put_url, get_url = data['putUrl'], data['getUrl']
+put = urllib.parse.urlsplit(put_url)
+query = urllib.parse.parse_qs(put.query, strict_parsing=True)
+assert put.path == '/rover-attachments/attachments/' + sys.argv[3], 'The key is not the content hash'
+assert query['X-Amz-Algorithm'] == ['AWS4-HMAC-SHA256']
+assert query['X-Amz-Expires'] == ['300']
+assert query['X-Amz-SignedHeaders'] == ['host']
+assert len(query['X-Amz-Signature'][0]) == 64
+assert 'roverm8secret123' not in put_url, 'The secret reached the URL'
+assert get_url == sys.argv[2].rstrip('/') + put.path, 'The GET URL is not the public object URL'
+assert not urllib.parse.urlsplit(get_url).query, 'The GET URL carries a credential'
+print(put_url)
+print(get_url)
+PRESIGN
+)" || fail "fixture 100 the issued URLs do not meet the presign contract"
+put_url="$(head -1 <<<"$presign_urls")"
+get_url="$(tail -1 <<<"$presign_urls")"
+report="$(rover_report "FROM attachments T WHERE T.file-name = '$s3_photo' SELECT T.attachment-id;")"
+grep -q '%attachment-id' <<<"$report" \
+  && fail "fixture 100 issuing a URL recorded a reference before the PUT"
+put_code="$(curl -sS -X PUT -H 'content-type: image/jpeg' --data-binary "@$M8_PHOTO" \
+  -o "$ROVER_TEST_TMP/put-$STAMP.txt" -w '%{http_code}' "$put_url")"
+[ "$put_code" = 200 ] || fail "fixture 100 the bucket refused the presigned PUT: HTTP $put_code"
+attach_response="$(curl -sS -b "$JAR" -X POST -w $'\n%{http_code}' \
+  "$URL/apps/rover/record-attachment?$presign_query")"
 case "$attach_response" in
   (*$'\n'201) ;;
-  (*) fail "fixture 100 the S3 backend would not store the photo: $attach_response";;
+  (*) fail "fixture 100 the ship did not record the uploaded photo: $attach_response";;
 esac
 report="$(rover_report "FROM attachments T WHERE T.file-name = '$s3_photo' SELECT T.attachment-id, T.backend, T.locator, T.byte-count;")"
 backend_named "$report" s3 \
   || fail "fixture 100 the reference does not name the S3 backend: $report"
 grep -q "%byte-count 25717 $M8_PHOTO_BYTES" <<<"$report" \
   || fail "fixture 100 the reference does not carry the source byte count: $report"
-# The ship proxies the bytes back. No presigned URL reaches the browser: the
-# response is the image itself, served from this ship's own origin.
-s3_headers="$(mktemp /tmp/rover-m8-s3-headers.XXXXXX)"
+# The public GET serves the bytes without a ship cookie or S3 signature.
+public_status="$(curl -sS -o "$M8_PHOTO_BACK" -w '%{http_code}' "$get_url")"
+[ "$public_status" = 200 ] || fail "fixture 100 the public GET answered HTTP $public_status"
+cmp -s "$M8_PHOTO" "$M8_PHOTO_BACK" \
+  || fail "fixture 100 the public object differs from the uploaded photo"
+# The proxy remains available to clients that use it.
+s3_headers="$(mktemp ${ROVER_TEST_TMP}/rover-m8-s3-headers.XXXXXX)"
 s3_status="$(curl -sS -b "$JAR" -D "$s3_headers" -o "$M8_PHOTO_BACK" -w '%{http_code}' \
   "$URL/apps/rover/attachment/$(urlenc "$s3_photo")")"
 [ "$s3_status" = 200 ] \
@@ -3373,7 +3413,14 @@ BUCKET
 [ "$(awk '{print $2}' <<<"$bucket_digest")" = "$M8_PHOTO_BYTES" ] \
   || fail "fixture 100 the object in the bucket is not $M8_PHOTO_BYTES bytes: $bucket_digest"
 note "fixture 100 bucket - $s3_locator holds $bucket_digest"
-note "fixture 100 PASS - the S3 backend stores and serves a photo end to end against a real S3-compatible endpoint, and the ship proxies the bytes rather than handing out a presigned URL"
+note "fixture 100 PASS - the ship signs, curl uploads to the real bucket, and Rover records a reference after HTTP 200"
+
+# Fixture 117 reads the persisted locator, after the signed URL was consumed.
+grep -qi 'X-Amz-Signature' <<<"$s3_locator" \
+  && fail "fixture 117 the stored locator carries an expiring signature"
+[ "$s3_locator" = "/rover-attachments/attachments/$M8_PHOTO_HASH" ] \
+  || fail "fixture 117 the stored locator is not the content address"
+note "fixture 117 PASS - the stored locator carries the content hash and no presigned credential"
 
 # ---------------------------------------------------------------------------
 # fixture 101 - a ship with no %storage configuration says so in human words
@@ -3430,8 +3477,8 @@ note "fixture 101 PASS - a ship with no %storage configuration says so in human 
 # checked by the decoded size the browser reports, so a broken link or a
 # placeholder cannot pass as a photograph.
 # ---------------------------------------------------------------------------
-M8_BROWSER_FILL_PHOTO="/tmp/rover-m8-browser-fill-$STAMP.png"
-M8_BROWSER_EVENT_PHOTO="/tmp/rover-m8-browser-event-$STAMP.png"
+M8_BROWSER_FILL_PHOTO="${ROVER_TEST_TMP}/rover-m8-browser-fill-$STAMP.png"
+M8_BROWSER_EVENT_PHOTO="${ROVER_TEST_TMP}/rover-m8-browser-event-$STAMP.png"
 python3 - "$M8_BROWSER_FILL_PHOTO" "$M8_BROWSER_EVENT_PHOTO" <<'PNG'
 import struct
 import sys
@@ -3488,7 +3535,7 @@ grep -q '^FILL_VERDICT=.*Attached ' <<<"$attachment_out" \
 m8_browser_fill_photo_name="$(sed -n 's/^FILL_CARD_PHOTO_NAME=//p' <<<"$attachment_out")"
 [ -n "$m8_browser_fill_photo_name" ] \
   || fail "fixture 107 the browser named no stored photo: $attachment_out"
-M8_BROWSER_FILL_BACK="/tmp/rover-m8-browser-fill-back-$STAMP.png"
+M8_BROWSER_FILL_BACK="${ROVER_TEST_TMP}/rover-m8-browser-fill-back-$STAMP.png"
 [ "$(fetch_file "$m8_browser_fill_photo_name" "$M8_BROWSER_FILL_BACK")" = 200 ] \
   || fail "fixture 107 the photo the browser attached did not serve back"
 [ "$(digest "$M8_BROWSER_FILL_BACK")" = "$M8_BROWSER_FILL_HASH" ] \
@@ -3515,7 +3562,7 @@ grep -q '^EVENT_VERDICT=.*Attached ' <<<"$attachment_out" \
 m8_browser_event_photo_name="$(sed -n 's/^EVENT_CARD_PHOTO_NAME=//p' <<<"$attachment_out")"
 [ -n "$m8_browser_event_photo_name" ] \
   || fail "fixture 108 the browser named no stored event photo: $attachment_out"
-M8_BROWSER_EVENT_BACK="/tmp/rover-m8-browser-event-back-$STAMP.png"
+M8_BROWSER_EVENT_BACK="${ROVER_TEST_TMP}/rover-m8-browser-event-back-$STAMP.png"
 [ "$(fetch_file "$m8_browser_event_photo_name" "$M8_BROWSER_EVENT_BACK")" = 200 ] \
   || fail "fixture 108 the photo the browser attached to the event did not serve back"
 [ "$(digest "$M8_BROWSER_EVENT_BACK")" = "$M8_BROWSER_EVENT_HASH" ] \
@@ -3590,7 +3637,7 @@ pier_session=""
 pier_args=""
 while read -r session pane_pid; do
   for candidate in "$pane_pid" $(pgrep -P "$pane_pid" 2>/dev/null); do
-    args="$(ps -o args= -p "$candidate" 2>/dev/null)"
+    args="$(tr '\0' ' ' < "/proc/$candidate/cmdline" 2>/dev/null)"
     case "$args" in
       *'urbit work'*) continue ;;
       *"$PIER"*) pier_session="$session"; pier_args="$args"; break ;;
@@ -3612,6 +3659,14 @@ ames_port="$(sed -n 's/.*-p \([0-9]\{1,\}\).*/\1/p' <<<"$pier_args")"
 # the match is on the argument that names urbit itself.
 pier_binary="$(grep -oE '(^| )[^ ]*urbit( |$)' <<<"$pier_args" | head -1 | tr -d ' ')"
 [ -n "$pier_binary" ] || fail "fixture $fx cannot read the urbit binary for $PIER: $pier_args"
+case "$PIER" in
+  ("$REPO"/.scratch/*) ;;
+  (*) fail "fixture $fx only restarts a disposable pier inside $REPO/.scratch" ;;
+esac
+case "$(tr '\0' ' ' < "/proc/$candidate/cmdline" 2>/dev/null)" in
+  (*"$PIER"*) ;;
+  (*) fail "fixture $fx the pier process changed before the restart" ;;
+esac
 tmux send-keys -t "$pier_session" '|exit' Enter
 for attempt in $(seq 1 60); do
   pgrep -f "snap-dir $PIER" >/dev/null || break
@@ -4556,8 +4611,8 @@ export_unauthenticated="$(curl -sS -D - -o /dev/null "$URL/apps/rover/export")"
 grep -q '^HTTP/1.1 303 ' <<<"$export_unauthenticated" \
   || fail "fixture 84 an unauthenticated export request did not redirect to login: $export_unauthenticated"
 
-export_headers="$(mktemp /tmp/rover-export-headers.XXXXXX)"
-export_document="$(mktemp /tmp/rover-export-document.XXXXXX.json)"
+export_headers="$(mktemp ${ROVER_TEST_TMP}/rover-export-headers.XXXXXX)"
+export_document="$(mktemp ${ROVER_TEST_TMP}/rover-export-document.XXXXXX.json)"
 export_status="$(curl -sS -b "$JAR" -D "$export_headers" -o "$export_document" -w '%{http_code}' \
   "$URL/apps/rover/export")"
 [ "$export_status" = 200 ] \
@@ -4633,7 +4688,7 @@ note "fixture 84 PASS - an authenticated owner presses the browser control and g
 # ---------------------------------------------------------------------------
 t8_archive tag "$T8_LONE_TAG" 'fixture 85 archived export definition'
 set_default_vehicle "$VEHICLE"
-ROUNDTRIP_BEFORE="$(mktemp /tmp/rover-export-before.XXXXXX.json)"
+ROUNDTRIP_BEFORE="$(mktemp ${ROVER_TEST_TMP}/rover-export-before.XXXXXX.json)"
 export_status="$(curl -sS -b "$JAR" -o "$ROUNDTRIP_BEFORE" -w '%{http_code}' \
   "$URL/apps/rover/export")"
 [ "$export_status" = 200 ] \
@@ -4713,10 +4768,10 @@ note "fixture 85 PASS - the export carries every product record family, keeps an
 # the member is at the path the manifest gives, it is the size the manifest
 # gives, and it hashes to the digest the manifest gives.
 # ---------------------------------------------------------------------------
-M8_EXPORT_TAR="$(mktemp /tmp/rover-export-complete.XXXXXX.tar)"
-M8_EXPORT_JSON="$(mktemp /tmp/rover-export-member.XXXXXX.json)"
-M8_UNPACKED="$(mktemp -d /tmp/rover-export-unpacked.XXXXXX)"
-tar_headers="$(mktemp /tmp/rover-export-tar-headers.XXXXXX)"
+M8_EXPORT_TAR="$(mktemp ${ROVER_TEST_TMP}/rover-export-complete.XXXXXX.tar)"
+M8_EXPORT_JSON="$(mktemp ${ROVER_TEST_TMP}/rover-export-member.XXXXXX.json)"
+M8_UNPACKED="$(mktemp -d ${ROVER_TEST_TMP}/rover-export-unpacked.XXXXXX)"
+tar_headers="$(mktemp ${ROVER_TEST_TMP}/rover-export-tar-headers.XXXXXX)"
 tar_status="$(curl -sS -b "$JAR" -D "$tar_headers" -o "$M8_EXPORT_TAR" -w '%{http_code}' \
   "$URL/apps/rover/export.tar")"
 [ "$tar_status" = 200 ] \
@@ -4881,7 +4936,7 @@ PY
 )" || fail "fixture 113 a manifest does not tell the truth about itself: $m8_manifest_counts"
 note "fixture 113 manifests - $m8_manifest_counts"
 note "fixture 113 PASS - the document manifest says the photos are not included and names the archive that carries them, the archive manifest says they are, and both counts are the count the database holds"
-M8_MANIFEST="$(mktemp /tmp/rover-export-manifest.XXXXXX)"
+M8_MANIFEST="$(mktemp ${ROVER_TEST_TMP}/rover-export-manifest.XXXXXX)"
 python3 - "$M8_UNPACKED/rover-import.json" > "$M8_MANIFEST" <<'PY'
 import json
 import pathlib
@@ -4977,12 +5032,12 @@ roundtrip_counts() {
   done
 }
 
-ROUNDTRIP_COUNTS_BEFORE="$(mktemp /tmp/rover-export-counts-before.XXXXXX)"
+ROUNDTRIP_COUNTS_BEFORE="$(mktemp ${ROVER_TEST_TMP}/rover-export-counts-before.XXXXXX)"
 roundtrip_counts "$ROUNDTRIP_COUNTS_BEFORE"
 [ "$(wc -l < "$ROUNDTRIP_COUNTS_BEFORE")" = 101 ] \
   || fail "fixture 86 the source count probe did not return all 101 relations"
 
-ROUNDTRIP_HISTORY_BEFORE="$(mktemp /tmp/rover-export-history-before.XXXXXX)"
+ROUNDTRIP_HISTORY_BEFORE="$(mktemp ${ROVER_TEST_TMP}/rover-export-history-before.XXXXXX)"
 eyre_view | python3 "$REPO/bin/export-semantic.py" history > "$ROUNDTRIP_HISTORY_BEFORE"
 [ -s "$ROUNDTRIP_HISTORY_BEFORE" ] \
   || fail "fixture 86 the source vehicle rendered no history cards"
@@ -5021,14 +5076,14 @@ grep -q 'conflicts 0' <<<"$roundtrip_import" \
   || fail "fixture 86 the empty-database import reported a conflict: $roundtrip_import"
 
 set_default_vehicle "$VEHICLE"
-ROUNDTRIP_HISTORY_AFTER="$(mktemp /tmp/rover-export-history-after.XXXXXX)"
+ROUNDTRIP_HISTORY_AFTER="$(mktemp ${ROVER_TEST_TMP}/rover-export-history-after.XXXXXX)"
 eyre_view | python3 "$REPO/bin/export-semantic.py" history > "$ROUNDTRIP_HISTORY_AFTER"
 cmp -s "$ROUNDTRIP_HISTORY_BEFORE" "$ROUNDTRIP_HISTORY_AFTER" \
   || fail "fixture 86 the same vehicle did not render the same history after import"
 [ "$(t8_archived_flag tag "$T8_LONE_TAG")" = 0 ] \
   || fail "fixture 86 the archived definition was resurrected"
 
-ROUNDTRIP_AFTER="$(mktemp /tmp/rover-export-after.XXXXXX.json)"
+ROUNDTRIP_AFTER="$(mktemp ${ROVER_TEST_TMP}/rover-export-after.XXXXXX.json)"
 export_status="$(curl -sS -b "$JAR" -o "$ROUNDTRIP_AFTER" -w '%{http_code}' \
   "$URL/apps/rover/export")"
 [ "$export_status" = 200 ] \
@@ -5040,7 +5095,7 @@ grep -q '^SEMANTIC_EQUAL=yes$' <<<"$semantic_comparison" \
   || fail "fixture 86 the semantic comparator did not report equality: $semantic_comparison"
 while IFS= read -r line; do note "round-trip $line"; done <<<"$semantic_comparison"
 
-ROUNDTRIP_COUNTS_AFTER="$(mktemp /tmp/rover-export-counts-after.XXXXXX)"
+ROUNDTRIP_COUNTS_AFTER="$(mktemp ${ROVER_TEST_TMP}/rover-export-counts-after.XXXXXX)"
 roundtrip_counts "$ROUNDTRIP_COUNTS_AFTER"
 [ "$(wc -l < "$ROUNDTRIP_COUNTS_AFTER")" = 101 ] \
   || fail "fixture 86 the destination count probe did not return all 101 relations"
@@ -5089,7 +5144,7 @@ archive_known="$(sed -n 's/^Photos: .*already-imported \([0-9]*\).*/\1/p' <<<"$r
   || fail "fixture 103 the archive carried $(wc -l < "$M8_MANIFEST") photos and the import accounted for $((archive_photos + archive_known))"
 # Every photo, read back the way a browser reads one, and compared with the
 # digest the SOURCE ship recorded before any of this started.
-roundtrip_photo="$(mktemp /tmp/rover-roundtrip-photo.XXXXXX)"
+roundtrip_photo="$(mktemp ${ROVER_TEST_TMP}/rover-roundtrip-photo.XXXXXX)"
 while read -r photo_name photo_hash photo_bytes; do
   photo_status="$(curl -sS -b "$JAR" -o "$roundtrip_photo" -w '%{http_code}' \
     "$URL/apps/rover/attachment/$(urlenc "$photo_name")")"
@@ -5221,8 +5276,8 @@ m8_import_backend() {
     "$URL/apps/rover/import?backend=$backend"
 }
 
-M8_IMPORT_CLAY_PHOTO="/tmp/rover-m8-import-clay-$STAMP.png"
-M8_IMPORT_S3_PHOTO="/tmp/rover-m8-import-s3-$STAMP.png"
+M8_IMPORT_CLAY_PHOTO="${ROVER_TEST_TMP}/rover-m8-import-clay-$STAMP.png"
+M8_IMPORT_S3_PHOTO="${ROVER_TEST_TMP}/rover-m8-import-s3-$STAMP.png"
 python3 - "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_S3_PHOTO" <<'PNG'
 import struct
 import sys
@@ -5263,8 +5318,8 @@ M8_IMPORT_S3_HASH="$(digest "$M8_IMPORT_S3_PHOTO")"
 
 # An archive that carries a photograph and names no backend is refused, in
 # human words, and it writes nothing.
-M8_IMPORT_CLAY_TAR="/tmp/rover-m8-import-clay-$STAMP.tar"
-M8_IMPORT_S3_TAR="/tmp/rover-m8-import-s3-$STAMP.tar"
+M8_IMPORT_CLAY_TAR="${ROVER_TEST_TMP}/rover-m8-import-clay-$STAMP.tar"
+M8_IMPORT_S3_TAR="${ROVER_TEST_TMP}/rover-m8-import-s3-$STAMP.tar"
 m8_backend_archive "$M8_IMPORT_CLAY_TAR" "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_CLAY_NAME" >/dev/null \
   || fail "fixture 111 could not build the Clay import archive"
 m8_backend_archive "$M8_IMPORT_S3_TAR" "$M8_IMPORT_S3_PHOTO" "$M8_IMPORT_S3_NAME" >/dev/null \
@@ -5326,7 +5381,7 @@ BUCKET
 [ "$(awk '{print $1}' <<<"$m8_import_bucket")" = "$M8_IMPORT_S3_HASH" ] \
   || fail "fixture 111 the object in the bucket is not the imported photo: $m8_import_bucket"
 # Both serve back, byte for byte, whichever store holds them.
-M8_IMPORT_BACK="/tmp/rover-m8-import-back-$STAMP.png"
+M8_IMPORT_BACK="${ROVER_TEST_TMP}/rover-m8-import-back-$STAMP.png"
 [ "$(fetch_file "$M8_IMPORT_CLAY_NAME" "$M8_IMPORT_BACK")" = 200 ] \
   || fail "fixture 111 the Clay-imported photo did not serve back"
 cmp -s "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_BACK" \
@@ -5339,7 +5394,7 @@ rm -f "$M8_IMPORT_BACK"
 
 # And the CONTROL on the import screen is what sends the answer. The browser
 # drives the real screen and the request it makes is read off the wire.
-M8_BROWSER_IMPORT_DOC="/tmp/rover-m8-import-document-$STAMP.json"
+M8_BROWSER_IMPORT_DOC="${ROVER_TEST_TMP}/rover-m8-import-document-$STAMP.json"
 m8_photoless_document "$M8_BROWSER_IMPORT_DOC" \
   || fail "fixture 111 could not build the document the browser uploads"
 import_backend_out="$({
@@ -5526,11 +5581,11 @@ print(hashlib.sha256(body).hexdigest(), len(body))
 BUCKET
 }
 
-M8_BATCH_TAR="/tmp/rover-m8-batch-$STAMP.tar"
+M8_BATCH_TAR="${ROVER_TEST_TMP}/rover-m8-batch-$STAMP.tar"
 M8_BATCH_PAIRS=''
 m8_batch_names=''
 for m8_shade in 31 97 163; do
-  m8_batch_photo="/tmp/rover-m8-batch-$m8_shade-$STAMP.png"
+  m8_batch_photo="${ROVER_TEST_TMP}/rover-m8-batch-$m8_shade-$STAMP.png"
   m8_batch_name="batch-$m8_shade-$STAMP.png"
   m8_png "$m8_batch_photo" "$m8_shade"
   M8_BATCH_PAIRS="$M8_BATCH_PAIRS $m8_batch_name=$m8_batch_photo"
@@ -5559,7 +5614,7 @@ for m8_batch_name in $m8_batch_names; do
   m8_batch_read="$(m8_bucket_object "$m8_batch_locator")" \
     || fail "fixture 115 could not read $m8_batch_name out of the bucket"
   [ "$(awk '{print $1}' <<<"$m8_batch_read")" \
-    = "$(digest "/tmp/rover-m8-batch-$m8_shade-$STAMP.png")" ] \
+    = "$(digest "${ROVER_TEST_TMP}/rover-m8-batch-$m8_shade-$STAMP.png")" ] \
     || fail "fixture 115 the object in the bucket is not $m8_batch_name: $m8_batch_read"
   m8_batch_checked=$((m8_batch_checked + 1))
 done
@@ -5573,11 +5628,11 @@ done
 # Every shade here is its own, and no other fixture generates it. Bytes this
 # ship already holds take the reuse path and never reach the bucket, so a
 # repeated shade would silently import instead of being refused.
-M8_REFUSED_TAR="/tmp/rover-m8-refused-$STAMP.tar"
+M8_REFUSED_TAR="${ROVER_TEST_TMP}/rover-m8-refused-$STAMP.tar"
 M8_REFUSED_PAIRS=''
 m8_refused_names=''
 for m8_shade in 43 149; do
-  m8_refused_photo="/tmp/rover-m8-refused-$m8_shade-$STAMP.png"
+  m8_refused_photo="${ROVER_TEST_TMP}/rover-m8-refused-$m8_shade-$STAMP.png"
   m8_refused_name="refused-$m8_shade-$STAMP.png"
   m8_png "$m8_refused_photo" "$m8_shade"
   M8_REFUSED_PAIRS="$M8_REFUSED_PAIRS $m8_refused_name=$m8_refused_photo"
@@ -5640,7 +5695,7 @@ m8_restart_refs_after="$(count_rows "$(rover_report 'FROM attachments T SELECT T
 
 # Both imported photographs serve back, byte for byte, out of the store the
 # owner named for each.
-M8_RESTART_BACK="/tmp/rover-m8-restart-back-$STAMP.png"
+M8_RESTART_BACK="${ROVER_TEST_TMP}/rover-m8-restart-back-$STAMP.png"
 [ "$(fetch_file "$M8_IMPORT_CLAY_NAME" "$M8_RESTART_BACK")" = 200 ] \
   || fail "fixture 114 the Clay-imported photo did not serve back after the restart"
 cmp -s "$M8_IMPORT_CLAY_PHOTO" "$M8_RESTART_BACK" \
@@ -5655,7 +5710,7 @@ backend_named "$report" s3 \
   || fail "fixture 114 the imported S3 reference no longer names its backend: $report"
 
 # The backend question the import asks is still answered the same way.
-M8_RESTART_BACKENDS="/tmp/rover-m8-restart-backends-$STAMP.json"
+M8_RESTART_BACKENDS="${ROVER_TEST_TMP}/rover-m8-restart-backends-$STAMP.json"
 curl -sS -b "$JAR" -o "$M8_RESTART_BACKENDS" "$URL/apps/rover/backends.json"
 m8_restart_offers="$(python3 - "$M8_RESTART_BACKENDS" 2>&1 <<'PY'
 import json
@@ -5671,7 +5726,7 @@ rm -f "$M8_RESTART_BACKENDS"
 
 # The complete archive still serves, and its manifest still tells the truth
 # about the photographs the database holds.
-M8_RESTART_TAR="/tmp/rover-m8-restart-export-$STAMP.tar"
+M8_RESTART_TAR="${ROVER_TEST_TMP}/rover-m8-restart-export-$STAMP.tar"
 m8_restart_status="$(curl -sS -b "$JAR" -o "$M8_RESTART_TAR" -w '%{http_code}' "$URL/apps/rover/export.tar")"
 [ "$m8_restart_status" = 200 ] \
   || fail "fixture 114 the archive endpoint answered $m8_restart_status after the restart"
@@ -5707,7 +5762,7 @@ grep -q 'Photos: imported 0, already-imported 3, failures 0' <<<"$m8_restart_imp
 note "fixture 114 restart - $m8_restart_refs_after references, $m8_restart_manifest"
 note "fixture 114 PASS - every imported photograph, both backends, the archive and its manifest survived a second ship restart, and an S3 import still answers after it"
 rm -f "$M8_BATCH_TAR" "$M8_REFUSED_TAR"
-rm -f /tmp/rover-m8-batch-*-"$STAMP".png /tmp/rover-m8-refused-*-"$STAMP".png
+rm -f ${ROVER_TEST_TMP}/rover-m8-batch-*-"$STAMP".png ${ROVER_TEST_TMP}/rover-m8-refused-*-"$STAMP".png
 
 rm -f "$M8_IMPORT_CLAY_PHOTO" "$M8_IMPORT_S3_PHOTO" "$M8_IMPORT_CLAY_TAR" "$M8_IMPORT_S3_TAR"
 rm -f "$M8_BROWSER_IMPORT_DOC"
@@ -5734,7 +5789,7 @@ restore_roundtrip_owner \
 # browser calls. An import has no privileged path.
 # ---------------------------------------------------------------------------
 CORPUS_SOURCE="${ROVER_CORPUS:-$HOME/workspace/rover/aCar export}"
-CORPUS_OUT="${ROVER_CORPUS_OUT:-$HOME/workspace/rover/converted-m8-battery}"
+CORPUS_OUT="${ROVER_CORPUS_OUT:-$ROVER_TEST_TMP/converted-corpus}"
 [ -d "$CORPUS_SOURCE" ] \
   || fail "fixture 104 the real corpus is not at $CORPUS_SOURCE - this fixture does not run on synthetic data"
 rm -rf "$CORPUS_OUT"
@@ -5950,22 +6005,22 @@ grep -q 'capture=' <<<"$view" \
 # The photo really attaches, through the endpoint the form calls.
 econ_photo="fixture-116-$STAMP.jpg"
 printf '\377\330\377\340\000\020JFIF\000\001\001\000\000\001\000\001\000\000\377\331' \
-  > "/tmp/$econ_photo"
+  > "${ROVER_TEST_TMP}/$econ_photo"
 econ_query="owner=fill&vehicle=$(printf '%s' "$ECONOMY_VEHICLE" | sed 's/ /+/g')"
 econ_query="$econ_query&file=$econ_photo&type=image/jpeg&backend=clay"
 econ_query="$econ_query&observed=2026-08-15T09:00"
-attach_status="$(curl -s -o /tmp/attach-116.txt -w '%{http_code}' -b "$JAR" \
-  -X POST -H 'content-type: image/jpeg' --data-binary "@/tmp/$econ_photo" \
+attach_status="$(curl -s -o ${ROVER_TEST_TMP}/attach-116.txt -w '%{http_code}' -b "$JAR" \
+  -X POST -H 'content-type: image/jpeg' --data-binary "@${ROVER_TEST_TMP}/$econ_photo" \
   "$URL/apps/rover/add-attachment?$econ_query")"
 [ "$attach_status" = 201 ] \
-  || fail "fixture 116 attaching to an existing fill answered $attach_status: $(cat /tmp/attach-116.txt)"
-readback="$(curl -s -o /tmp/attach-116-back.jpg -w '%{http_code}' -b "$JAR" \
+  || fail "fixture 116 attaching to an existing fill answered $attach_status: $(cat ${ROVER_TEST_TMP}/attach-116.txt)"
+readback="$(curl -s -o ${ROVER_TEST_TMP}/attach-116-back.jpg -w '%{http_code}' -b "$JAR" \
   "$URL/apps/rover/attachment/$econ_photo")"
 [ "$readback" = 200 ] \
   || fail "fixture 116 the attached photo did not read back: HTTP $readback"
-cmp -s "/tmp/$econ_photo" /tmp/attach-116-back.jpg \
+cmp -s "${ROVER_TEST_TMP}/$econ_photo" ${ROVER_TEST_TMP}/attach-116-back.jpg \
   || fail "fixture 116 the attached photo read back with different bytes"
-rm -f "/tmp/$econ_photo" /tmp/attach-116.txt /tmp/attach-116-back.jpg
+rm -f "${ROVER_TEST_TMP}/$econ_photo" ${ROVER_TEST_TMP}/attach-116.txt ${ROVER_TEST_TMP}/attach-116-back.jpg
 
 note "fixture 116 PASS - mileage 40,000 and 40,300 mi, economy 20.000 mpg derived from 300 mi on 15.000 gal, and a photo attached to a record that already existed"
 
