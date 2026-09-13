@@ -21,6 +21,7 @@ _cov_missing="$(comm -23 \
 if [ -n "${_cov_missing// /}" ]; then
   note "COVERAGE - ran $_cov_run_n of $_cov_total defined fixtures"
   note "COVERAGE - SKIPPED, not executed this run: ${_cov_missing% }"
+  fail "coverage omitted defined fixtures"
 else
-  note "COVERAGE - all $_cov_total defined fixtures executed"
+  note "COVERAGE - all $_cov_total defined fixtures executed, no skips"
 fi
