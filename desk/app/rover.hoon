@@ -1222,6 +1222,24 @@
     ==
   ==
 ::
+++  attachment-match
+  |=  $:  entry=attachment-entry:rover
+          content-hash=@t
+          by-name=?
+          rows=(list vector:ast)
+      ==
+  ^-  (unit vector:ast)
+  |-
+  ?~  rows  ~
+  ?:  ?&  =(content-hash (cell-text:view %content-hash i.rows))
+          =(backend.entry (cell-term:view %backend i.rows))
+          ?|  !by-name
+              =(file-name.entry (cell-text:view %file-name i.rows))
+          ==
+      ==
+    `i.rows
+  $(rows t.rows)
+::
 ++  handle-http
   |=  [sat=state-24 =bowl:gall eyre-id=@ta req=inbound-request:eyre]
   ^-  [(list card) state-24]
@@ -1262,6 +1280,38 @@
       =/  new-sat
         sat(pending (~(put by pending.sat) wir request-text), http-pending (~(put by http-pending.sat) wir eyre-id))
       :_  new-sat
+      :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
+          [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
+      ==
+    ::  The browser sends metadata here. The bytes go directly to the bucket.
+    ?:  ?|  =('/apps/rover/attachment-url' (url-base url.request.req))
+            =('/apps/rover/record-attachment' (url-base url.request.req))
+        ==
+      ?.  bootstrap-ready.sat
+        [(json-give eyre-id 503 (json-message 'Rover is still loading. Try the attachment again.')) sat]
+      ?:  ?&(?=(^ body.request.req) (gth p.u.body.request.req 0))
+        [(json-give eyre-id 400 (json-message 'Send photo metadata without a request body.')) sat]
+      =/  decoded  (decode-attachment-metadata:entry (url-params url.request.req))
+      ?:  ?=(%| -.decoded)
+        [(json-give eyre-id 400 (json-message (entry-refusal p.decoded))) sat]
+      ?.  (s3-configured our.bowl now.bowl)
+        [(json-give eyre-id 409 (json-message storage-unconfigured)) sat]
+      =/  meta  p.decoded
+      =/  wir=wire  /rover-attachment-metadata/(scot %da now.bowl)/[eyre-id]
+      =/  jon
+        !>  :*  %script  %rover  %vector
+                %:  attachment-owner-lookup:act
+                    owner.entry.meta
+                    vehicle-label.entry.meta
+                    observed.entry.meta
+                ==
+            ==
+      =/  next
+        %_  sat
+          http-pending  (~(put by http-pending.sat) wir eyre-id)
+          pending       (~(put by pending.sat) wir url.request.req)
+        ==
+      :_  next
       :~  [%pass wir %agent [our.bowl %obelisk] %watch /server]
           [%pass wir %agent [our.bowl %obelisk] %poke %obelisk-action jon]
       ==
@@ -2113,6 +2163,86 @@
   |=  [=wire =sign:agent:gall]
   ^-  (quip card _this)
   ?+  wire  (on-agent:def wire sign)
+      [%rover-attachment-metadata *]
+    ?+  -.sign  (on-agent:def wire sign)
+        %fact
+      =/  res  ;;((each (list cmd-result:ast) tang) +.q.cage.sign)
+      =/  eyre-id  (~(get by http-pending) wire)
+      =/  waiting  (~(get by pending) wire)
+      =/  cleared=_this
+        this(http-pending (~(del by http-pending) wire), pending (~(del by pending) wire))
+      ?~  eyre-id  `cleared
+      ?~  waiting
+        [(restart-http u.eyre-id) cleared]
+      ?:  ?=(%.n -.res)
+        [(json-give u.eyre-id 422 (json-message 'The database refused the attachment lookup.')) cleared]
+      =/  decoded  (decode-attachment-metadata:entry (url-params u.waiting))
+      ?:  ?=(%| -.decoded)
+        [(json-give u.eyre-id 400 (json-message (entry-refusal p.decoded))) cleared]
+      =/  meta  p.decoded
+      =/  owners  (rows-at:view p.res 0)
+      ?.  =(1 (lent owners))
+        [(json-give u.eyre-id 404 (json-message (attachment-not-found owner.entry.meta))) cleared]
+      =/  config  (storage-configuration our.bowl now.bowl)
+      ?~  config
+        [(json-give u.eyre-id 409 (json-message storage-unconfigured)) cleared]
+      =/  locator  (s3-locator:files bucket.u.config content-hash.meta)
+      ?:  =('/apps/rover/attachment-url' (url-base u.waiting))
+        =/  payload=json
+          %-  pairs:enjs:format
+          :~  ['putUrl' s+(s3-presign:files u.config locator now.bowl)]
+              ['getUrl' s+(s3-url:files endpoint.u.config locator)]
+          ==
+        :_  cleared
+        %:  http-give
+            u.eyre-id
+            200
+            ~[['content-type' 'application/json; charset=utf-8'] ['cache-control' 'no-store']]
+            `(text-octs (en:json:html payload))
+        ==
+      ::  Record only. The browser calls this after its PUT returns 200.
+      =/  owner-id=@ux
+        `@ux`(cell-atom:view (attachment-owner-column owner.entry.meta) (snag 0 owners))
+      =/  stored  (rows-at:view p.res 1)
+      =/  same-photo  (attachment-match entry.meta content-hash.meta %.y stored)
+      =/  taken=(set @t)
+        (silt (turn stored |=(row=vector:ast (cell-text:view %file-name row))))
+      =/  name=@t
+        ?~  same-photo  (unique-name:files file-name.entry.meta taken)
+        (cell-text:view %file-name u.same-photo)
+      =/  already
+        ?~  same-photo  %.n
+        %+  lien  (rows-at:view p.res 2)
+        |=  row=vector:ast
+        =((cell-atom:view %attachment-id row) (cell-atom:view %attachment-id u.same-photo))
+      ?:  already
+        :_  cleared
+        (http-give u.eyre-id 200 ['content-type' 'text/plain']~ `(text-octs (cat 3 'Already attached ' name)))
+      =/  base=@ux  (cut 7 [0 1] eny.bowl)
+      =/  attachment-id=@ux  (fixture-id:act base 9.201)
+      =/  ref=attachment-ref:rover
+        [attachment-id %s3 locator content-hash.meta byte-count.meta media-type.entry.meta name]
+      =/  script=tape
+        ?~  same-photo  (insert-attachment:act ref owner.entry.meta owner-id now.bowl)
+        (attachment-link:act owner.entry.meta owner-id `@ux`(cell-atom:view %attachment-id u.same-photo))
+      =/  write-wire=path  /rover-attachment-write/(scot %da now.bowl)/[u.eyre-id]
+      =/  next=_this
+        %=  cleared
+          http-pending  (~(put by http-pending.cleared) write-wire u.eyre-id)
+          pending       (~(put by pending.cleared) write-wire name)
+        ==
+      :_  next
+      :~  [%pass write-wire %agent [our.bowl %obelisk] %watch /server]
+          [%pass write-wire %agent [our.bowl %obelisk] %poke %obelisk-action !>([%script %rover %vector script])]
+      ==
+    ::
+        %kick
+      `this(pending (~(del by pending) wire), http-pending (~(del by http-pending) wire))
+    ::
+        %watch-ack
+      `this
+    ==
+  ::
       ::  M8 phase one. Obelisk has resolved which record owns the photo and
       ::  which file names are already taken. The bytes have been waiting in
       ::  `attachment-pending`; now they go to a backend and the reference goes
@@ -2165,19 +2295,7 @@
       ::  already has reuse the whole reference, and identical bytes under a
       ::  new name get their own reference pointing at the same stored file.
       =/  same-as
-        |=  by-name=?
-        ^-  (unit vector:ast)
-        =/  rows  stored
-        |-  ^-  (unit vector:ast)
-        ?~  rows  ~
-        ?:  ?&  =(content-hash.write (cell-text:view %content-hash i.rows))
-                =(backend.entry.write (cell-term:view %backend i.rows))
-                ?|  !by-name
-                    =(file-name.entry.write (cell-text:view %file-name i.rows))
-                ==
-            ==
-          `i.rows
-        $(rows t.rows)
+        |=(by-name=? (attachment-match entry.write content-hash.write by-name stored))
       =/  same-photo  (same-as %.y)
       =/  same-bytes  (same-as %.n)
       ?^  same-photo
@@ -2251,7 +2369,7 @@
           %:  s3-request:files
               u.config
               'PUT'
-              (s3-locator:files bucket.u.config attachment-id.write)
+              (s3-locator:files bucket.u.config content-hash.write)
               media-type.entry.write
               `bytes.write
               now.bowl
@@ -4772,19 +4890,7 @@
       ::  that already holds them. So an archive read twice adds nothing, and
       ::  a photograph the owner filed under two names keeps both.
       =/  same-as
-        |=  by-name=?
-        ^-  (unit vector:ast)
-        =/  rows  stored
-        |-  ^-  (unit vector:ast)
-        ?~  rows  ~
-        ?:  ?&  =(content-hash (cell-text:view %content-hash i.rows))
-                =(backend.entry.photo (cell-term:view %backend i.rows))
-                ?|  !by-name
-                    =(file-name.entry.photo (cell-text:view %file-name i.rows))
-                ==
-            ==
-          `i.rows
-        $(rows t.rows)
+        |=(by-name=? (attachment-match entry.photo content-hash by-name stored))
       =/  same-photo  (same-as %.y)
       =/  same-bytes  (same-as %.n)
       =/  taken=(set @t)
@@ -4836,7 +4942,7 @@
         =/  ref=attachment-ref:rover
           :*  attachment-id
               %s3
-              (s3-locator:files bucket.u.config attachment-id)
+              (s3-locator:files bucket.u.config content-hash)
               content-hash
               p.bytes.photo
               media-type.entry.photo
@@ -6397,7 +6503,7 @@
     =/  ref=attachment-ref:rover
       :*  attachment-id.write
           %s3
-          (s3-locator:files bucket.u.config attachment-id.write)
+          (s3-locator:files bucket.u.config content-hash.write)
           content-hash.write
           p.bytes.write
           media-type.entry.write

@@ -377,9 +377,8 @@
 ::  The S3 backend: AWS Signature Version 4, written here
 ::  ---------------------------------------------------------------------
 ::
-::  The SHIP signs and the ship proxies. The browser never receives a
-::  presigned URL: those expire, they carry a credential into any file the
-::  owner saves, and an archived export that depends on one rots silently.
+::  The ship signs each request. A presigned PUT expires after 300 seconds.
+::  Only the upload uses that URL. References and exports never store it.
 ::
 ::  Byte order is the trap in this section. `shay` reads and writes an atom
 ::  least-significant-byte first, the way a cord does. `sha-256l` and
@@ -472,17 +471,80 @@
   ?:  =("https://" (scag 8 text))  text
   (weld "http://" text)
 ::
-::  Where one attachment lives in a bucket. The id keys it for the same reason
-::  it keys the Clay path: a file name is not unique and not URL-safe.
+::  The content hash names the bytes without exposing an attachment id.
 ++  s3-key
-  |=  attachment-id=@ux
+  |=  content-hash=@t
   ^-  @t
-  (crip (weld "attachments/" (trip (scot %ux attachment-id))))
+  (cat 3 'attachments/' content-hash)
 ::
 ++  s3-locator
-  |=  [bucket=@t attachment-id=@ux]
+  |=  [bucket=@t content-hash=@t]
   ^-  @t
-  (crip :(weld "/" (trip bucket) "/" (trip (s3-key attachment-id))))
+  (crip :(weld "/" (trip bucket) "/" (trip (s3-key content-hash))))
+::
+++  s3-url
+  |=  [endpoint=@t locator=@t]
+  ^-  @t
+  =/  base  (endpoint-base endpoint)
+  =/  base
+    ?:  =('/' (snag (dec (lent base)) base))
+      (scag (dec (lent base)) base)
+    base
+  (crip (weld base (trip locator)))
+::
+::  Header signing and query signing use the same SigV4 chain.
+++  s3-signature
+  |=  [config=s3-config:rover now=@da canonical=@t]
+  ^-  @t
+  =/  stamps  (amz-stamps now)
+  =/  region=@t  ?:(=('' region.config) 'us-east-1' region.config)
+  =/  scope=tape
+    :(weld (trip day.stamps) "/" (trip region) "/s3/aws4_request")
+  =/  to-sign=@t
+    %-  crip
+    ;:  weld
+      "AWS4-HMAC-SHA256"  nl
+      (trip full.stamps)  nl
+      scope               nl
+      (trip (sha-hex canonical))
+    ==
+  =/  key-bytes  (signing-key secret-access-key.config day.stamps region)
+  (hex-msb (sign-step (digest-byts key-bytes) to-sign))
+::
+::  The browser consumes this PUT URL immediately. It signs host alone.
+++  s3-presign
+  |=  [config=s3-config:rover locator=@t now=@da]
+  ^-  @t
+  =/  stamps  (amz-stamps now)
+  =/  region=@t  ?:(=('' region.config) 'us-east-1' region.config)
+  =/  credential=@t
+    %-  crip
+    ;:  weld
+      (trip access-key-id.config)  "/"  (trip day.stamps)
+      "/"  (trip region)  "/s3/aws4_request"
+    ==
+  ::  These query parameters are in canonical byte order.
+  =/  query=tape
+    ;:  weld
+      "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential="
+      (en-urlt:html (trip credential))
+      "&X-Amz-Date="  (trip full.stamps)
+      "&X-Amz-Expires=300&X-Amz-SignedHeaders=host"
+    ==
+  =/  canonical=@t
+    %-  crip
+    ;:  weld
+      "PUT"  nl
+      (trip locator)  nl
+      query  nl
+      "host:"  (trip (endpoint-host endpoint.config))  nl
+      nl  "host"  nl  "UNSIGNED-PAYLOAD"
+    ==
+  %-  crip
+  ;:  weld
+    (trip (s3-url endpoint.config locator))  "?"  query
+    "&X-Amz-Signature="  (trip (s3-signature config now canonical))
+  ==
 ::
 ::  A signed request, ready for Iris. `method` is 'PUT' or 'GET'; a GET carries
 ::  no body and hashes the empty string, exactly as the specification says.
@@ -519,16 +581,7 @@
   =/  region=@t  ?:(=('' region.config) 'us-east-1' region.config)
   =/  scope=tape
     :(weld (trip day.stamps) "/" (trip region) "/s3/aws4_request")
-  =/  to-sign=@t
-    %-  crip
-    ;:  weld
-      "AWS4-HMAC-SHA256"    nl
-      (trip full.stamps)    nl
-      scope                 nl
-      (trip (sha-hex canonical))
-    ==
-  =/  key-bytes  (signing-key secret-access-key.config day.stamps region)
-  =/  signature  (hex-msb (sign-step (digest-byts key-bytes) to-sign))
+  =/  signature  (s3-signature config now canonical)
   =/  authorization=@t
     %-  crip
     ;:  weld

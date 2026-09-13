@@ -580,6 +580,9 @@
       media-type=@t
       backend=attachment-backend
   ==
+::  A browser upload supplies metadata separately from its bytes.
++$  attachment-metadata
+  [entry=attachment-entry content-hash=@t byte-count=@ud]
 ::  The stored reference, as Rover reads it back out of the database.
 +$  attachment-ref
   $:  attachment-id=@ux

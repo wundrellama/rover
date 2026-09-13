@@ -2683,6 +2683,37 @@
       media-type
       u.backend
   ==
+::  The browser supplies a SHA-256 hash, a byte count, and a media type.
+++  decode-attachment-metadata
+  |=  params=(map @t @t)
+  ^-  (each attachment-metadata:rover entry-verdict:rover)
+  =/  decoded  (decode-attachment params)
+  ?:  ?=(%| -.decoded)  [%| p.decoded]
+  ?.  =(%s3 backend.p.decoded)
+    [%| %bad-shape 'attachment.backend']
+  =/  hash  (~(get by params) 'hash')
+  =/  size  (~(get by params) 'bytes')
+  =/  media  (~(get by params) 'type')
+  ?:  ?|(?=(~ hash) ?=(~ size) ?=(~ media))
+    [%| %missing-key 'attachment.metadata']
+  ?.  ?&  =(64 (met 3 u.hash))
+          %+  levy  (trip u.hash)
+          |=  char=@tD
+          ?|(?&((gte char '0') (lte char '9')) ?&((gte char 'a') (lte char 'f')))
+      ==
+    [%| %bad-shape 'attachment.hash']
+  ?.  ?&  (nonempty u.size)
+          %+  levy  (trip u.size)
+          |=(char=@tD ?&((gte char '0') (lte char '9')))
+      ==
+    [%| %bad-shape 'attachment.bytes']
+  =/  size-value  (rush u.size dem)
+  ?:  ?|(?=(~ size-value) =(0 u.size-value))
+    [%| %bad-shape 'attachment.bytes']
+  ?.  (nonempty u.media)
+    [%| %bad-shape 'attachment.type']
+  [%& p.decoded u.hash u.size-value]
+::
 ::  M8. Which record each photo in an import archive belongs to.
 ::
 ::  The export already names every photo on the record that carries it, and
