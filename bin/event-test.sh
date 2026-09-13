@@ -3466,7 +3466,7 @@ note "fixture 126 PASS - only successful storage changes the preferred backend"
 
 followon_out="$(python3 "$REPO/bin/followon-fixture.py" 127 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
   || fail "fixture 127 $followon_out"
-note "fixture 127 PASS - browser attachment forms follow the selected vehicle"
+note "fixture 127 PASS - browser attachment forms follow the vehicle and its latest import"
 
 followon_out="$(python3 "$REPO/bin/followon-fixture.py" 128 "$URL" "$JAR" "$PIER" "$STAMP" 2>&1)" \
   || fail "fixture 128 $followon_out"

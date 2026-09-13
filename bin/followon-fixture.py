@@ -5,12 +5,14 @@ import base64
 import datetime
 import hashlib
 import html
+import io
 import json
 import os
 import pathlib
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.parse
 
@@ -181,6 +183,33 @@ class Fixture:
         env.setdefault("ROVER_CHROMIUM", str(pathlib.Path.home() / ".cache/ms-playwright/chromium-1217/chrome-linux64/chrome"))
         subprocess.run(["node", "bin/followon-browser-fixture.cjs", self.url, self.jar,
                         saved, fresh], env=env, check=True)
+        # The import keeps its report on screen. Later forms must use its result
+        # without a reload, including when the vehicle had no saved preference.
+        photo = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWioAAAAASUVORK5CYII="
+        )
+        name = fresh + ".png"
+        document = {
+            "rover-import": 1,
+            "source": {"app": "rover", "attachments": {"photoCount": 1, "files": [{
+                "name": name, "path": "attachments/" + name,
+                "hash": hashlib.sha256(photo).hexdigest(), "bytes": str(len(photo)), "mediaType": "image/png",
+            }]}},
+            "definitions": {"energy": [], "additives": [], "driving-modes": [], "tags": [], "payment-methods": []},
+            "places": [], "vehicles": [{"label": fresh, "distanceUnit": "mi", "volumeUnit": "gal",
+                "defaultEnergy": "Gasoline", "fills": [], "attachments": [name]}],
+        }
+        cookie = next(line.split("\t")[5:7] for line in pathlib.Path(self.jar).read_text().splitlines()
+                      if "\turbauth-" in line)
+        with tempfile.NamedTemporaryFile(suffix=".tar", dir=self.work) as target:
+            with tarfile.open(target.name, "w", format=tarfile.USTAR_FORMAT) as archive:
+                for member, data in (("rover-import.json", json.dumps(document).encode()), ("attachments/" + name, photo)):
+                    info = tarfile.TarInfo(member)
+                    info.size = len(data)
+                    archive.addfile(info, io.BytesIO(data))
+            result = subprocess.run(["node", "bin/import-backend-browser-fixture.cjs", self.url,
+                                     *cookie, target.name, "s3", "photos", fresh], env=env)
+            assert result.returncode == 0, "The browser import preference fixture failed"
 
     def preference_persistence(self):
         for number, backend in ((123, "s3"), (124, "clay"), (125, "s3"), (126, "s3")):

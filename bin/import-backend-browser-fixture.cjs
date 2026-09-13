@@ -14,7 +14,7 @@
 const assert = require('node:assert/strict');
 const {chromium} = require(process.env.ROVER_PLAYWRIGHT_MODULE);
 
-const [url, authName, auth, documentPath, backend, mode] = process.argv.slice(2);
+const [url, authName, auth, documentPath, backend, mode, importedVehicle] = process.argv.slice(2);
 const executablePath = process.env.ROVER_CHROMIUM;
 
 function fail(message) {
@@ -110,6 +110,15 @@ function fail(message) {
       assert.ok(photos[1].bytes > 0);
       assert.equal(photos[2].bytes, 0);
       console.log('IMPORT_PHOTO_FLOW=metadata,PUT,record');
+      if (importedVehicle) {
+        for (const name of ['fill', 'event']) {
+          const entry = page.locator('#' + name + '-form');
+          await entry.locator('[name="vehicle"]').selectOption({label: importedVehicle}, {force: true});
+          assert.equal(await entry.locator('[data-photo-backend]').inputValue(), backend,
+            name + ' after import without a page reload');
+        }
+        console.log('IMPORT_NEXT_FORMS=' + backend);
+      }
     }
     console.log(`IMPORT_REQUEST_COUNT=${requests.length}`);
     const wanted = `/apps/rover/import?backend=${backend}`;

@@ -1051,13 +1051,32 @@
         ? preferred : 'clay';
     }
 
+    function reflectPhotoBackend(params) {
+      const vehicle = params.get('vehicle');
+      let marker = [...app.querySelectorAll('[data-photo-vehicle]')]
+        .find(item => item.dataset.photoVehicle === vehicle);
+      if (!marker) {
+        marker = document.createElement('span');
+        marker.hidden = true;
+        marker.dataset.photoVehicle = vehicle;
+        app.appendChild(marker);
+      }
+      marker.dataset.photoPreference = params.get('backend');
+      app.querySelectorAll('form').forEach(form => {
+        if (form.elements.vehicle?.value === vehicle) syncPhotoBackend(form);
+      });
+    }
+
     // S3 receives the bytes from the browser. The ship receives metadata.
     async function uploadPhoto(params, source) {
       if (params.get('backend') !== 's3') {
-        return fetch(`/apps/rover/add-attachment?${params}`, {
+        const recorded = await fetch(`/apps/rover/add-attachment?${params}`, {
           method: 'POST', credentials: 'same-origin',
           headers: {'content-type': params.get('type')}, body: source
         });
+        // An already attached Clay photo makes no new storage write.
+        if (recorded.status === 201) reflectPhotoBackend(params);
+        return recorded;
       }
       const bytes = source instanceof Blob ? await source.arrayBuffer() : source;
       const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
@@ -1075,9 +1094,11 @@
       if (uploaded.status !== 200) {
         throw new Error(`The S3 storage returned HTTP ${uploaded.status}. The photo was not attached.`);
       }
-      return fetch(`/apps/rover/record-attachment?${params}`, {
+      const recorded = await fetch(`/apps/rover/record-attachment?${params}`, {
         method: 'POST', credentials: 'same-origin'
       });
+      if (recorded.ok) reflectPhotoBackend(params);
+      return recorded;
     }
 
     //  The photo a person chose on the entry form, sent after the record it
