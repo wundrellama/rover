@@ -1952,11 +1952,13 @@ def render_report(
 def ensure_output_outside_repo(output_dir: pathlib.Path) -> None:
     repo = pathlib.Path(__file__).resolve().parents[2]
     resolved = output_dir.expanduser().resolve()
+    if resolved.is_relative_to(repo / ".scratch"):
+        return
     try:
         resolved.relative_to(repo)
     except ValueError:
         return
-    raise ConversionError(f"output directory must be outside the repository: {repo}")
+    raise ConversionError(f"output directory must be in .scratch or outside the repository: {repo}")
 
 
 def validate_input(export_dir: pathlib.Path) -> None:
@@ -2095,7 +2097,7 @@ def argument_parser() -> argparse.ArgumentParser:
         "--out",
         type=pathlib.Path,
         default=pathlib.Path.home() / "workspace" / "rover" / "converted",
-        help="output directory outside the Rover repository",
+        help="output directory in .scratch or outside the Rover repository",
     )
     parser.add_argument(
         "--dry-run",

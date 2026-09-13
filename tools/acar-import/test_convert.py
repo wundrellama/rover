@@ -617,5 +617,17 @@ class AttachmentTests(unittest.TestCase):
         self.assertIn(b"\xff\xe1", convert.owner_jpeg_bytes(original))
 
 
+class OutputLocationTests(unittest.TestCase):
+    def test_scratch_output_is_allowed(self):
+        repo = pathlib.Path(convert.__file__).resolve().parents[2]
+        convert.ensure_output_outside_repo(repo / ".scratch" / "converted-corpus")
+
+    def test_other_repository_paths_remain_blocked(self):
+        repo = pathlib.Path(convert.__file__).resolve().parents[2]
+        for path in (repo, repo / "desk" / "photos", repo / ".scratch" / ".." / "desk"):
+            with self.subTest(path=path), self.assertRaises(convert.ConversionError):
+                convert.ensure_output_outside_repo(path)
+
+
 if __name__ == "__main__":
     unittest.main()
